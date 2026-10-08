@@ -1,0 +1,236 @@
+{
+ "turns.claude-code-engineer": {
+  "method": "bayes-nuts",
+  "model": "turns-nb-h1",
+  "risk": 0.02,
+  "T": 248,
+  "pi90": [
+   127.0,
+   404.0
+  ],
+  "p_hit_cur": 0.06240359587166877,
+  "status": "supported",
+  "n": 71,
+  "n_cens": 6,
+  "agents": 36,
+  "diag": {
+   "rhat": 1.0009187224109128,
+   "ess_bulk": 4075.105594548631,
+   "ess_tail": 4000.6014449028667
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ },
+ "hard.agent.coder": {
+  "method": "bayes-nuts",
+  "model": "ctx-ln-h1",
+  "risk": 0.01,
+  "T": 31000000,
+  "pi90": [
+   9478660.930413721,
+   70319529.20676486
+  ],
+  "p_hit_cur": null,
+  "status": "supported",
+  "n": 31,
+  "n_cens": 1,
+  "agents": 26,
+  "diag": {
+   "rhat": 1.0010495185751052,
+   "ess_bulk": 3083.9603917389336,
+   "ess_tail": 4014.800449326202
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ },
+ "soft.agent.orchestrator": {
+  "method": "bayes-nuts",
+  "model": "ctx-ln-h1",
+  "risk": 0.1,
+  "T": 3300000,
+  "pi90": [
+   1541069.7508535157,
+   6774898.095767515
+  ],
+  "p_hit_cur": 0.10594771334492192,
+  "status": "supported",
+  "n": 47,
+  "n_cens": 3,
+  "agents": 6,
+  "diag": {
+   "rhat": 1.0013141304814814,
+   "ess_bulk": 2027.426953786092,
+   "ess_tail": 2431.121995962549
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ },
+ "soft.agent.scout": {
+  "method": "bayes-nuts",
+  "model": "ctx-ln-h1",
+  "risk": 0.1,
+  "T": 320000,
+  "pi90": [
+   111585.41867743888,
+   594071.2674118341
+  ],
+  "p_hit_cur": 0.0647867928514434,
+  "status": "supported",
+  "n": 12,
+  "n_cens": 0,
+  "agents": 12,
+  "diag": {
+   "rhat": 1.0007507682547137,
+   "ess_bulk": 4548.35142760494,
+   "ess_tail": 5048.280416497998
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ },
+ "soft.prompt.orchestrator": {
+  "method": "fallback:empirical(hold)",
+  "model": "ctx-ln-h1",
+  "risk": 0.1,
+  "T": 32999999.999780733,
+  "pi90": [
+   3789894.5246677236,
+   99385363.61342923
+  ],
+  "p_hit_cur": null,
+  "status": "prior",
+  "n": 0,
+  "n_cens": null,
+  "agents": null,
+  "diag": {
+   "rhat": null,
+   "ess_bulk": null,
+   "ess_tail": null
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ },
+ "hard.session": {
+  "method": "fallback:empirical(hold)",
+  "model": "ctx-ln-h1",
+  "risk": 0.01,
+  "T": 665999999.9643083,
+  "pi90": [
+   49617892.123553716,
+   1301168731.3022623
+  ],
+  "p_hit_cur": null,
+  "status": "prior",
+  "n": 0,
+  "n_cens": null,
+  "agents": null,
+  "diag": {
+   "rhat": null,
+   "ess_bulk": null,
+   "ess_tail": null
+  },
+  "fit": {
+   "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+   "data_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+   },
+   "seed": 20261003,
+   "versions": {
+    "python": "3.13.16",
+    "pymc": "6.3.2",
+    "arviz": "1.3.0",
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scipy": "1.18.1",
+    "pytensor": "3.3.3",
+    "nutpie": "0.16.11"
+   },
+   "code": "b1-prototype/2"
+  }
+ }
+}

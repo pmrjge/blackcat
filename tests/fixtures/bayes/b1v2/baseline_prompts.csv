@@ -1,0 +1,101 @@
+id,family,target_agent,expected_skills,cost_class,needs_network,needs_paid_tool,cross_domain
+P01,routing,blackcat (no spawn),code-standards,S,no,no,no
+P02,routing,blackcat (asks),code-standards,S,no,no,no
+P03,routing,coder,python-engineering,S,no,no,no
+P04,routing,oracle,,S,no,no,no
+P05,routing,oracle (or mathematician),portuguese-pt-writing,S,no,no,no
+P06,routing,code-reviewer or writer,sec-llm-apps*; secure-coding,S,no,no,no
+P07,routing,security-auditor,secure-coding; sec-web-vulns*,S,no,no,no
+P08,lookup,explore,,S,no,no,no
+P09,lookup,explore,,S,no,no,no
+P10,math,proof-checker,review-protocol; proof-craft,S,no,no,no
+P11,code-general,build-fixer,py-typing*; python-engineering,S,no,no,no
+P12,ai-ml,db-engineer,sqlite*; db-design*,S,no,no,no
+P13,cgi,designer,adobe-creative-cloud; computer-use-apps,S,no,no,no
+P14,docs,localizer,subtitles*; localization*,S,no,no,no
+P15,code-general,coder,macos-app-distribution,S,no,no,no
+P16,code-general,coder,cpu-performance; py-perf*,S,no,no,no
+P17,routing,scout,web-research,S,yes,no,no
+P18,routing,claude-code-guide,claude-code-extensions,S,yes,no,no
+P19,lookup,scout,,S,yes,no,no
+P20,ai-ml,cuda-engineer,linux-nvidia-cuda*; linux-workstation,S,yes,no,no
+P21,claude-config,claude-code-guide,claude-code-extensions; agent-harness-design,S,yes,no,no
+P22,claude-config,mcp-broker,mcp-server-craft,S,yes,no,no
+P23,routing,claude-code-engineer,claude-code-extensions,M,no,no,no
+P24,math,mathematician,category-theory; diagrams-as-code,M,no,no,yes
+P25,math,proof-checker,lean-formalization; formal-methods,M,no,no,no
+P26,physics,mathematician,numerical-methods; quantum-physics-numerics,M,no,no,no
+P27,quantum,quantum-engineer,quantum-computing,M,no,no,no
+P28,quantum,quantum-engineer,quantum-physics-numerics,M,no,no,no
+P29,algorithms,ninja-coder,algorithm-design,M,no,no,no
+P30,code-lang,python-engineer,python-engineering; py-testing*; py-uv-packaging*,M,no,no,no
+P31,code-lang,rust-engineer,rust-unsafe-ffi*; rust-engineering,M,no,no,no
+P32,code-lang,go-engineer,go-testing*; go-modules-release*,M,no,no,no
+P33,code-lang,node-engineer,typescript-engineering; ts-node-cli*; ts-types-validation*,M,no,no,no
+P34,code-lang,jvm-engineer,jvm-engineering; kotlin-coroutines*,M,no,no,no
+P35,code-lang,haskell-engineer,haskell-engineering; test-property-based*,M,no,no,no
+P36,code-lang,julia-engineer,julia-engineering; numerical-methods,M,no,no,no
+P37,code-lang,coder,cpp-engineering; cmake-ninja-builds,M,no,no,no
+P38,code-general,main-coder,code-standards; codemods*; dep-upgrades*,M,no,no,no
+P39,code-general,test-engineer,test-fuzzing*; test-contract-snapshot*,M,no,no,no
+P40,code-general,verifier,review-protocol; shell-scripting,M,no,no,no
+P41,code-general,planner,review-protocol,M,no,no,no
+P42,code-general,plan-reviewer,review-protocol; postgresql; db-migrations*,M,no,no,no
+P43,web,frontend-engineer,web-accessibility; a11y-aria-patterns*; a11y-audit*,M,no,no,no
+P44,web,frontend-engineer,frontend-frameworks; ui-design-systems,M,no,no,yes
+P45,web,frontend-engineer,a11y-docs-pdf*; web-accessibility,M,no,no,no
+P46,ai-ml,ml-engineer,ml-experiment; tabular-ml,M,no,no,no
+P47,ai-ml,ml-engineer,time-series-forecasting; ml-experiment,M,no,no,no
+P48,ai-ml,ml-engineer,model-export; python-engineering,M,no,no,no
+P49,ai-ml,data-scientist,data-analysis; causal-inference,M,no,no,no
+P50,ai-ml,data-scientist,bayesian-modeling; data-visualization,M,no,no,no
+P51,ai-ml,data-engineer,mongodb; db-design*,M,no,no,no
+P52,ai-ml,dl-engineer,diffusion-flow-models; numerical-methods,M,no,no,no
+P53,ai-ml,dl-engineer,distributed-training; training-debug,M,no,no,no
+P54,ai-ml,llm-engineer,llm-evals; llm-finetuning,M,no,no,no
+P55,ai-ml,llm-engineer,rag-agents; graph-rag,M,no,no,no
+P56,ai-ml,llm-engineer,dataset-curation; python-engineering,M,no,no,no
+P57,cgi,cg-artist,sculpting-texturing; blender-3d,M,no,no,no
+P58,cgi,cg-artist,3d-printing,M,no,no,no
+P59,cgi,vfx-td,houdini-fx; color-management,M,no,no,no
+P60,cgi,motion-designer,motion-graphics; media-ffmpeg,M,no,no,no
+P61,cgi,designer,print-production; color-management; apparel-merch-print,M,no,no,no
+P62,cgi,designer,tattoo-design; svg-vector-craft,M,no,no,no
+P63,cgi,image-director,image-prompting; raster-imaging,M,no,no,no
+P64,docs,doc-specialist,pptx (plugin skill); presentation-design,M,no,no,no
+P65,docs,doc-specialist,markdown-publishing; technical-writing,M,no,no,no
+P66,docs,writer,book-production; latex-typesetting; typography,M,no,no,no
+P67,infra,devops-engineer,terraform-opentofu; cloud-aws*,M,no,no,no
+P68,infra,devops-engineer,self-hosting-ops; ops-systemd-caddy*; ops-backups*,M,no,no,no
+P69,infra,devops-engineer,obs-otel*; perf-load-testing*,M,no,no,no
+P70,infra,security-engineer,secure-coding; sec-authn-authz*; sec-crypto*,M,no,no,no
+P71,infra,security-engineer,sec-secrets*; sec-supply-chain*; dep-upgrades*,M,no,no,no
+P72,robotics,robotics-engineer,robot-learning; robotics-engineering,M,no,no,no
+P73,embedded,embedded-engineer,pcb-kicad*; fpga-hdl*,M,no,no,no
+P74,mobile,mobile-engineer,swift-engineering*; swiftui*; ios-build-sim*,M,no,no,no
+P75,mobile,mobile-engineer,flutter*; react-native*; app-store-release*; android-release*,M,no,no,no
+P76,game,game-engineer,game-engines*; game-netcode*,M,no,no,no
+P77,hpc,hpc-engineer,hpc-io*; hpc-fortran*,M,no,no,no
+P78,biochem,biochem-engineer,bio-pipelines*; hpc-slurm*; bio-chem-computing*,M,no,no,yes
+P79,biochem,biochem-engineer,chem-qm*; hpc-slurm*; bio-chem-computing*,M,no,no,yes
+P80,claude-config,claude-code-engineer,claude-code-extensions; prompt-and-brief-design,M,no,no,no
+P81,code-general,coder,ide-workflows; editor-engineering,M,no,no,no
+P82,code-general,coder,rust-native-gui; rust-engineering,M,no,no,no
+P83,ai-ml,dl-engineer,image-model-pipelines; hf-hub,M,yes,no,no
+P84,ai-ml,llm-engineer,local-llm-serving; llm-quantization,M,yes,no,no
+P85,claude-config,browser-operator,browser-automation; web-accessibility,M,yes,no,no
+P86,research,researcher,web-research; hf-hub,M,yes,no,no
+P87,cgi,designer,brand-identity; svg-vector-craft; typography,M,yes,yes,no
+P88,algorithms,god-coder (escalation only),algorithm-design; formal-methods,L,no,no,no
+P89,ai-ml,mlx-engineer,gpu-kernel-dev; accelerator-perf; gpu-metal-mlx*,L,no,no,no
+P90,orchestrated,orchestrator,code-standards; python-engineering; technical-writing; review-protocol,L,no,no,yes
+P91,orchestrated,orchestrator,data-analysis; data-visualization; portuguese-pt-writing; dataframes-duckdb,L,no,no,yes
+P92,orchestrated,orchestrator,frontend-frameworks; web-accessibility; secure-coding; review-protocol,L,no,no,yes
+P93,orchestrated,orchestrator,llm-evals; python-engineering; mcp-server-craft,L,no,no,yes
+P94,orchestrated,orchestrator,blender-3d; media-ffmpeg; motion-graphics; technical-writing,L,no,no,yes
+P95,orchestrated,orchestrator,hpc-slurm*; bio-pipelines*; container-images; ci-cd-pipelines,L,no,no,yes
+P96,orchestrated,orchestrator,robotics-engineering; numerical-methods; technical-writing; review-protocol,L,no,no,yes
+P97,orchestrated,orchestrator,code-standards; git-workflows; review-protocol,L,no,no,no
+P98,routing,researcher,web-research; literature-review,L,yes,no,no
+P99,orchestrated,orchestrator,lean-formalization; proof-craft; literature-review; web-research,L,yes,no,no
+P100,research,researcher,web-research; technical-writing,L,yes,no,no

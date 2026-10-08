@@ -1,0 +1,74 @@
+{
+ "evidence_id": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+ "read_rows_stats": {
+  "read": 3126,
+  "dropped": 0,
+  "truncated": false,
+  "errors": 0,
+  "model_mismatch": 1,
+  "stale_session": 0
+ },
+ "files": {
+  "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+  "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38"
+ },
+ "versions": {
+  "python": "3.13.16",
+  "pymc": "6.3.2",
+  "arviz": "1.3.0",
+  "numpy": "2.5.3",
+  "pandas": "3.0.6",
+  "scipy": "1.18.1",
+  "pytensor": "3.3.3",
+  "nutpie": "0.16.11"
+ },
+ "seed": 20261003,
+ "chains": 4,
+ "draws": 3000,
+ "tune": 2000,
+ "risk": {
+  "soft.agent": 0.1,
+  "hard.agent": 0.01,
+  "turns": 0.02,
+  "soft.prompt": 0.1,
+  "hard.prompt": 0.01,
+  "soft.session": 0.1,
+  "hard.session": 0.01
+ },
+ "gate": {
+  "rhat": 1.01,
+  "ess": 400,
+  "div": 0,
+  "ebfmi": 0.3,
+  "edge": 0.001
+ },
+ "code_version": "b1-prototype/2",
+ "seed_sha": "sha256:fb03a29e2e6e2874b04c187af0001d1319a907a10832819feab08e20b606550a",
+ "param": {
+  "turns": {
+   "rich": 1000000000,
+   "rich_pairs": 20,
+   "zero_avoid": [
+    "tau_t",
+    "tau_s",
+    "tau_ts"
+   ]
+  },
+  "ctx": {
+   "rich": 1000000000,
+   "zero_avoid": [
+    "tau_t",
+    "tau_s",
+    "tau_ts"
+   ]
+  },
+  "tool_calls": {
+   "rich": 1000000000,
+   "zero_avoid": [
+    "tau_s",
+    "tau_ts"
+   ]
+  }
+ },
+ "elapsed_s": 627.7
+}

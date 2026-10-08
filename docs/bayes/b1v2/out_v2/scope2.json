@@ -1,0 +1,331 @@
+{
+ "n": 22,
+ "n_units": 22,
+ "excluded_grades": {},
+ "source": {
+  "source": "baseline_runs.csv (v1 rule)"
+ },
+ "installs": [
+  "old_install"
+ ],
+ "grades_files": [
+  "baseline_grades.csv"
+ ],
+ "levels": {
+  "fail": 0,
+  "partial": 1,
+  "pass": 2
+ },
+ "diag": {
+  "rhat_max": 1.0011936897674032,
+  "ess_bulk_min": 5573.143252158601,
+  "ess_tail_min": 4008.748940781872,
+  "divergences": 0,
+  "ebfmi_min": 0.9184918498987275,
+  "worst": "z_agent[data-engineer]"
+ },
+ "gate": true,
+ "b_match": [
+  -0.4482949279699917,
+  0.28753178945338476,
+  1.039779988981721
+ ],
+ "b_install": null,
+ "n_by_install": {
+  "old_install": 22
+ },
+ "cells": [
+  {
+   "agent": "claude-code-guide",
+   "family": "claude-config",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.8285938612995274,
+   "p_pass_lo": 0.6006635139222385,
+   "p_pass_hi": 0.9693364707327293
+  },
+  {
+   "agent": "claude-code-guide",
+   "family": "routing",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.8349211553332471,
+   "p_pass_lo": 0.6328773872428357,
+   "p_pass_hi": 0.9683405440511738
+  },
+  {
+   "agent": "coder",
+   "family": "code-general",
+   "install": "old_install",
+   "n": 3,
+   "n_pass": 2,
+   "match": 0,
+   "p_pass_mean": 0.7498280445812571,
+   "p_pass_lo": 0.5010386592304051,
+   "p_pass_hi": 0.9275551903029592
+  },
+  {
+   "agent": "coder",
+   "family": "code-lang",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 0,
+   "p_pass_mean": 0.7647519935169261,
+   "p_pass_lo": 0.482677218357098,
+   "p_pass_hi": 0.9487462487756846
+  },
+  {
+   "agent": "coder",
+   "family": "orchestrated",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 0,
+   "p_pass_mean": 0.7593260748063128,
+   "p_pass_lo": 0.47429701715198885,
+   "p_pass_hi": 0.9474930555058044
+  },
+  {
+   "agent": "coder",
+   "family": "routing",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.8119109340943018,
+   "p_pass_lo": 0.6017726563438959,
+   "p_pass_hi": 0.951670602474387
+  },
+  {
+   "agent": "cuda-engineer",
+   "family": "ai-ml",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 0,
+   "match": 1,
+   "p_pass_mean": 0.7488938658249966,
+   "p_pass_lo": 0.4425131269369237,
+   "p_pass_hi": 0.9338740766643608
+  },
+  {
+   "agent": "data-engineer",
+   "family": "ai-ml",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 0,
+   "p_pass_mean": 0.7387557258710958,
+   "p_pass_lo": 0.4505733018047227,
+   "p_pass_hi": 0.9333324151891844
+  },
+  {
+   "agent": "designer",
+   "family": "cgi",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.7533479595884724,
+   "p_pass_lo": 0.4381594234488413,
+   "p_pass_hi": 0.9487501820444798
+  },
+  {
+   "agent": "explore",
+   "family": "lookup",
+   "install": "old_install",
+   "n": 2,
+   "n_pass": 2,
+   "match": 1,
+   "p_pass_mean": 0.8365911070757487,
+   "p_pass_lo": 0.6273377503161974,
+   "p_pass_hi": 0.9704423913893864
+  },
+  {
+   "agent": "mathematician",
+   "family": "math",
+   "install": "old_install",
+   "n": 2,
+   "n_pass": 2,
+   "match": 1,
+   "p_pass_mean": 0.8119768478766588,
+   "p_pass_lo": 0.5410707604297832,
+   "p_pass_hi": 0.9677903246291787
+  },
+  {
+   "agent": "oracle",
+   "family": "routing",
+   "install": "old_install",
+   "n": 2,
+   "n_pass": 2,
+   "match": 1,
+   "p_pass_mean": 0.8354232816426259,
+   "p_pass_lo": 0.6360419063700853,
+   "p_pass_hi": 0.9685361927529642
+  },
+  {
+   "agent": "scout",
+   "family": "lookup",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.837431617249715,
+   "p_pass_lo": 0.627746528072576,
+   "p_pass_hi": 0.9717406339398642
+  },
+  {
+   "agent": "scout",
+   "family": "routing",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.8357912614911392,
+   "p_pass_lo": 0.6349651440689061,
+   "p_pass_hi": 0.9675765447635934
+  },
+  {
+   "agent": "security-auditor",
+   "family": "routing",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 1,
+   "match": 1,
+   "p_pass_mean": 0.7962640081325411,
+   "p_pass_lo": 0.5347633781119826,
+   "p_pass_hi": 0.957866668916646
+  },
+  {
+   "agent": "writer",
+   "family": "docs",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 0,
+   "match": 0,
+   "p_pass_mean": 0.6173447354058276,
+   "p_pass_lo": 0.2628762171936277,
+   "p_pass_hi": 0.8779672848340928
+  },
+  {
+   "agent": "writer",
+   "family": "routing",
+   "install": "old_install",
+   "n": 1,
+   "n_pass": 0,
+   "match": 1,
+   "p_pass_mean": 0.7048591602770293,
+   "p_pass_lo": 0.3719121207666274,
+   "p_pass_hi": 0.9178533198688057
+  }
+ ],
+ "agents": [
+  {
+   "agent": "claude-code-guide",
+   "n": 2,
+   "p_pass_mean": 0.8305006987641127,
+   "p_pass_lo": 0.6244335257644381,
+   "p_pass_hi": 0.9639099804000452,
+   "tokens_med": 106149.5,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "coder",
+   "n": 6,
+   "p_pass_mean": 0.8089535072975487,
+   "p_pass_lo": 0.6088384840523383,
+   "p_pass_hi": 0.9432894255787917,
+   "tokens_med": 144863.0,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "cuda-engineer",
+   "n": 1,
+   "p_pass_mean": 0.7677712781579297,
+   "p_pass_lo": 0.4992722976037202,
+   "p_pass_hi": 0.9348533473406969,
+   "tokens_med": 465642.0,
+   "beta_pass_mean": 0.3333333333333333
+  },
+  {
+   "agent": "data-engineer",
+   "n": 1,
+   "p_pass_mean": 0.8026208146285543,
+   "p_pass_lo": 0.5711101340709009,
+   "p_pass_hi": 0.9501716410520965,
+   "tokens_med": 270794.0,
+   "beta_pass_mean": 0.6666666666666666
+  },
+  {
+   "agent": "designer",
+   "n": 1,
+   "p_pass_mean": 0.7516848477844102,
+   "p_pass_lo": 0.44405593390949655,
+   "p_pass_hi": 0.9398048900557582,
+   "tokens_med": 243311.0,
+   "beta_pass_mean": 0.6666666666666666
+  },
+  {
+   "agent": "explore",
+   "n": 2,
+   "p_pass_mean": 0.8297893472702574,
+   "p_pass_lo": 0.6221531179521335,
+   "p_pass_hi": 0.9647648419449644,
+   "tokens_med": 71083.5,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "mathematician",
+   "n": 2,
+   "p_pass_mean": 0.8086834305540754,
+   "p_pass_lo": 0.5902938505840137,
+   "p_pass_hi": 0.9505549033616405,
+   "tokens_med": 354637.0,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "oracle",
+   "n": 2,
+   "p_pass_mean": 0.8303639706659427,
+   "p_pass_lo": 0.6187423797611417,
+   "p_pass_hi": 0.96632203477909,
+   "tokens_med": 20260.5,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "scout",
+   "n": 2,
+   "p_pass_mean": 0.8308274618960286,
+   "p_pass_lo": 0.6186378054751087,
+   "p_pass_hi": 0.9653745801872327,
+   "tokens_med": 128718.0,
+   "beta_pass_mean": 0.75
+  },
+  {
+   "agent": "security-auditor",
+   "n": 1,
+   "p_pass_mean": 0.7912601353652328,
+   "p_pass_lo": 0.5204390001561806,
+   "p_pass_hi": 0.9559896217141891,
+   "tokens_med": 389322.0,
+   "beta_pass_mean": 0.6666666666666666
+  },
+  {
+   "agent": "writer",
+   "n": 2,
+   "p_pass_mean": 0.698089043784806,
+   "p_pass_lo": 0.35987504232784845,
+   "p_pass_hi": 0.911625777588693,
+   "tokens_med": 35681.0,
+   "beta_pass_mean": 0.25
+  }
+ ],
+ "n_by_grade": {
+  "pass": 18,
+  "partial": 4
+ }
+}

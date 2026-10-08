@@ -1,0 +1,58 @@
+{
+ "turns": {
+  "rhat_max": 1.0034010966901032,
+  "ess_bulk_min": 1841.3930431034107,
+  "ess_tail_min": 1680.0626618199838,
+  "divergences": 0,
+  "ebfmi_min": 0.8770490680329223,
+  "worst": "tau_t"
+ },
+ "ctx": {
+  "rhat_max": 1.0019046238506377,
+  "ess_bulk_min": 1373.6250887820433,
+  "ess_tail_min": 1402.221764460459,
+  "divergences": 0,
+  "ebfmi_min": 0.8776072974506196,
+  "worst": "tau_ts"
+ },
+ "spc": {
+  "rhat_max": 1.0051924644911465,
+  "ess_bulk_min": 1291.1753596610072,
+  "ess_tail_min": 1469.0860005598756,
+  "divergences": 0,
+  "ebfmi_min": 0.8496197440438575,
+  "worst": "tau_ts"
+ },
+ "static_cc": {
+  "rhat_max": 1.0041584291101786,
+  "ess_bulk_min": 1042.967566778466,
+  "ess_tail_min": 1726.1611828615407,
+  "divergences": 0,
+  "ebfmi_min": 0.7627567230928208,
+  "worst": "z_poor_t[50]"
+ },
+ "tool_calls": {
+  "rhat_max": 1.0018897245312814,
+  "ess_bulk_min": 1839.9278630262363,
+  "ess_tail_min": 2368.545142999706,
+  "divergences": 0,
+  "ebfmi_min": 0.9293592211260001,
+  "worst": "tau_ts"
+ },
+ "ctx_ab": {
+  "rhat_max": 1.002484641566099,
+  "ess_bulk_min": 1212.7071301046187,
+  "ess_tail_min": 1964.0956879549824,
+  "divergences": 0,
+  "ebfmi_min": 0.8369122750046,
+  "worst": "u_pk[artifact]"
+ },
+ "resume_ctx": {
+  "rhat_max": 1.0006379002883958,
+  "ess_bulk_min": 3923.246443896241,
+  "ess_tail_min": 3263.822761344359,
+  "divergences": 0,
+  "ebfmi_min": 0.8179178803400585,
+  "worst": "alpha"
+ }
+}

@@ -1,0 +1,39 @@
+{
+  "what": "Frozen data of the B1 v2 Bayesian fit (2026-10-03 12:11 copy of the usage collector's runs.csv / runs3.csv, the scope-2 grade files and that day's limits state), sanitized for publication on 2026-10-08 (WP0a, docs/BAYES.md).",
+  "sanitization": {
+    "ids": "session ids and agent ids (runs*.csv: session, id, parent; baseline_runs.csv: session, root_agent_id, agent_id, parent_agent_id; state/*: session ids and agent ids anywhere) replaced by the first 16 hex of sha256(id); the row-kind sentinels 'main' and 'session' kept",
+    "dropped_columns": {
+      "runs3.csv": ["task"],
+      "baseline_runs.csv": ["description"],
+      "baseline_prompts.csv": ["prompt", "check", "notes"],
+      "baseline_grades.csv": ["why"],
+      "grades_T8b.csv": ["why"],
+      "grades_b0v2.csv": ["why"]
+    },
+    "numbers": "every other cell byte-identical (checked cell by cell); CSVs rewritten with LF line ends",
+    "unchanged_files": ["runs_before.csv"]
+  },
+  "evidence_id": {
+    "definition": "stack_limits.evidence_id(stack_limits.read_rows([runs.csv, runs3.csv], models=agent_models(dot-config/dot-claude/agents))[0])",
+    "raw": "f4de7ad6b29fc885ac5c480db39a54377ef62b4da8a3e179b86a73baaea7bff5",
+    "sanitized": "ce024a79b30f6986c3866d866963e27babc801ea58595de5005d2db7add65ef5",
+    "rows": 320,
+    "read_rows_stats": {"read": 3126, "dropped": 0, "model_mismatch": 1, "eq_run": 0, "stale_session": 0},
+    "checked_with": "stack_limits.py at main d6046693 and at the v2 fit's worktree: the raw copy gives the v2 fit's evidence id (design.md line 5) under both; read_rows of the sanitized copy equals read_rows of the raw copy row for row after the id map"
+  },
+  "raw_sha256": {
+    "runs.csv": "d2905de764fb037a3bf9b503c606abe70cfddf8ee92212091605a0e18121c1e4",
+    "runs3.csv": "ae6f720b4f4b261712d23c0449cfe239c754cca41e27bc509aa8fdb1219c0a38",
+    "baseline_runs.csv": "f8e8167902bc4df125f207333397d800a293b4c8f07dc6fb6ae9f2d902917dae",
+    "baseline_prompts.csv": "2d8bb00aa4e67d4654d18c0aea8f88c319e947c375385495698b9ac038ee364e",
+    "baseline_grades.csv": "e539719d35709e23fe045635d998f18f1b750053df8048be8fc10f4971b88242",
+    "grades_T8b.csv": "d5141e2fc9531ae90849ef695ab221bbddab2c682f5f3a33676851cd77591763",
+    "grades_b0v2.csv": "8e264b924cf1c46364f49393d91807b1bf34cdbaba949102933715d64b5af8c2",
+    "runs_before.csv": "73d0dd670480a195ffab759c0ccec9f9a268153a5e4a2357d7104f0a4969d8c3",
+    "state/live.json": "98e645efda41e0ab7f64b93ce1f7d4f9f6a886260a48fd9811b4c2d02c0f73df",
+    "state/proposals.json": "83d43692dcb33f10984504d107f8d5d91adce44ea47c7ab9aaab3160b194e6be",
+    "state/history.jsonl": "52eee584d484132099fd00e3c736ad3fe87cdc147e5285c2c6dee50c82b9ce9b",
+    "state/candidate_sched_model.json": "50ef205d51ba41071f2d8db790b0bcbadf3f73c6ea541c552efb6a62211b89e2"
+  },
+  "sanitized_sha256": "SHA256SUMS in this directory (shasum -a 256 -c SHA256SUMS)"
+}

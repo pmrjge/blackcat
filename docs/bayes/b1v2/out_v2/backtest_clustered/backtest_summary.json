@@ -1,0 +1,444 @@
+{
+ "folds": [
+  {
+   "test_session": "da931fb9d84c1911",
+   "origin": 1790987100.387,
+   "n_train": 186,
+   "n_test": 65,
+   "turns_diag": {
+    "rhat_max": 1.0043003966040536,
+    "ess_bulk_min": 793.0997977525496,
+    "ess_tail_min": 932.0620410862618,
+    "divergences": 1,
+    "ebfmi_min": 0.9341884043136882,
+    "worst": "tau_t"
+   },
+   "turns_clustered": {
+    "n": 65,
+    "hits_lo": 0,
+    "hits_hi": 6,
+    "pred_mean": 1.14725,
+    "pred90": [
+     0,
+     5
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.97275
+   },
+   "ctx_diag": {
+    "rhat_max": 1.0052614983164283,
+    "ess_bulk_min": 905.4755238318911,
+    "ess_tail_min": 1010.0772951253001,
+    "divergences": 0,
+    "ebfmi_min": 0.9237012600013355,
+    "worst": "tau_ts"
+   },
+   "soft.agent_clustered": {
+    "n": 65,
+    "hits_lo": 15,
+    "hits_hi": 19,
+    "pred_mean": 6.11375,
+    "pred90": [
+     1,
+     15
+    ],
+    "p_ge_lo": 0.051,
+    "p_le_hi": 0.982
+   },
+   "hard.agent_clustered": {
+    "n": 65,
+    "hits_lo": 0,
+    "hits_hi": 15,
+    "pred_mean": 0.5855,
+    "pred90": [
+     0,
+     3
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.9995
+   }
+  },
+  {
+   "test_session": "4f69cd3b64d91c0b",
+   "origin": 1791021021.12,
+   "n_train": 240,
+   "n_test": 2,
+   "turns_diag": {
+    "rhat_max": 1.0029365534890589,
+    "ess_bulk_min": 1823.1986314631047,
+    "ess_tail_min": 1841.6022099160148,
+    "divergences": 0,
+    "ebfmi_min": 0.9018040920135084,
+    "worst": "z_poor_t[18]"
+   },
+   "turns_clustered": {
+    "n": 1,
+    "hits_lo": 0,
+    "hits_hi": 0,
+    "pred_mean": 0.031,
+    "pred90": [
+     0,
+     0
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.969
+   },
+   "ctx_diag": {
+    "rhat_max": 1.0025175377208053,
+    "ess_bulk_min": 1060.7805645475285,
+    "ess_tail_min": 1030.2559346538537,
+    "divergences": 0,
+    "ebfmi_min": 0.8685452254592254,
+    "worst": "tau_t"
+   },
+   "soft.agent_clustered": {
+    "n": 1,
+    "hits_lo": 0,
+    "hits_hi": 0,
+    "pred_mean": 0.117,
+    "pred90": [
+     0,
+     1
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.883
+   },
+   "hard.agent_clustered": {
+    "n": 1,
+    "hits_lo": 0,
+    "hits_hi": 0,
+    "pred_mean": 0.011,
+    "pred90": [
+     0,
+     0
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.989
+   }
+  },
+  {
+   "test_session": "a50a0dc29d9b21c6",
+   "origin": 1791025474.649,
+   "n_train": 253,
+   "n_test": 28,
+   "turns_diag": {
+    "rhat_max": 1.002113802984703,
+    "ess_bulk_min": 1602.3253795050496,
+    "ess_tail_min": 1612.0648223673898,
+    "divergences": 0,
+    "ebfmi_min": 0.9274032846572341,
+    "worst": "z_la[oracle]"
+   },
+   "turns_clustered": {
+    "n": 13,
+    "hits_lo": 0,
+    "hits_hi": 10,
+    "pred_mean": 0.35875,
+    "pred90": [
+     0,
+     2
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 1.0
+   },
+   "ctx_diag": {
+    "rhat_max": 1.003214748358536,
+    "ess_bulk_min": 1311.7674577256166,
+    "ess_tail_min": 1494.637095757129,
+    "divergences": 0,
+    "ebfmi_min": 0.8795522992444459,
+    "worst": "tau_ts"
+   },
+   "soft.agent_clustered": {
+    "n": 13,
+    "hits_lo": 0,
+    "hits_hi": 10,
+    "pred_mean": 1.4625,
+    "pred90": [
+     0,
+     4
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 1.0
+   },
+   "hard.agent_clustered": {
+    "n": 13,
+    "hits_lo": 0,
+    "hits_hi": 10,
+    "pred_mean": 0.161,
+    "pred90": [
+     0,
+     1
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 1.0
+   }
+  }
+ ],
+ "by_fam": {
+  "hard.agent": {
+   "n_rows": 95,
+   "risk": 0.01,
+   "bayes": {
+    "hits": 0,
+    "n": 54,
+    "rate": 0.0,
+    "jeffreys90": [
+     3.623987968395429e-05,
+     0.03478489252252147
+    ]
+   },
+   "grid_eb": {
+    "hits": 5,
+    "n": 58,
+    "rate": 0.08620689655172414,
+    "jeffreys90": [
+     0.040220287160103084,
+     0.1619125398991776
+    ]
+   },
+   "emp": {
+    "hits": 2,
+    "n": 44,
+    "rate": 0.045454545454545456,
+    "jeffreys90": [
+     0.013156982338111748,
+     0.12016534597026611
+    ]
+   },
+   "seed": {
+    "hits": 0,
+    "n": 0,
+    "rate": null,
+    "jeffreys90": [
+     null,
+     null
+    ]
+   },
+   "pit_n": 57,
+   "coverage50": 0.38596491228070173,
+   "coverage90": 0.9649122807017544,
+   "pit_ks_p": 0.39580593251455853,
+   "by_fold": {
+    "1": {
+     "bayes": [
+      0,
+      50
+     ],
+     "emp": [
+      2,
+      41
+     ]
+    },
+    "2": {
+     "bayes": [
+      0,
+      1
+     ],
+     "emp": [
+      0,
+      1
+     ]
+    },
+    "3": {
+     "bayes": [
+      0,
+      3
+     ],
+     "emp": [
+      0,
+      2
+     ]
+    }
+   },
+   "clustered": {
+    "n": 79,
+    "hits_lo": 0,
+    "hits_hi": 25,
+    "pred_mean": 0.7575,
+    "pred90": [
+     0,
+     3
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 1.0
+   }
+  },
+  "soft.agent": {
+   "n_rows": 95,
+   "risk": 0.1,
+   "bayes": {
+    "hits": 15,
+    "n": 65,
+    "rate": 0.23076923076923078,
+    "jeffreys90": [
+     0.1544170515465477,
+     0.32447696333938597
+    ]
+   },
+   "grid_eb": {
+    "hits": 21,
+    "n": 65,
+    "rate": 0.3230769230769231,
+    "jeffreys90": [
+     0.23460420616500324,
+     0.4229601047874918
+    ]
+   },
+   "emp": {
+    "hits": 7,
+    "n": 45,
+    "rate": 0.15555555555555556,
+    "jeffreys90": [
+     0.08343464916774856,
+     0.2594281434327291
+    ]
+   },
+   "seed": {
+    "hits": 8,
+    "n": 54,
+    "rate": 0.14814814814814814,
+    "jeffreys90": [
+     0.08280429427000624,
+     0.24065091963276575
+    ]
+   },
+   "pit_n": 57,
+   "coverage50": 0.38596491228070173,
+   "coverage90": 0.9649122807017544,
+   "pit_ks_p": 0.39580593251455853,
+   "by_fold": {
+    "1": {
+     "bayes": [
+      15,
+      61
+     ],
+     "emp": [
+      7,
+      42
+     ]
+    },
+    "2": {
+     "bayes": [
+      0,
+      1
+     ],
+     "emp": [
+      0,
+      1
+     ]
+    },
+    "3": {
+     "bayes": [
+      0,
+      3
+     ],
+     "emp": [
+      0,
+      2
+     ]
+    }
+   },
+   "clustered": {
+    "n": 79,
+    "hits_lo": 15,
+    "hits_hi": 29,
+    "pred_mean": 7.69325,
+    "pred90": [
+     2,
+     17
+    ],
+    "p_ge_lo": 0.0865,
+    "p_le_hi": 0.99675
+   }
+  },
+  "turns": {
+   "n_rows": 95,
+   "risk": 0.02,
+   "bayes": {
+    "hits": 0,
+    "n": 63,
+    "rate": 0.0,
+    "jeffreys90": [
+     3.108338445540793e-05,
+     0.0299102854034613
+    ]
+   },
+   "grid_eb": {
+    "hits": 4,
+    "n": 65,
+    "rate": 0.06153846153846154,
+    "jeffreys90": [
+     0.025949709355259438,
+     0.12524809492116862
+    ]
+   },
+   "emp": {
+    "hits": 3,
+    "n": 47,
+    "rate": 0.06382978723404255,
+    "jeffreys90": [
+     0.023414983482144717,
+     0.1425801352693139
+    ]
+   },
+   "seed": {
+    "hits": 0,
+    "n": 66,
+    "rate": 0.0,
+    "jeffreys90": [
+     2.9675876399803857e-05,
+     0.028575444890594156
+    ]
+   },
+   "pit_n": 66,
+   "coverage50": 0.42424242424242425,
+   "coverage90": 0.9696969696969697,
+   "pit_ks_p": 0.10233692372396141,
+   "by_fold": {
+    "1": {
+     "bayes": [
+      0,
+      59
+     ],
+     "emp": [
+      3,
+      44
+     ]
+    },
+    "2": {
+     "bayes": [
+      0,
+      1
+     ],
+     "emp": [
+      0,
+      1
+     ]
+    },
+    "3": {
+     "bayes": [
+      0,
+      3
+     ],
+     "emp": [
+      0,
+      2
+     ]
+    }
+   },
+   "clustered": {
+    "n": 79,
+    "hits_lo": 0,
+    "hits_hi": 16,
+    "pred_mean": 1.537,
+    "pred90": [
+     0,
+     6
+    ],
+    "p_ge_lo": 1.0,
+    "p_le_hi": 0.99875
+   }
+  }
+ }
+}

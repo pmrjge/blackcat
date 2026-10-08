@@ -1,0 +1,3717 @@
+{
+ "version": 1,
+ "generated": "2026-10-03T05:31:23Z",
+ "stack_hash": "sha256:55eda558ea41a76111c2c074a09ec55e4fe062e733b35b226efa528a8c415b3a",
+ "sessions": [
+  "da931fb9d84c1911",
+  "98abbcdfb5fce7b4",
+  "64a4da285d33e780"
+ ],
+ "data_until": "2026-10-03T03:31:11.712Z",
+ "kappa": {
+  "cache_write_5m": 1.25,
+  "cache_write_1h": 2.0,
+  "cache_read": {
+   "default": 0.1,
+   "rules": [
+    {
+     "family": "opus",
+     "version": "5.5",
+     "value": 0.05
+    }
+   ]
+  },
+  "cache_read_match": "resolve the type's alias to a model ID with ANTHROPIC_DEFAULT_<FAMILY>_MODEL; a rule applies when the ID's family and major.minor version equal the rule's, else default",
+  "output": null,
+  "prices": null,
+  "models_measured": {
+   "opus": "5.5",
+   "sonnet": "5.5"
+  },
+  "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+ },
+ "types": {
+  "biochem-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "browser-operator": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 28.6
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 120,
+   "n_seg": 4,
+   "n_agents": 3,
+   "n_first": 3,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 4,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "build-fixer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "cg-artist": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "claude-code-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "supported",
+   "turns": {
+    "S": 15.3,
+    "M": 38.4,
+    "L": 79.3
+   },
+   "ctx": {
+    "a": 55055,
+    "b": 1374.7
+   },
+   "static_cc": 21113,
+   "sec_per_call": {
+    "p50": 16.6,
+    "p90": 32.1
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 38.4,
+    "turns": {
+     "lo": 26.3,
+     "med": 38.4,
+     "hi": 56.1
+    },
+    "sec_per_call": {
+     "lo": 12.8,
+     "med": 16.6,
+     "hi": 20.3
+    },
+    "ctx": {
+     "lo": 0.905,
+     "med": 1.0,
+     "hi": 1.101
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 46,
+   "n_agents": 22,
+   "n_first": 22,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 36,
+    "n_seg_collected": 10,
+    "n_agents_collected": 5,
+    "n_first_collected": 5,
+    "n_seg_seen": 10
+   }
+  },
+  "claude-code-guide": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "status": "supported",
+   "turns": {
+    "S": 3.7,
+    "M": 5.0,
+    "L": 8.3
+   },
+   "ctx": {
+    "a": 16545,
+    "b": 3761.8
+   },
+   "static_cc": 20415,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 21.1
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 3.5,
+     "med": 5.0,
+     "hi": 7.1
+    },
+    "sec_per_call": {
+     "lo": 7.0,
+     "med": 8.0,
+     "hi": 8.9
+    },
+    "ctx": {
+     "lo": 0.933,
+     "med": 1.0,
+     "hi": 1.258
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 680000,
+   "maxTurns": 30,
+   "n_seg": 7,
+   "n_agents": 6,
+   "n_first": 6,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 7,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "code-reviewer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "status": "supported",
+   "turns": {
+    "S": 30.0,
+    "M": 39.0,
+    "L": 55.8
+   },
+   "ctx": {
+    "a": 64436,
+    "b": 644.0
+   },
+   "static_cc": 25288,
+   "sec_per_call": {
+    "p50": 13.7,
+    "p90": 29.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 39.0,
+    "turns": {
+     "lo": 30.5,
+     "med": 39.0,
+     "hi": 50.5
+    },
+    "sec_per_call": {
+     "lo": 10.5,
+     "med": 13.7,
+     "hi": 24.8
+    },
+    "ctx": {
+     "lo": 0.82,
+     "med": 1.0,
+     "hi": 1.22
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 80,
+   "n_seg": 5,
+   "n_agents": 5,
+   "n_first": 5,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 5,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 1
+   }
+  },
+  "coder": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "supported",
+   "turns": {
+    "S": 11.6,
+    "M": 26.5,
+    "L": 87.7
+   },
+   "ctx": {
+    "a": 29245,
+    "b": 1706.1
+   },
+   "static_cc": 20487,
+   "sec_per_call": {
+    "p50": 12.4,
+    "p90": 26.7
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 26.5,
+    "turns": {
+     "lo": 10.1,
+     "med": 26.5,
+     "hi": 53.6
+    },
+    "sec_per_call": {
+     "lo": 7.1,
+     "med": 12.4,
+     "hi": 20.8
+    },
+    "ctx": {
+     "lo": 0.874,
+     "med": 1.0,
+     "hi": 1.137
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 12,
+   "n_agents": 9,
+   "n_first": 9,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 7,
+    "n_seg_collected": 5,
+    "n_agents_collected": 4,
+    "n_first_collected": 4,
+    "n_seg_seen": 5
+   }
+  },
+  "cuda-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "data-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "data-scientist": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "db-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 120,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "designer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "devops-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 140,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "dl-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "doc-specialist": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "embedded-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "explore": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "status": "provisional",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 4.0,
+     "med": 5.0,
+     "hi": 5.8
+    },
+    "sec_per_call": {
+     "lo": 7.1,
+     "med": 8.0,
+     "hi": 9.1
+    },
+    "ctx": {
+     "lo": 0.912,
+     "med": 1.0,
+     "hi": 1.139
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 40,
+   "n_seg": 3,
+   "n_agents": 2,
+   "n_first": 2,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup",
+   "evidence": {
+    "n_seg_shipped": 3,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 1
+   }
+  },
+  "frontend-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "game-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "go-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "god-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 350,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "haskell-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "hpc-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "image-director": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "julia-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "jvm-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "llm-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "localizer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "main-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "supported",
+   "turns": {
+    "S": 15.0,
+    "M": 31.2,
+    "L": 78.6
+   },
+   "ctx": {
+    "a": 37957,
+    "b": 1851.4
+   },
+   "static_cc": 19996,
+   "sec_per_call": {
+    "p50": 15.6,
+    "p90": 31.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 31.2,
+    "turns": {
+     "lo": 20.0,
+     "med": 31.2,
+     "hi": 46.4
+    },
+    "sec_per_call": {
+     "lo": 12.3,
+     "med": 15.6,
+     "hi": 19.0
+    },
+    "ctx": {
+     "lo": 0.826,
+     "med": 1.0,
+     "hi": 1.46
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 350,
+   "n_seg": 9,
+   "n_agents": 3,
+   "n_first": 2,
+   "source": "own",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 6,
+    "n_seg_collected": 3,
+    "n_agents_collected": 2,
+    "n_first_collected": 2,
+    "n_seg_seen": 3
+   }
+  },
+  "mathematician": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "mcp-broker": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "status": "provisional",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 4.0,
+     "med": 5.0,
+     "hi": 5.7
+    },
+    "sec_per_call": {
+     "lo": 7.1,
+     "med": 8.0,
+     "hi": 9.1
+    },
+    "ctx": {
+     "lo": 0.912,
+     "med": 1.0,
+     "hi": 1.096
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "ml-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "mlx-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "mobile-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "motion-designer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "ninja-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 300,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "node-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "oracle": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "lookup",
+   "status": "provisional",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 4.0,
+     "med": 5.0,
+     "hi": 5.7
+    },
+    "sec_per_call": {
+     "lo": 7.1,
+     "med": 8.0,
+     "hi": 9.1
+    },
+    "ctx": {
+     "lo": 0.912,
+     "med": 1.0,
+     "hi": 1.096
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 12,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "orchestrator": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "coordinator",
+   "status": "supported",
+   "turns": {
+    "S": 2.1,
+    "M": 2.2,
+    "L": 5.9
+   },
+   "ctx": {
+    "a": 44956,
+    "b": 2251.5
+   },
+   "static_cc": 18856,
+   "sec_per_call": {
+    "p50": 7.9,
+    "p90": 209.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 2.2,
+    "turns": {
+     "lo": 1.1,
+     "med": 2.2,
+     "hi": 4.2
+    },
+    "sec_per_call": {
+     "lo": 1.7,
+     "med": 7.9,
+     "hi": 39.0
+    },
+    "ctx": {
+     "lo": 1.0,
+     "med": 1.0,
+     "hi": 1.642
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": null,
+   "maxTurns": 200,
+   "n_seg": 52,
+   "n_agents": 3,
+   "n_first": 3,
+   "source": "own",
+   "source_ctx": "pool:coordinator",
+   "evidence": {
+    "n_seg_shipped": 46,
+    "n_seg_collected": 6,
+    "n_agents_collected": 1,
+    "n_first_collected": 1,
+    "n_seg_seen": 6
+   }
+  },
+  "plan-reviewer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "status": "provisional",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 24.0,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.136
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 1
+   }
+  },
+  "planner": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "status": "provisional",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 23.4,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.17
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 60,
+   "n_seg": 2,
+   "n_agents": 2,
+   "n_first": 2,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst",
+   "evidence": {
+    "n_seg_shipped": 2,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "proof-checker": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "status": "provisional",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 24.0,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.136
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "python-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "quantum-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 160,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "researcher": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "analyst",
+   "status": "provisional",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 24.0,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.225
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 130,
+   "n_seg": 4,
+   "n_agents": 4,
+   "n_first": 4,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst",
+   "evidence": {
+    "n_seg_shipped": 4,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "robotics-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "rust-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "scout": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "status": "supported",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 6.8
+   },
+   "ctx": {
+    "a": 4512,
+    "b": 6216.9
+   },
+   "static_cc": 17731,
+   "sec_per_call": {
+    "p50": 8.4,
+    "p90": 37.8
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 4.1,
+     "med": 5.0,
+     "hi": 5.7
+    },
+    "sec_per_call": {
+     "lo": 6.8,
+     "med": 8.4,
+     "hi": 17.3
+    },
+    "ctx": {
+     "lo": 0.857,
+     "med": 1.0,
+     "hi": 1.096
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 390000,
+   "maxTurns": 11,
+   "n_seg": 24,
+   "n_agents": 21,
+   "n_first": 21,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 24,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "security-auditor": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "status": "provisional",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 24.0,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.136
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 2
+   }
+  },
+  "security-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "test-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "verifier": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "verifier",
+   "status": "supported",
+   "turns": {
+    "S": 22.2,
+    "M": 37.0,
+    "L": 90.5
+   },
+   "ctx": {
+    "a": 21096,
+    "b": 1027.9
+   },
+   "static_cc": 26695,
+   "sec_per_call": {
+    "p50": 12.4,
+    "p90": 26.5
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 17.4,
+     "med": 37.0,
+     "hi": 90.0
+    },
+    "sec_per_call": {
+     "lo": 8.0,
+     "med": 12.4,
+     "hi": 23.6
+    },
+    "ctx": {
+     "lo": 0.977,
+     "med": 1.0,
+     "hi": 1.042
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 26000000,
+   "maxTurns": 140,
+   "n_seg": 6,
+   "n_agents": 5,
+   "n_first": 5,
+   "source": "own",
+   "source_ctx": "own",
+   "evidence": {
+    "n_seg_shipped": 6,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 1
+   }
+  },
+  "vfx-td": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "status": "provisional",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 27.0,
+    "turns": {
+     "lo": 15.4,
+     "med": 27.0,
+     "hi": 47.3
+    },
+    "sec_per_call": {
+     "lo": 10.4,
+     "med": 13.1,
+     "hi": 16.7
+    },
+    "ctx": {
+     "lo": 0.842,
+     "med": 1.0,
+     "hi": 1.153
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder",
+   "evidence": {
+    "n_seg_shipped": 0,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  },
+  "writer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "status": "provisional",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "pool-prior",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 40.1
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 2,
+   "n_agents": 1,
+   "n_first": 1,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact",
+   "evidence": {
+    "n_seg_shipped": 2,
+    "n_seg_collected": 0,
+    "n_agents_collected": 0,
+    "n_first_collected": 0,
+    "n_seg_seen": 0
+   }
+  }
+ },
+ "pools": {
+  "analyst": {
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 24.0,
+     "med": 37.0,
+     "hi": 50.6
+    },
+    "sec_per_call": {
+     "lo": 9.0,
+     "med": 15.0,
+     "hi": 40.9
+    },
+    "ctx": {
+     "lo": 0.849,
+     "med": 1.0,
+     "hi": 1.136
+    }
+   },
+   "n_seg": 11,
+   "n_agents": 11,
+   "n_first": 11
+  },
+  "artifact": {
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 10.0,
+    "turns": {
+     "lo": 5.7,
+     "med": 10.0,
+     "hi": 26.5
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 16.3,
+     "hi": 38.5
+    },
+    "ctx": {
+     "lo": 0.518,
+     "med": 1.0,
+     "hi": 1.593
+    }
+   },
+   "n_seg": 6,
+   "n_agents": 4,
+   "n_first": 4
+  },
+  "builder": {
+   "turns": {
+    "S": 14.2,
+    "M": 30.4,
+    "L": 79.5
+   },
+   "ctx": {
+    "a": 40198,
+    "b": 1582.5
+   },
+   "static_cc": 20831,
+   "sec_per_call": {
+    "p50": 15.1,
+    "p90": 30.5
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 30.4,
+    "turns": {
+     "lo": 19.8,
+     "med": 30.4,
+     "hi": 46.4
+    },
+    "sec_per_call": {
+     "lo": 12.4,
+     "med": 15.1,
+     "hi": 18.4
+    },
+    "ctx": {
+     "lo": 0.877,
+     "med": 1.0,
+     "hi": 1.115
+    }
+   },
+   "n_seg": 67,
+   "n_agents": 34,
+   "n_first": 33
+  },
+  "coordinator": {
+   "turns": {
+    "S": 2.1,
+    "M": 2.2,
+    "L": 5.9
+   },
+   "ctx": {
+    "a": 44956,
+    "b": 2251.5
+   },
+   "static_cc": 18856,
+   "sec_per_call": {
+    "p50": 7.9,
+    "p90": 209.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "combined",
+    "B": 2000,
+    "n_ref": 2.2,
+    "turns": {
+     "lo": 1.1,
+     "med": 2.2,
+     "hi": 4.2
+    },
+    "sec_per_call": {
+     "lo": 1.7,
+     "med": 7.9,
+     "hi": 39.0
+    },
+    "ctx": {
+     "lo": 1.0,
+     "med": 1.0,
+     "hi": 1.642
+    }
+   },
+   "n_seg": 52,
+   "n_agents": 3,
+   "n_first": 3
+  },
+  "lookup": {
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 5.0,
+    "turns": {
+     "lo": 4.0,
+     "med": 5.0,
+     "hi": 5.7
+    },
+    "sec_per_call": {
+     "lo": 7.1,
+     "med": 8.0,
+     "hi": 9.1
+    },
+    "ctx": {
+     "lo": 0.912,
+     "med": 1.0,
+     "hi": 1.096
+    }
+   },
+   "n_seg": 34,
+   "n_agents": 29,
+   "n_first": 29
+  },
+  "verifier": {
+   "turns": {
+    "S": 22.2,
+    "M": 37.0,
+    "L": 90.5
+   },
+   "ctx": {
+    "a": 21096,
+    "b": 1027.9
+   },
+   "static_cc": 26695,
+   "sec_per_call": {
+    "p50": 12.4,
+    "p90": 26.5
+   },
+   "band": {
+    "level": 0.9,
+    "method": "bootstrap",
+    "B": 2000,
+    "n_ref": 37.0,
+    "turns": {
+     "lo": 12.8,
+     "med": 37.0,
+     "hi": 107.1
+    },
+    "sec_per_call": {
+     "lo": 7.6,
+     "med": 12.4,
+     "hi": 25.1
+    },
+    "ctx": {
+     "lo": 0.976,
+     "med": 1.0,
+     "hi": 1.072
+    }
+   },
+   "n_seg": 6,
+   "n_agents": 5,
+   "n_first": 5
+  }
+ },
+ "resume_ctx": {
+  "alpha": 783,
+  "gamma": 776.2,
+  "n": 79,
+  "n_agents": 23,
+  "formula": "ctx = n * (prior_peak + alpha + gamma * n)"
+ },
+ "fixer": {
+  "reread": 105276,
+  "lo": 86128,
+  "hi": 176085,
+  "level": 0.95,
+  "n": 14,
+  "n_agents": 14,
+  "rule": "fresh fixer cost = kappa_w x (static_cc + reread); lo/hi: order-statistic interval of the median"
+ },
+ "run_interval": {
+  "level": 0.9,
+  "method": "split conformal, leave-one-agent-out log residuals",
+  "applies_to": "one run: turns M, ctx at M (a resume from its prior peak), wall = sec_per_call p50 x M",
+  "groups": {
+   "pooled": {
+    "n": 146,
+    "turns": {
+     "lo": 0.2,
+     "hi": 3.0,
+     "n": 146
+    },
+    "ctx": {
+     "lo": 0.115,
+     "hi": 4.114,
+     "n": 146
+    },
+    "wall": {
+     "lo": 0.055,
+     "hi": 31.987,
+     "n": 141
+    }
+   },
+   "analyst:fresh": {
+    "n": 11,
+    "turns": {
+     "lo": 0.5,
+     "hi": 1.833,
+     "n": 11
+    },
+    "ctx": {
+     "lo": 0.273,
+     "hi": 1.743,
+     "n": 11
+    },
+    "wall": {
+     "lo": 0.417,
+     "hi": 2.116,
+     "n": 11
+    }
+   },
+   "builder:fresh": {
+    "n": 22,
+    "turns": {
+     "lo": 0.18,
+     "hi": 8.981,
+     "n": 22
+    },
+    "ctx": {
+     "lo": 0.077,
+     "hi": 28.186,
+     "n": 22
+    },
+    "wall": {
+     "lo": 0.032,
+     "hi": 25.906,
+     "n": 22
+    }
+   },
+   "builder:resume": {
+    "n": 27,
+    "turns": {
+     "lo": 0.035,
+     "hi": 3.193,
+     "n": 27
+    },
+    "ctx": {
+     "lo": 0.023,
+     "hi": 4.732,
+     "n": 27
+    },
+    "wall": {
+     "lo": 0.011,
+     "hi": 4.391,
+     "n": 27
+    }
+   },
+   "coordinator:resume": {
+    "n": 44,
+    "turns": {
+     "lo": 0.5,
+     "hi": 3.0,
+     "n": 44
+    },
+    "ctx": {
+     "lo": 0.496,
+     "hi": 3.083,
+     "n": 44
+    },
+    "wall": {
+     "lo": 0.152,
+     "hi": 214.881,
+     "n": 41
+    }
+   },
+   "lookup:fresh": {
+    "n": 29,
+    "turns": {
+     "lo": 0.6,
+     "hi": 2.327,
+     "n": 29
+    },
+    "ctx": {
+     "lo": 0.405,
+     "hi": 4.114,
+     "n": 29
+    },
+    "wall": {
+     "lo": 0.475,
+     "hi": 6.429,
+     "n": 29
+    }
+   }
+  }
+ },
+ "refresh": {
+  "base_generated": "2026-10-02T23:48:55Z",
+  "rows": 31,
+  "sessions_collected": 1,
+  "refreshed": "2026-10-03T05:31:23Z",
+  "step": 1.5,
+  "base": "active",
+  "method": "n-weighted combination of the shipped model and fit() on runs.csv; bands combined on the log scale; each value moves at most x step per refresh"
+ }
+}
