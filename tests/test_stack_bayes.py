@@ -8,11 +8,13 @@ Tests B1-T1..T10, T12, T15..T19, S1, S2 of docs/BAYES.md A.9, the Q1 assertion o
 XDG_STATE_HOME under tmp_path, never the stack's.
 """
 import ast
+import hashlib
 import importlib.util
 import json
 import math
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -207,10 +209,12 @@ def test_B1_T1_grid_quantiles_equal_scipy_under_a_sharp_prior():
         etas, w, _ = G.lognormal_post([], [], m, 1e-6, s)
         lq, _ci = G.lognormal_quantile(etas, w, p, s, tau)
         assert math.exp(lq) == pytest.approx(ref, rel=1e-6), (m, s, tau, p)
-    try:
-        from scipy import stats
-    except ImportError:
-        return
+
+
+def test_B1_T1_embedded_references_equal_scipy_live():
+    """The embedded NB_REF / LN_REF values, recomputed with scipy where it is installed. scipy is not a
+    dependency of the tools venv (requirements/tools.in): skipped there."""
+    stats = pytest.importorskip("scipy.stats")
     for mu, a, p, ref in NB_REF:                                 # the embedded values, live
         assert 1 + int(stats.nbinom.ppf(p, a, a / (a + mu))) == ref
     for m, s, tau, p, ref in LN_REF:
@@ -269,6 +273,23 @@ def test_B1_T2_stdlib_only_and_imports_on_the_hook_interpreter():
     assert p.returncode == 0, p.stderr
     p = subprocess.run([PY, str(GRID_PY)], capture_output=True, text=True, timeout=60, check=False)
     assert p.returncode == 0 and "self-check ok" in p.stdout, p.stderr
+
+
+def test_install_stages_stack_bayes_grid():
+    """install.sh stages hooks/stack_bayes_grid.py (644) in the folder of stack_limits.py, whose _grid_mod()
+    loads it by path from there, tracks it in the manifest (STACK_SCRIPTS) and compiles it with the hook
+    modules; the redundancy lint sees it staged (3a security review F2)."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    staged = _load("bayes_stack_diff", ROOT / "lib" / "stack_diff.py").staged_files(text)
+    assert staged.get("hooks/stack_bayes_grid.py") == "dot-config/dot-claude/hooks/stack_bayes_grid.py"
+    assert staged.get("hooks/stack_limits.py") == "dot-config/dot-claude/hooks/stack_limits.py"
+    assert re.search(r'(?m)^for f in [^;\n]*\bstack_bayes_grid\.py\b[^;\n]*; do stage_script 644 "hooks/\$f"; done$', text)
+    assert '"hooks/stack_bayes_grid.py"' in re.search(r"(?s)STACK_SCRIPTS = \[(.*?)\]", text).group(1)
+    mods = re.search(r'(?m)^\s*for m in ([^;\n]+); do\n\s*if \[ -f "\$C/hooks/\$m\.py" \]', text)
+    assert mods and "stack_bayes_grid" in mods.group(1).split()
+    rl = _load("bayes_redundancy_lint", ROOT / "tests" / "redundancy_lint.py")
+    assert "stack_bayes_grid.py" in rl.installer_staged_hooks(text)
+    assert "stack_bayes_grid.py" not in [f for f, _why in rl.find_dead_hooks(ROOT)]
 
 
 # ---------------------------------------------------------------- B1-T3 hostile bayes.json
@@ -952,6 +973,15 @@ def test_rollback_drill_off_makes_the_next_session_empirical(st, monkeypatch):
 
 
 # ---------------------------------------------------------------- the fixture, main d6046693
+def test_the_fixture_matches_its_sha256sums():
+    """The frozen B1 v2 data is byte-pinned (tests/lint_agents.py exempts its model IDs for that reason):
+    SHA256SUMS lists every file of it and each one matches."""
+    want = dict(reversed(line.split("  ", 1)) for line in (FIX / "SHA256SUMS").read_text(encoding="utf-8").splitlines())
+    have = {p.relative_to(FIX).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in FIX.rglob("*")
+            if p.is_file() and p.name != "SHA256SUMS" and not p.name.startswith(".")}
+    assert have == want
+
+
 def fixture_props(mod=None, hyper=L._UNSET):
     """build_proposals over the fixture rows (main's module: mod); hyper as build_proposals' (default: read
     limits/bayes.json of the test's state through load_hyper)."""

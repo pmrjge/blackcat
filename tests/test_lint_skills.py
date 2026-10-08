@@ -103,6 +103,19 @@ def test_model_ids_equilibrium_exemption_is_narrow(tmp_path):
         "dot-config/dot-equilibrium/items/PF/manifest.jsonl:1", "dot-config/dot-equilibrium/items/RSX/a.md:1"]
 
 
+def test_model_ids_bayes_fixture_exemption_is_narrow(tmp_path):
+    """Only the frozen B1 v2 fit data (byte-pinned by its SHA256SUMS) is exempt: not another fixture, not a
+    look-alike folder, not the docs/bayes/b1v2 reference copies."""
+    for rel in ("tests/fixtures/bayes/b1v2/runs3.csv", "tests/fixtures/bayes/b1v2/state/history.jsonl",
+                "tests/fixtures/bayes/b1v3/runs.csv", "tests/fixtures/bayes/b1v2x/runs.csv", "tests/fixtures/runs.csv",
+                "docs/bayes/b1v2/out_v2/limits_compare.csv"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("3,s,a,coder,0,complete,claude-sonnet-5-5\n")
+    assert sorted(lint_agents.check_model_ids(tmp_path)) == [
+        "docs/bayes/b1v2/out_v2/limits_compare.csv:1", "tests/fixtures/bayes/b1v2x/runs.csv:1",
+        "tests/fixtures/bayes/b1v3/runs.csv:1", "tests/fixtures/runs.csv:1"]
+
+
 BAD = "model: claude-opus-5-5\n"           # a specific model ID: the model-ID check's finding
 
 

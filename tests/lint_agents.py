@@ -51,8 +51,10 @@ MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-con
                   "dot-config/dot-equilibrium/harness/tests/test_launch.py", "dot-config/dot-equilibrium/harness/tests/test_skill_tools_argv.py",
                   "dot-config/dot-equilibrium/harness/tests/mutations.py", "dot-config/dot-equilibrium/harness/tests/mutations.out"}
 # the Equilibrium RS pool: the models of past graded runs are its recorded facts and answer keys, byte-pinned in
-# dot-config/dot-equilibrium/items/RS/pool.sha256 (a frozen pool, so it cannot be edited)
-MODEL_ID_DIRS = ("dot-config/dot-equilibrium/items/RS/",)
+# dot-config/dot-equilibrium/items/RS/pool.sha256 (a frozen pool, so it cannot be edited); the frozen B1 v2 fit
+# data: each row's model is data (stack_limits.read_rows drops a row whose model is not its type's, which
+# decides the rows evidence_id hashes), byte-pinned in tests/fixtures/bayes/b1v2/SHA256SUMS (tests/test_stack_bayes.py checks it)
+MODEL_ID_DIRS = ("dot-config/dot-equilibrium/items/RS/", "tests/fixtures/bayes/b1v2/")
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, and
 # the cache-stability lint's model-ID vector, on
 # module-level constant lines only (NAME[, NAME...] = "...")

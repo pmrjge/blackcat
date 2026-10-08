@@ -210,12 +210,18 @@ def test_install_links_and_smoke_tests_before_settings_then_compiles(scratch, tm
     s_c, a_c = rows[comp[0]]
     assert smoke[-1] < comp[0] and s_c == "new", rows
     assert "--invalidation-mode timestamp" in a_c and " -f " in " %s " % a_c
-    for m in ("agent_guard", "stack_usage", "stack_limits", "stack_report", "stack_fanout", "stack_fanout_wire",
-              "read_gate", "web_caps", "stack_hook"):
+    for m in ("agent_guard", "stack_usage", "stack_limits", "stack_bayes_grid", "stack_report", "stack_fanout",
+              "stack_fanout_wire", "read_gate", "web_caps", "stack_hook"):
         assert "%s/hooks/%s.py" % (conf, m) in a_c, m
         pyc = os.path.join(conf, "hooks", "__pycache__", "%s.cpython-313.pyc" % m)
         flags = int.from_bytes(open(pyc, "rb").read()[4:8], "little")
         assert flags == 0, (m, flags)                       # 0: timestamp-checked (not a hash pyc)
+    # the installed stack_limits.py finds its grid tier beside it (_grid_mod loads it by path from there)
+    grid = ("import sys; sys.path.insert(0, sys.argv[1]); import stack_limits as L; m = L._grid_mod(); "
+            "print(m.__file__ if m else 'missing')")
+    r = subprocess.run([sys.executable, "-B", "-c", grid, os.path.join(conf, "hooks")], capture_output=True, text=True,
+                       env=dict(os.environ, XDG_STATE_HOME=str(tmp_path / "xdg-grid")), timeout=60)
+    assert r.stdout.strip() == os.path.join(conf, "hooks", "stack_bayes_grid.py"), (r.stdout, r.stderr)
     # the installed hooks run through the launcher on the link
     s = json.load(open(os.path.join(conf, "settings.json")))
     cmd = [x["command"] for g in s["hooks"]["PreToolUse"] for x in g["hooks"] if x["command"].endswith(" no-push")][0]
