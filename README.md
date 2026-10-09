@@ -1415,7 +1415,7 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | data-engineer | `DATABASE_URI` |
 | mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | data-engineer | `MDB_MCP_CONNECTION_STRING` |
 | mobilebuild | `mobilebuildmcp@2.7.1`, Sentry off | mobile-engineer | Xcode |
-| magg | `magg` 1.3.0 via `bin/magg-private` | mcp-broker | the catalog keys |
+| magg | `magg` 1.3.0 via `bin/magg-private`, backend init timeout 300 s | mcp-broker | the catalog keys |
 
 **User scope (5 remote, session-wide).** Only agents whose `tools:` line names a server can call it.
 

@@ -1223,7 +1223,7 @@ say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science
 #   STACK_INSTALL_<GROUP>=0 skips a group (DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX
 #   CXX GO LEAN), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those; LSP (jdtls) follows
 #   --with-lsp unless STACK_INSTALL_LSP is set.
-MAGG_VERSION=1.3.0                         # published 2026-09-26, before the cooldown cutoff below; reviewed bump from 1.2.1
+MAGG_VERSION=1.3.0                         # published 2026-09-26, before the cooldown cutoff below; reviewed bump from 1.2.1 (its 30 s backend init timeout is raised to 300 in agents/mcp-broker.md)
 MAGG_EXCLUDE_NEWER=2026-10-02T00:00:00Z    # dependency cooldown for magg's own requirements (today minus 7 days)
 HUETENSION_VERSION=0.3.0
 if [ "$NO_DEPS" = 1 ]; then DT_MODE=report; elif [ "$DRY_RUN" = 1 ]; then DT_MODE=dry-run; else DT_MODE=install; fi
