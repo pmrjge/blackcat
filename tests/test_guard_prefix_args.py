@@ -458,3 +458,89 @@ def test_readonly_readings_start_from_the_same_cwd(installed, monkeypatch):
     (scratch / "k").mkdir(parents=True)
     line = "cd k && echo x >! ../../../src/a.py"
     assert g.readonly_violation(line, {"cwd": str(scratch)}), line
+
+
+# a wrapper that runs a separate program (timeout N, nice -n N, sudo -u U, /usr/bin/env) makes
+# `cd`, `for` and `select` external: they move no $PWD and bind no variable in this shell, so the
+# wider command position must not note them (main never reached them there)
+@pytest.mark.parametrize("line", [
+    'timeout 30 cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'nice -n 5 cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'sudo -u root cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    '/usr/bin/env cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'read V < f; timeout 5 for V in x; rm -rf "$V/hooks"',
+    'read V < f; nice -n 5 select V in x; rm -rf "$V/hooks"',
+])
+def test_cd_and_for_behind_a_program_running_wrapper_bind_nothing(installed, line):
+    g, _, proj = installed
+    got = g.protected_write_in(line, {"cwd": str(proj)})
+    assert got and got[0] == "protect", line
+
+
+def test_cds_behind_a_wrapper_do_not_fill_the_cd_list(installed):
+    g, cfg, proj = installed
+    line = "".join("timeout 1 cd /x%d; " % k for k in range(48)) + "cd %s && rm -rf hooks" % cfg
+    got = g.protected_write_in(line, {"cwd": str(proj)})
+    assert got and got[0] == "protect"
+
+
+def test_cd_where_main_noted_it_is_still_noted(installed):
+    """`env cd DIR` / `sudo cd DIR`: main noted the cd (a relative write is also read below DIR);
+    that stays, so no line main flags is lost."""
+    g, cfg, proj = installed
+    for line in ["env cd %s && rm -rf hooks" % cfg, "sudo cd %s && rm -rf hooks" % cfg]:
+        got = g.protected_write_in(line, {"cwd": str(proj)})
+        assert got and got[0] == "protect", line
+
+
+LONG = 10000
+
+
+@pytest.mark.parametrize("chain", ["watch" + " -n" * LONG, "watch" + " -n 5" * LONG,
+                                   "flock /tmp/l" + " -w 5" * LONG, "nice" + " -n rm" * LONG,
+                                   "sudo" + " -u cp" * LONG, "env" + " -u X" * LONG,
+                                   "timeout 1 " * LONG, "arch" + " -arch rm" * LONG])
+def test_a_long_wrapper_value_chain_is_bounded_and_fails_closed(installed, chain):
+    """Each value slot is read as a command too, and watch/flock rescan from every value: a
+    chain of 10k values took quadratic time (17 s, past the deadline: no hit) where main took
+    well under a second. Now each is bounded and a hit."""
+    import time
+    g, cfg, proj = installed
+    ev = {"cwd": str(proj)}
+    for tail, check in ((" x; rm -rf %s/hooks" % cfg, lambda ln: g.protected_write_in(ln, ev)),
+                        (" x; git push", g.remote_write_in),
+                        (" x; mcp-headers exa --reveal", lambda ln: g.secrets_leak_in(ln, ev))):
+        t0 = time.monotonic()
+        got = check(chain + tail)
+        assert got and time.monotonic() - t0 < 5, (chain[:40], tail)
+
+
+@pytest.mark.parametrize("wrap", ["watch", "nice"])
+def test_too_many_runner_starts_or_wrapper_words_fail_closed(installed, wrap):
+    """Past MAX_RUNNER_STARTS rescans or MAX_WRAPPER_ARGS wrapper words a command the scan reads
+    (it names git or a write command) is refused even when harmless: nobody writes that, and
+    checking it costs quadratic time."""
+    g, _, proj = installed
+    chain = wrap + " -n 5" * 70
+    got = g.protected_write_in(chain + " touch x", {"cwd": str(proj)})
+    assert got and got[0] == "protect", wrap
+    assert g.git_push_in(chain + " echo git"), wrap
+
+
+def test_runner_start_scans_charge_the_budget(installed, monkeypatch):
+    """Each watch/flock start is a scan: it charges the budget even when its text names nothing
+    to check (the nested scan returns before its own budget test), and an exhausted budget is a
+    hit of the kind the scan reports (fail closed)."""
+    g, _, proj = installed
+    monkeypatch.setattr(g, "MAX_SCANS", 3)
+    got = g.protected_write_in("touch x; watch -n 5 -n 5 -n 5 -n 5 echo hi", {"cwd": str(proj)})
+    assert got and got[0] == "protect"
+
+
+def test_option_words_in_runner_value_slots_are_no_starts(installed):
+    """`watch -n -d -n -d ... CMD`: an option in a value slot is no command; 40 of them stay under
+    the start limit, so a harmless command passes."""
+    g, _, proj = installed
+    line = "watch" + " -n -d" * 20 + " echo git"
+    assert not g.protected_write_in(line, {"cwd": str(proj)})
+    assert not g.git_push_in(line)

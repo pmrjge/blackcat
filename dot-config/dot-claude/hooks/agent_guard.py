@@ -6622,6 +6622,12 @@ ANSI_ESC = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n"
 SUBST_MARK = "\x00S%d\x00"                            # NULs never survive into a shell command
 SUBST_MARK_RE = re.compile("\x00S(\\d+)\x00")
 MAX_NEST, MAX_SCANS, MAX_FORGE_WORDS, DEADLINE_S = 8, 2000, 12, 8.0
+MAX_RUNNER_STARTS = 32         # watch/flock command starts rescanned; more: fail closed
+BIND_LOOPS = ("for", "select")  # rebind their variable: noted only at main's command position
+MAX_WRAPPER_ARGS = 64          # wrapper words, options, values before a command word; more: fail
+                               # closed (each one is checked as a command: quadratic past that)
+MAX_SLOT_WRITERS = 1           # write commands in value slots whose operands are checked; more:
+                               # fail closed (`nice -n rm -n rm ...`: each check reads every word)
 MAX_COMMAND, MAX_HEREDOCS_PER_LINE = 1000000, 64   # characters of code (heredoc bodies apart)
 # closer -> (opener, closer) keywords, to find the compound command a heredoc on `done` feeds
 COMPOUND_OPENERS = {"done": (r"(?:while|until|for|select)", "done"), "fi": ("if", "fi"),
@@ -8139,6 +8145,13 @@ class _Scan(object):
             what = what[:197] + "..."
         return (kind, what) if kind in self.want else None
 
+    def overflow(self, what):
+        """A hit of a kind this scan reports, for a command too large to check: fail closed
+        (hit("opaque", ...) is None for the push-only, protect and secrets scans)."""
+        kind = next((k for k in ("opaque", "push", "protect", "secrets", "forge", "index",
+                                 "install") if k in self.want), None)
+        return self.hit(kind, what) if kind else None
+
     def scan(self, command, depth=0):
         """First remote write in a shell command: (kind, what), or None."""
         if not isinstance(command, str):
@@ -8234,6 +8247,12 @@ class _Scan(object):
         doc_ok = True                          # only X=1 and plain DOC_PREFIX_WORDS so far
         last_here = False                      # the previous word was at command position
         redir = False                          # the previous word was a redirection before it
+        # main_pos: main's command position (X=1, its prefix words and an option right after
+        # one). cd, pushd, for and select are noted (they move $PWD, bind a variable) only there:
+        # behind a wrapper that runs a separate program (timeout 30, nice -n 5, sudo -u u,
+        # /usr/bin/env) they bind nothing in this shell, and past a leading redirection main never
+        # noted them either. nwrap, nslot: wrapper words and value-slot write checks so far
+        main_pos, nwrap, nslot = True, 0, 0
         env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
@@ -8242,7 +8261,8 @@ class _Scan(object):
                 if w not in ("|", "|&", "(", ")"):
                     stmt_start, xargs_seen = i + 1, False
                 cmd_pos, head, wrap, wrap_val, wrap_dur = True, None, None, False, False
-                last_here, doc_ok, redir = False, True, False
+                last_here, doc_ok, redir, main_pos = False, True, False, True
+                nwrap = nslot = 0
                 continue
             base, found, end = _base(w), None, ends[i + 1]
             if "\x00" in w:                    # $(which python3) -c ...: the program it names
@@ -8257,6 +8277,9 @@ class _Scan(object):
             # a wrapper spelled by path or found at run time: /usr/bin/env, $(which timeout)
             pw = base if w != base and base in PREFIX_WORDS - SHELL_KEYWORDS else w
             prev_here, last_here = last_here, cmd_pos
+            main_here = main_pos
+            main_pos = (main_pos and (bool(ASSIGN_RE.match(w)) or w in DOC_PREFIX_WORDS or (
+                w[:1] == "-" and i > 0 and words[i - 1] in DOC_PREFIX_WORDS))) or w in EXEC_OPTS
             if cmd_pos:
                 if redir:                      # a redirection's target (`>/dev/null git-push`,
                     keep, redir = True, False  # `2>&1 rm ...`): the command word is still due
@@ -8277,6 +8300,10 @@ class _Scan(object):
                     keep, wrap_dur = True, False
             if here_cmd and head is None and not keep:
                 head = base
+            if keep and not ASSIGN_RE.match(w):
+                nwrap += 1
+                if nwrap > MAX_WRAPPER_ARGS:   # `nice -n rm -n rm ...`, `watch -n -n ...`
+                    return self.overflow("a wrapper with too many arguments to check")
             if keep and not (ASSIGN_RE.match(w) or w in DOC_PREFIX_WORDS):
                 doc_ok = False                 # an option, value, operand or other wrapper
             if not keep:
@@ -8321,14 +8348,18 @@ class _Scan(object):
                 found = self.secrets_bash_x(base, words, i + 1, end, restore)
             if not found and self.want & R2_KINDS:
                 found = _r2_scan(self, w, base, words, i, end, restore, here_cmd)
-            if "protect" in self.want and here_cmd:
+            if "protect" in self.want and here_cmd and (main_here or base not in BIND_LOOPS):
                 self.note_binders(base, words, i, end, restore)
             if not found and "protect" in self.want:
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
                 elif here_cmd and base in ("cd", "pushd"):
-                    found = self.note_cd([restore(x) for x in words[i + 1:end]])
+                    found = self.note_cd([restore(x) for x in words[i + 1:end]]) if main_here \
+                        else None
                 elif here_cmd and base in PROTECT_WRITE_CMDS:
+                    nslot += keep
+                    if nslot > MAX_SLOT_WRITERS:
+                        return self.overflow("a wrapper with too many arguments to check")
                     # the operands as given and without output redirections (`cp x <protected>
                     # >/dev/null`: /dev/null is no operand); both, as a quoted '>' lexes like
                     # the operator (`rm -r '>' <dir>`)
@@ -8385,7 +8416,12 @@ class _Scan(object):
                     found = self.shell(base, rest, depth)
                 elif lbase in STRING_RUNNERS:  # watch -n 5 'CMD', flock /tmp/l -c 'CMD'
                     starts = _wrapper_cmd_starts(lbase, rest) if lbase in ("watch", "flock") else [0]
+                    if len(starts) > MAX_RUNNER_STARTS:    # watch -n 5 -n 5 ...: fail closed
+                        return self.overflow("%s with too many arguments to check" % lbase)
                     for j in starts if rest else []:
+                        self.budget -= 1       # each start is a scan, bounded like one
+                        if self.budget < 0 or time.monotonic() > self.deadline:
+                            return self.overflow("a command too large to check in time")
                         found = found or self.scan(" ".join(rest[j:]), depth + 1)
                 elif base == "alias":
                     for x in rest:
@@ -11829,13 +11865,15 @@ def _wrapper_takes_value(wrap, opt):
 def _wrapper_cmd_starts(wrap, args):
     """Where the command may start in `args`, the words after wrapper `wrap` (watch, flock, ...):
     0, every option value (-c's string) and the first word past the wrapper's own options and
-    flock's lock file. A value is a candidate too, so a wrongly listed value fails closed."""
+    flock's lock file. A value is a candidate too, so a wrongly listed value fails closed; an
+    option in a value slot (`watch -n -n ...`) is none."""
     starts, k, val, slot = [0], 0, False, wrap in SLOT_WRAPPERS
     while k < len(args):
         a = args[k]
         if val:
             val = a[:1] == "-" and _wrapper_takes_value(wrap, a)
-            starts.append(k)
+            if a[:1] != "-" or a == "-":
+                starts.append(k)
         elif a[:1] == "-" and a != "-":
             val = _wrapper_takes_value(wrap, a)
         elif slot:                             # flock's lock file
