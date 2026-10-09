@@ -314,27 +314,48 @@ knob, so `FIXED_GUARDS` and the `FIXED_LIMIT_KNOBS` self-test are unaffected (Q2
 (neither is recorded); no valid proposals evidence id → `skipped:no-proposals`; the last *attempt* (`ok` or
 `failed:*`) had this evidence id → `skipped:same-evidence`, or is less than 6 h old → `skipped:rate` (`--force`
 skips both); an equilibrium run is live (a `<state>/<session>/eq/<run>/` without `ended.json`, phase not
-`result`/`cleaned`, written in the last 2 h; past 4096 entries: assumed live) → `skipped:eq-run`; someone holds an
-flock on `<state>/accel.lock` → `skipped:accel-lock`; no executable `<config>/venvs/tools/bin/python` →
-`skipped:no-pymc`; no `stack_bayes.py` beside it → `skipped:no-fitter`. Otherwise the child is
+`result`/`cleaned`, written in the last 2 h; past 4096 entries: assumed live) → `skipped:eq-run`; the collector
+cannot take `<state>/accel.lock` (`accel_acquire`: someone holds it, or it is not a regular file) →
+`skipped:accel-lock`; no executable `<config>/venvs/tools/bin/python` → `skipped:no-pymc`; no `stack_bayes.py`
+beside it → `skipped:no-fitter` (both release `accel.lock` at once). Otherwise the child is
 `<venv python> -I -B stack_bayes.py fit` (`-B`: `-I` ignores `PYTHONDONTWRITEBYTECODE`, and no pyc may land in
 the hooks folder), cwd `/`, its own session and process group, `nice` +10, stdin and stderr null, the
-`usage/bayes.lock` fd inherited (a fit whose collector was SIGKILLed keeps the lock until it ends, so no second
-fit starts beside it), the environment `refresh_env()` minus every `PYTENSOR*`, `NUMBA_*`, `AESARA*`, `THEANO*`
-knob plus `PYTENSOR_FLAGS=base_compiledir=<state>/bayes-cache/pytensor,cxx=,mode=NUMBA` and
+`usage/bayes.lock` and `accel.lock` fds inherited (a fit whose collector was SIGKILLed keeps both until it ends,
+so neither a second fit nor another accelerator job starts beside it), the environment `refresh_env()` minus
+every `PYTENSOR*`, `NUMBA_*`, `AESARA*`, `THEANO*` knob plus
+`PYTENSOR_FLAGS=base_compiledir=<state>/bayes-cache/pytensor,cxx=,mode=NUMBA` and
 `NUMBA_CACHE_DIR=<state>/bayes-cache/numba`; at 900 s the whole group is killed (`failed:timeout`), and so on a
 SIGTERM to the collector while it runs (`failed:signal`; the collector's own handler then stops it as before).
-A fit orphaned by a SIGKILLed collector has no 900 s cap of its own (§H). Exit codes: 0
+**The fit's own cap.** `stack_bayes.py fit` arms `alarm(FIT_TIMEOUT_S)` = 930 s (`--timeout S`, 1 to 86400)
+with SIGALRM at its default action, and disarms it on return. The kernel terminates the process whatever the
+sampler's threads are doing (a Python handler would wait for a long C call to return). While the collector
+lives, its 900 s kill comes first. A fit orphaned by a SIGKILLed collector ends itself at 930 s, and the kernel
+drops both locks with its last fd. Only the fit process is terminated: a process it started itself would
+survive. None is expected, since nutpie runs its chains as threads (unverified on a real fit, §H). Exit codes: 0
 `ok`, 3 `skipped:no-pymc` (a Bayes dependency does not import: one line, no traceback, nothing written), 4
 `skipped:no-rows` (< 10 agent rows or < 2 sessions), anything else `failed:exit <rc>`. A skip is not an attempt, so
 the next exit tries again.
 
-**`<state>/accel.lock`** is a new convention (WP3b): any long job that saturates the Mac's GPU, ANE or CPU may hold
-an flock on it for its duration; the fit only tests it (`flock_held`: open read-only without following a link,
-`LOCK_EX|LOCK_NB`, release) and never creates it. Nothing in the stack takes it today, so the check is a no-op until
-a job adopts it (rules: "one accelerator job per GPU or Mac"). Agents cannot read it from the sandbox
-(`<state>/**/*.lock` is read-denied); the collector, started by a hook rather than an agent's
-shell, is not under that sandbox (unverified on a live install).
+**`<state>/accel.lock`** is a convention (WP3b): any long job that saturates the Mac's GPU, ANE or CPU holds an
+flock on it for its duration (rules: "one accelerator job per GPU or Mac"). The Bayes fit is its first holder
+(work order step 9): 8 NUTS chains on 8 cores for about 6 minutes.
+- **How the fit takes it.** `stack_usage.accel_acquire(holder)` opens the file read-write without following a
+  link. It creates the file 0600 when absent. It opens with `O_NONBLOCK`, so a FIFO cannot block it, and takes a
+  regular file only. It then takes `LOCK_EX|LOCK_NB`. Once it holds the lock, it writes one JSON line into the
+  file: `{"holder": "bayes-fit", "pid": <the collector>, "since": <epoch>}`. The line is informative only; the
+  flock is the lock.
+- **Fail closed.** Held by anyone, or not openable as a regular file (a link, a FIFO, a directory) →
+  `skipped:accel-lock`.
+- **How long it holds it.** The collector holds the fd from the check to the end of the fit, so no gap lies
+  between test and use. The fit inherits it. The kernel drops the lock when the last fd closes, on any exit,
+  SIGKILL included, and so at the latest at the fit's own 930 s cap.
+- **Testing it.** `flock_held` (open read-only without following a link, `LOCK_EX|LOCK_NB`, release; it never
+  creates the file) tests the lock without taking it.
+- **Other jobs.** Another job adopts the convention the same way: take the flock non-blocking and skip or wait
+  while it is held.
+- **Sandbox.** Agents cannot read the lock from the sandbox (`<state>/**/*.lock` is read-denied). The
+  collector is started by a hook rather than an agent's shell, so it is not under that sandbox (unverified on a
+  live install).
 
 One record per run that got past the lock (JSON, sorted keys, one line, the last 400 kept; the reader reads the
 last 256 KiB and drops lines that do not parse to an object):
@@ -396,7 +417,8 @@ discarded.
 - **`STACK_BAYES` in the guard.** The knob is in the guard's `FIXED_LIMIT_KNOBS`. Its self-test fails when a
   `STACK_*` name in `stack_limits.FIXED_GUARDS` is missing from that list. It already failed when a listed knob
   was learnable.
-- **`accel.lock`.** Still no holder (§2.8). WP3c adds none.
+- **`accel.lock`.** WP3c added no holder. The fit itself became the first holder afterwards (§2.8, work order
+  step 9).
 
 ---
 
@@ -872,9 +894,12 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
   data collected after that fix before judging the models.
 - `drift` is written as `{}`: the rolling-PIT drift check (§2.1 rule 7) is not implemented; nothing is dropped
   for drift until it is.
-- `<state>/accel.lock` (§2.8) has no holder in the stack yet.
-- A fit orphaned by a SIGKILLed collector runs to its end without the 900 s cap (it keeps `usage/bayes.lock`,
-  so it is never doubled); a cap inside `stack_bayes.py` itself is not implemented.
+- `<state>/accel.lock` (§2.8): the Bayes fit is its only holder. No other stack job (an MLX or GPU run) takes it
+  yet. The tests prove the holder with a fake fitter, under `tmp` state (2026-10-09); a live install's
+  collector holding it is unverified.
+- A fit orphaned by a SIGKILLed collector ends itself at 930 s (`stack_bayes.py`'s own SIGALRM cap, §2.8). The
+  tests prove it with the real `main()` around a fake fit that never ends (`--timeout 3`). A process the fit
+  started itself would outlive that cap. The nutpie sampler starts none, but that is unverified on a real fit.
 - The Bayes lock pins pytensor 3.3.2 rather than the 3.3.3 the WP2 and WP3b fits ran on, because of the cooldown
   (§2.9). Re-lock on or after 2026-10-10. A fit on 3.3.2 has not been run.
 - Window and session row counts in today's live data: WP2.

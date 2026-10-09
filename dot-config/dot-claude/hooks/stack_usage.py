@@ -94,6 +94,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -1817,6 +1818,7 @@ def refresh(trigger="manual", online=False, force=False, session=None):
 BAYES_TIMEOUT_S = 900.0        # wall-clock cap of one fit (plan row 3b; WP3b: 348 s warm, 8 chains x 4000)
 BAYES_MIN_GAP_S = 6 * 3600.0   # at most one fit per 6 h, and one per evidence id (an attempt: ok or failed)
 BAYES_NICE = 10
+ACCEL_HOLDER = "bayes-fit"     # the fit's record in <state>/accel.lock while it holds it
 BAYES_REC_MAX = 400            # lines kept in usage/bayes.json.rec (one per attempt or skip)
 BAYES_REC_BYTES = 256 << 10
 EQ_LIVE_S = 2 * 3600.0         # an equilibrium run without ended.json whose store changed this recently is live
@@ -1843,8 +1845,38 @@ def bayes_rec_path():
 
 def accel_lock_path():
     """The accelerator lock: a job that uses the Mac's GPU/ANE (or this fit's CPU share) holds an flock on
-    it; the fit is skipped while anyone holds it (one accelerator job per device)."""
+    it; the fit is skipped while anyone holds it and holds it itself while it runs (one accelerator job per
+    device)."""
     return os.path.join(state_root(), "accel.lock")
+
+
+def accel_acquire(holder):
+    """Take <state>/accel.lock for a long accelerator job (docs/BAYES.md 2.8): open it read-write without
+    following a link (created 0600 when absent; O_NONBLOCK, then a regular file only, so a FIFO or device
+    neither blocks nor counts), an exclusive non-blocking flock, then the holder's record written into it
+    (one JSON line: holder, pid of the taker, since; informative only, the flock is the lock). Returns the
+    fd, or None when someone holds it or it cannot be taken (fail closed: no second accelerator job beside
+    an unknown holder). The caller closes the fd; a child it is passed to keeps the lock until it ends, and
+    the kernel drops it on any exit, SIGKILL included."""
+    try:
+        fd = os.open(accel_lock_path(), os.O_RDWR | os.O_CREAT | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0) |
+                     getattr(os, "O_CLOEXEC", 0), 0o600)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "accel.lock is not a regular file")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    try:
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, (json.dumps({"holder": str(holder)[:40], "pid": os.getpid(), "since": round(time.time(), 3)},
+                                  sort_keys=True) + "\n").encode("utf-8"), 0)
+    except OSError:
+        pass
+    return fd
 
 
 def bayes_env(root=None):
@@ -1959,8 +1991,9 @@ def _bayes_nice():
 
 def _bayes_child(cmd, env, timeout, keep_fds=()):
     """(returncode, stdout bytes, None | "timeout" | "signal"). Its own session and process group, niced;
-    the fds in keep_fds stay open in it (usage/bayes.lock: a fit whose collector was SIGKILLed keeps the
-    lock until it ends, so no second fit starts beside it). On the timeout, or a SIGTERM to this process
+    the fds in keep_fds stay open in it (usage/bayes.lock and accel.lock: a fit whose collector was SIGKILLed
+    keeps both until it ends, so neither a second fit nor another accelerator job starts beside it). On the
+    timeout, or a SIGTERM to this process
     while it runs, the whole group is killed and reaped (returncode None) and the SIGTERM handler in place
     before is called when it is a function (the collector's: stop after this exit), then restored (the
     `bayes` CLI, default handler: the fit ends recorded failed:signal and the command returns). An
@@ -2030,10 +2063,11 @@ def bayes_fit(trigger="manual", force=False, now=None):
     """Run stack_bayes.py fit (docs/BAYES.md 2: limits/bayes.json) and record the attempt in
     usage/bayes.json.rec. Skipped: STACK_BAYES=off (nothing recorded); another fit holds usage/bayes.lock
     (nothing recorded); no proposals; the same evidence id as the last attempt, or one less than
-    BAYES_MIN_GAP_S ago (unless force); an equilibrium run live or the accelerator lock held; no tools venv
-    python (skipped:no-pymc) or no stack_bayes.py. The child: `<venv python> -I -B stack_bayes.py fit`, env
-    bayes_env(), cwd /, niced, its own process group, holding the bayes.lock fd too, killed at
-    BAYES_TIMEOUT_S (failed:timeout) or on a SIGTERM to the collector (failed:signal). Only its own summary line
+    BAYES_MIN_GAP_S ago (unless force); an equilibrium run live or the accelerator lock not ours to take
+    (accel_acquire); no tools venv python (skipped:no-pymc) or no stack_bayes.py. The child: `<venv python>
+    -I -B stack_bayes.py fit`, env bayes_env(), cwd /, niced, its own process group, holding the bayes.lock
+    and accel.lock fds too, killed at BAYES_TIMEOUT_S (failed:timeout) or on a SIGTERM to the collector
+    (failed:signal); orphaned, it ends itself at stack_bayes.FIT_TIMEOUT_S. Only its own summary line
     ("bayes: ...") is kept from its output. Never raises; returns the record."""
     now = time.time() if now is None else now
     res = {"ts": round(now, 3), "trigger": str(trigger)[:40], "status": None, "rc": None, "evidence_id": None,
@@ -2066,8 +2100,16 @@ def _bayes_run(res, force, now, lock_fd=None):
             return "skipped:rate"
     if eq_run_live(now):
         return "skipped:eq-run"
-    if flock_held(accel_lock_path()):
+    accel = accel_acquire(ACCEL_HOLDER)
+    if accel is None:
         return "skipped:accel-lock"
+    try:
+        return _bayes_exec(res, tuple(fd for fd in (lock_fd, accel) if fd is not None))
+    finally:
+        os.close(accel)
+
+
+def _bayes_exec(res, keep_fds):
     py, script = bayes_python(), os.path.join(HERE, "stack_bayes.py")
     if not (os.path.isfile(py) and os.access(py, os.X_OK)):
         return "skipped:no-pymc"
@@ -2075,8 +2117,7 @@ def _bayes_run(res, force, now, lock_fd=None):
         return "skipped:no-fitter"
     t0 = time.monotonic()
     # -B: -I implies -E, so refresh_env's PYTHONDONTWRITEBYTECODE is ignored; no pycs in the hooks folder
-    rc, out, killed = _bayes_child([py, "-I", "-B", script, "fit"], bayes_env(), BAYES_TIMEOUT_S,
-                                   keep_fds=() if lock_fd is None else (lock_fd,))
+    rc, out, killed = _bayes_child([py, "-I", "-B", script, "fit"], bayes_env(), BAYES_TIMEOUT_S, keep_fds=keep_fds)
     res["rc"], res["secs"] = rc, round(time.monotonic() - t0, 1)
     lines = [ln for ln in out.decode("utf-8", "replace").splitlines() if SUMMARY_RE.match(ln)]
     res["summary"] = lines[-1] if lines else None
