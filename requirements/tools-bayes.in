@@ -3,8 +3,9 @@
 # -c requirements/tools.txt, so every package the two locks share has the same pin. Pins: the prototype's lock
 # (docs/bayes/b1v2/fit_prototype.py.lock, also WP2's fit), re-checked at lock time (2026-10-09): pytensor is
 # 3.3.2, not the prototype's 3.3.3, which was published 2026-10-02T14:13Z, inside the 7-day cooldown (pymc
-# 6.3.2 asks pytensor>=3.2.2,<3.4); re-lock to 3.3.3 on or after 2026-10-10. Without this lock
-# stack_usage.bayes_fit records skipped:no-pymc.
+# 6.3.2 asks pytensor>=3.2.2,<3.4); re-lock to 3.3.3 on or after 2026-10-10
+# (re-checked at the 2026-10-09 re-lock on the new tools.txt, 13:58Z: 15 minutes short of 7 days; the cutoff is
+# 2026-10-02T00:00:00Z). Without this lock stack_usage.bayes_fit records skipped:no-pymc.
 -r tools.in
 pymc==6.3.2                 # hooks/stack_bayes.py
 pytensor==3.3.2             # hooks/stack_bayes.py

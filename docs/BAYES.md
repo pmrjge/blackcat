@@ -369,10 +369,11 @@ discarded.
     `fit_id` hashes the versions, so a refit on another version gets a new id.
 - **Vulnerability scan.** pip-audit 2.10.1 on 2026-10-09, run through `uvx` (uv's cache only, nothing
   installed into the stack). It used the PyPI advisory feed, because the sandbox refused `api.osv.dev`.
-  - Result: 76 packages; no advisory for a Bayes package or for anything only the Bayes packages pull in.
-  - Two advisories for `pyjwt` 2.14.0: PYSEC-2026-4141 / CVE-2026-101918 and PYSEC-2026-4183 /
-    CVE-2026-102275, both fixed in 2.15.0. `tools.txt` pins this version (via `mcp`), and the same scan flags
-    it there. The fix is to re-lock `tools.txt`, then this lock.
+  - Result: 76 packages; no known vulnerability, in this lock or in `tools.txt`.
+  - History: the first lock (on the older `tools.txt`) carried `pyjwt` 2.14.0 (via `mcp`), with two advisories,
+    PYSEC-2026-4141 / CVE-2026-101918 and PYSEC-2026-4183 / CVE-2026-102275, fixed in 2.15.0. The re-lock on the
+    merged relock-tools `tools.txt` (same cutoff) moved the 6 shared pins that changed (cryptography 50.0.2,
+    pyjwt 2.15.1, python-dotenv 1.2.4, sse-starlette 3.5.0, starlette 1.7.0, uvicorn 0.54.0) and cleared them.
 - **Shadow only.** Nothing installs these packages by default, and installing them changes no limit:
   `STACK_BAYES` defaults to `shadow` (§3.1) and `BAYES_LIVE` is empty (§3.2). With the packages present, the
   collector's fits write `limits/bayes.json`, which feeds only `bayes-shadow` records.
@@ -876,8 +877,6 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
   so it is never doubled); a cap inside `stack_bayes.py` itself is not implemented.
 - The Bayes lock pins pytensor 3.3.2 rather than the 3.3.3 the WP2 and WP3b fits ran on, because of the cooldown
   (§2.9). Re-lock on or after 2026-10-10. A fit on 3.3.2 has not been run.
-- `pyjwt` 2.14.0 in `tools.txt`, and so in the Bayes lock, has two advisories that 2.15.0 fixes (§2.9). The fix
-  is to re-lock `tools.txt` (outside WP3c).
 - Window and session row counts in today's live data: WP2.
 - The clustered check per stratum and the randomized PIT of censored rows: need a refit (WP2/WP5).
 - Turns and ctx fits were not bit-reproducible across processes with the same seed in v2 (§2). B1-T11 on the frozen

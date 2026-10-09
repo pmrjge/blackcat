@@ -34,9 +34,9 @@ changes. Before an extra's `.txt` ships, scan it (below) and record the result i
 ### tools-bayes (`./install.sh --with-bayes`, docs/BAYES.md §2.9)
 The detached Bayes fitter's dependencies (`hooks/stack_bayes.py`: pymc, pytensor, nutpie, arviz, scipy) on top
 of the tools venv. Opt-in and shadow-only: nothing installs it by default, and installing it changes no limit
-(`STACK_BAYES` defaults to `shadow`, `BAYES_LIVE` is empty). Lock (2026-10-09, cutoff 2026-10-02):
+(`STACK_BAYES` defaults to `shadow`, `BAYES_LIVE` is empty). Lock (2026-10-09, cutoff 2026-10-02; re-locked the same day on the relock-tools `tools.txt`; re-lock whenever `tools.txt` changes):
 
-    uv pip compile requirements/tools-bayes.in -c requirements/tools.txt -o requirements/tools-bayes.txt --generate-hashes --python-version 3.13 --python-platform aarch64-apple-darwin --only-binary :all: --exclude-newer 2026-10-02T00:00:00Z
+    uv pip compile requirements/tools-bayes.in -c requirements/tools.txt -o requirements/tools-bayes.txt --generate-hashes --python-version 3.13 --python-platform aarch64-apple-darwin --only-binary :all: --exclude-newer 2026-10-02T00:00:00Z --upgrade
 
 Pins equal the prototype's lock (`docs/bayes/b1v2/fit_prototype.py.lock`) except pytensor 3.3.2 for 3.3.3
 (published 2026-10-02T14:13Z, inside the cooldown; `tools-bayes.in` says when to re-lock).
@@ -45,7 +45,7 @@ the PyPI advisory feed):
 
     uvx --exclude-newer 2026-10-02T00:00:00Z pip-audit -r requirements/tools-bayes.txt --require-hashes --disable-pip -s pypi
 
-2026-10-09, pip-audit 2.10.1: 76 packages, none of the Bayes packages or their own dependencies flagged; 2
-advisories in `pyjwt` 2.14.0 (PYSEC-2026-4141 / CVE-2026-101918, PYSEC-2026-4183 / CVE-2026-102275, fixed in
-2.15.0), which comes from `tools.txt` (via `mcp`) and is flagged there too: fixed by re-locking `tools.txt`
-(pyjwt 2.15.1, published 2026-09-28), then this file.
+2026-10-09, pip-audit 2.10.1, after the re-lock on the relock-tools `tools.txt`: 76 packages, no known
+vulnerability (`tools.txt` alone: none either). The earlier lock carried `pyjwt` 2.14.0 (2 advisories, PYSEC-2026-4141
+/ PYSEC-2026-4183); the re-lock moved it to 2.15.1 with the other 5 shared pins that changed (cryptography,
+python-dotenv, sse-starlette, starlette, uvicorn), all equal to `tools.txt`.
