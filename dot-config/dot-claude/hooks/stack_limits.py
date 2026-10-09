@@ -1377,6 +1377,8 @@ def _norm_block(blk, unit):
         _bad("block qtab.x")
     if not isinstance(blk.get("at_bound"), bool):
         _bad("block at_bound")
+    if not blk["at_bound"] and max([T, Traw, pi[1]] + x) >= cap:
+        _bad("block at the cap without at_bound")        # the writer clamps there and flags it (WP3b)
     cnt = {k: blk.get(k) for k in ("n", "n_cens", "agents", "sessions")}
     if not all(_count(v) for v in cnt.values()) or cnt["n_cens"] > cnt["n"]:
         _bad("block counts")

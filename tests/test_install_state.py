@@ -291,6 +291,8 @@ def test_tools_venv_lock_covers_the_stack_imports():
     norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()  # noqa: E731
     dist = {"PIL": "pillow"}
     left_out = {"claude-agent-sdk"}       # inside the cooldown at the last lock (requirements/README.md)
+    # opt-in extras (requirements/README.md): a file's imports may come from its own lock's input instead
+    extras = {"dot-config/dot-claude/hooks/stack_bayes.py": "tools-bayes.in"}
     dirs = ["dot-config/dot-claude/bin", "dot-config/dot-claude/mcp", "dot-config/dot-claude/hooks", "lib", "tests"]
     files = [os.path.join(ROOT, d, f) for d in dirs for f in sorted(os.listdir(os.path.join(ROOT, d)))
              if f.endswith(".py")]
@@ -310,8 +312,12 @@ def test_tools_venv_lock_covers_the_stack_imports():
     names = lambda text: {norm(m.group(1)) for m in re.finditer(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)", text)}  # noqa: E731
     tin = open(os.path.join(req, "tools.in"), encoding="utf-8").read()
     have = names(tin)
-    missing = {k: sorted(v) for k, v in need.items() if k not in have | left_out}
+    extra_have = {f: names(open(os.path.join(req, inf), encoding="utf-8").read()) for f, inf in extras.items()}
+    missing = {k: sorted(v) for k, v in need.items()
+               if k not in have | left_out and not all(k in extra_have.get(f, ()) for f in v)}
     assert not missing, missing
+    for inf in set(extras.values()):        # an extra's lock builds on the tools venv, never replaces it
+        assert open(os.path.join(req, inf), encoding="utf-8").read().count("\n-r tools.in\n") == 1
     txt = open(os.path.join(req, "tools.txt"), encoding="utf-8").read()
     sci = open(os.path.join(req, "sci.txt"), encoding="utf-8").read()
     cmd = txt.splitlines()[1]

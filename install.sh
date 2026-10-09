@@ -1544,9 +1544,10 @@ stage_script 644 hooks/toolsmith_policy.py
 # scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
 # two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
 # guard reads; its seed: the floors, ceilings and starting values; stack_bayes_grid.py: the Bayes grid
-# tier stack_limits.py loads by path from beside it)
+# tier stack_limits.py loads by path from beside it; stack_bayes.py: the detached Bayes fitter the
+# collector runs at its exit with the tools venv's python, skipped without the opt-in Bayes lock)
 for f in stack_usage.py stack_sched.py stack_limits.py stack_fanout.py; do stage_script 755 "hooks/$f"; done
-for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fanout_wire.py stack_bayes_grid.py; do stage_script 644 "hooks/$f"; done
+for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fanout_wire.py stack_bayes_grid.py stack_bayes.py; do stage_script 644 "hooks/$f"; done
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$SNAP_ROOT/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
@@ -2181,7 +2182,7 @@ for rel in skills_replaced:
 STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/output_shrink.py", "hooks/stack_report.py", "hooks/stack_progress.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_bayes_grid.py", "hooks/stack_fanout.py",
-                 "hooks/stack_fanout_wire.py",
+                 "hooks/stack_fanout_wire.py", "hooks/stack_bayes.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree", "bin/stack-run",

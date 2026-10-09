@@ -1,0 +1,10 @@
+# The opt-in Bayes lock (requirements/README.md "Extras"; plan row 3c compiles tools-bayes.txt from this file with
+# the tools command and wires install.sh --with-bayes): the tools venv plus what hooks/stack_bayes.py, the
+# detached fitter, imports. Pins: the prototype's lock (docs/bayes/b1v2/fit_prototype.py.lock, also WP2's fit),
+# re-checked at lock time. Without it stack_usage.bayes_fit records skipped:no-pymc.
+-r tools.in
+pymc==6.3.2                 # hooks/stack_bayes.py
+pytensor==3.3.3             # hooks/stack_bayes.py
+nutpie==0.16.11             # hooks/stack_bayes.py (pm.sample nuts_sampler="nutpie")
+arviz==1.3.0                # hooks/stack_bayes.py
+scipy==1.18.1               # hooks/stack_bayes.py

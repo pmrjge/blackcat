@@ -113,8 +113,17 @@ nodes, for the NB; analytic for the log-normal), and the resume mix at the windo
 | `eq-n-1` (M7) | eq member-subset scores | §D | N*, rounds* |
 | `stop-logit-1` (M8) | early-stop windows | §F | report |
 
-`h4` = v2's `h3` hierarchy plus the regime term. Sampler: 4 chains × 3000 draws after 2000 tuning, target_accept
-0.98, seed recorded (T4a LOW fix: v2 §7.2's "2000 / 1500" is replaced).
+`h4` = v2's `h3` hierarchy plus the regime term. Sampler (`stack_bayes.py` `CHAINS`, `DRAWS`, `TUNE`): nutpie NUTS,
+8 chains × 4000 draws after 2000 tuning, `cores=8`, target_accept 0.98, seed 20261003, all recorded in
+`sampler` (T4a LOW fix: v2 §7.2's "2000 / 1500" is replaced). Why 8 × 4000: the quantity gate's MCSE(T)/T ≤ 2 %
+(A.4) binds at the extreme quantiles. On the WP2 copy (2026-10-09; 975 agent rows, 20 sessions) the hard.agent
+blocks above 2 % were 46/57 at 4 × 3000 (WP2), 10/57 at 8 × 3000 (median 1.86 %) and 1/57 at 8 × 4000 (median
+1.65 %); soft.agent 0/57 at both 8-chain settings. Wall time 276 s vs 348 s (§H). Cost of more draws: the model
+gate's `divergences == 0` is stricter on more draws (turns and ctx each had 2 divergences in 24000 draws and 3 in
+32000, about the same rate).
+
+WP3b fits `turns-nb2s-h4`, `ctx-ln-h4` and the other M3 models but not `tool_calls-nb2s-h4`: nothing reads it (no
+§2.1 variable and no §2.2 key comes from it), and it took 113–116 s of WP2's NUTS time.
 
 ---
 
@@ -126,7 +135,7 @@ All under `<state>`; the state directory is sandbox `denyWrite` for agents. Writ
 | file | writer | reader | when |
 |---|---|---|---|
 | `limits/bayes.json` | `stack_bayes.py` (WP3b, venv, detached) | `stack_limits.load_bayes`, `load_hyper` (WP3a); `stack_sched_refresh.load_bayes_sched` (WP4) | written after `propose()` at collector exit; read at SessionStart apply |
-| `usage/bayes.json.rec` | `stack_usage.bayes_fit` (WP3b) | `stack_limits.py show`, doctor | one record per fit attempt |
+| `usage/bayes.json.rec` | `stack_usage.bayes_fit` (WP3b) | `bayes_fit` (rate limit), `stack_usage.py status`; doctor (WP3c) | one record per fit attempt or skip past the lock (§2.8) |
 | `limits/advice.json` | `stack_bayes.py --advice` (WP7c) | `stack_fanout` report and shadow term, `stack-budget plan` | after a width fit or a prior-only build |
 | `limits/proposals.json` | `stack_limits.propose` | apply | gains `bayes` blocks and two top-level keys (§2.3) |
 | `limits/live.json` | apply | apply, `show` | schema 2 (§2.4) |
@@ -144,7 +153,7 @@ All under `<state>`; the state directory is sandbox `denyWrite` for agents. Writ
  "fit_id": "<16 hex>",                      # sha256(evidence_id, sorted model ids, sampler seed, versions)[:16]
  "risk": {"soft.agent": 0.1, "soft.prompt": 0.1, "soft.session": 0.1, "turns": 0.02,
           "hard.agent": 0.01, "hard.prompt": 0.01, "hard.session": 0.01},
- "sampler": {"seed": 20261003, "chains": 4, "draws": 3000, "tune": 2000, "target_accept": 0.98},
+ "sampler": {"seed": 20261003, "chains": 8, "draws": 4000, "tune": 2000, "target_accept": 0.98},
  "versions": {"python": "3.13.x", "pymc": "...", "pytensor": "...", "nutpie": "...", "arviz": "...",
               "numpy": "...", "scipy": "...", "pandas": "..."},
  "data": {"rows": 320, "files": {"runs3.csv": "<64 hex>", ...}},
@@ -156,7 +165,8 @@ All under `<state>`; the state directory is sandbox `denyWrite` for agents. Writ
  "hyper": {"turns": {"tau_t": f, "tau_new": f, "rho": f, "p_resume": f,
                      "types": {"<type>": {"mu": f, "scale": f}}},
            "ctx":   {...same keys...}},
- "drift": {"<family>": {"ks_p": f, "sessions": int, "breach": false}},   # rolling PIT, last 5 sessions
+ "drift": {"<family>": {"ks_p": f, "sessions": int, "breach": false}},   # rolling PIT, last 5 sessions;
+                                            # WP3b writes {} (no drift check yet, §H)
  "vars": {"<var>": <block>},
  "sched": <sched block> | null}
 ```
@@ -192,7 +202,13 @@ Validation (`load_bayes(seed, evidence_id)`, all or nothing unless stated):
    `shrink` in [−10, 1] or null; `diag` values and counts ≥ 0. Every other number of a block (`T`, `T_raw`, `pi90`,
    `qtab.x`) lies in [0, CTX_MAX] for ctx variables and [0, TURNS_MAX] for turns variables. `qtab.p` equals
    `QTAB_P`; `qtab.x` has 8 entries, is non-decreasing and > 0; `pi90[0] ≤ pi90[1]`; `n_cens ≤ n`; counts are
-   non-negative ints.
+   non-negative ints. **At the cap:** a block whose `T`, `T_raw`, `pi90[1]` or any `qtab.x` reaches the range's
+   upper end (CTX_MAX, TURNS_MAX) must carry `at_bound: true`, else the whole file is dropped (`_norm_block`).
+   The writer clamps there instead of failing: the ctx predictives of sparse types pass CTX_MAX = 1e10 (WP2), so
+   `stack_bayes.make_block` clamps T, T_raw, pi90 and qtab.x to [0, cap] and sets `at_bound` when any value was
+   past it. A turns quantile beyond the type's sweep (max(400, 4 × its ceiling), at most KMAX 5000 < TURNS_MAX)
+   is reported at the sweep's end with `at_bound: true` and `mcse_rel: null`, so it fails the quantity gate
+   (rule 5): such a T would act as the ceiling (A.2 L1), never as a learned value.
 5. Per-block acceptance (a failing block is dropped, the file kept): `tier == "nuts"`, `risk == RISK[family]`, the
    block's `model` names a model whose gate passes (rule 6), and the **quantity gate**: `rhat ≤ 1.01`,
    `ess_bulk ≥ 400`, `ess_tail ≥ 400`, `mcse_rel ≤ 0.02` (any of them missing or null fails).
@@ -288,6 +304,50 @@ fixed-guard name (`is_fixed_guard`) or other name drops the whole file; every `w
 static cap the reader computes for that type (`STACK_MAX_FANOUT` / `DEFAULT_FANOUT_BY_TYPE`, `agent_guard.py:1214,
 1463`) and `w_max ≤ 16`; integers ≥ 1; probabilities in [0, 1]; finite numbers. advice.json is a file, never an env
 knob, so `FIXED_GUARDS` and the `FIXED_LIMIT_KNOBS` self-test are unaffected (Q2).
+
+### 2.8 The fit run and `usage/bayes.json.rec` (WP3b)
+
+`stack_usage.bayes_fit(trigger, force=False)` runs at a collector's exit (`session end`, `owner gone`, `idle`) after
+`propose_limits()` and before the scheduler `refresh()`, and by hand as `stack_usage.py bayes [--force]`. In order:
+`STACK_BAYES=off` → `skipped:off`; another fit holds `usage/bayes.lock` (non-blocking flock) → `skipped:locked`
+(neither is recorded); no valid proposals evidence id → `skipped:no-proposals`; the last *attempt* (`ok` or
+`failed:*`) had this evidence id → `skipped:same-evidence`, or is less than 6 h old → `skipped:rate` (`--force`
+skips both); an equilibrium run is live (a `<state>/<session>/eq/<run>/` without `ended.json`, phase not
+`result`/`cleaned`, written in the last 2 h; past 4096 entries: assumed live) → `skipped:eq-run`; someone holds an
+flock on `<state>/accel.lock` → `skipped:accel-lock`; no executable `<config>/venvs/tools/bin/python` →
+`skipped:no-pymc`; no `stack_bayes.py` beside it → `skipped:no-fitter`. Otherwise the child is
+`<venv python> -I stack_bayes.py fit`, cwd `/`, its own session and process group, `nice` +10, stdin and stderr
+null, the environment `refresh_env()` minus every `PYTENSOR*`, `NUMBA_*`, `AESARA*`, `THEANO*` knob plus
+`PYTENSOR_FLAGS=base_compiledir=<state>/bayes-cache/pytensor,cxx=,mode=NUMBA` and
+`NUMBA_CACHE_DIR=<state>/bayes-cache/numba`; at 900 s the whole group is killed (`failed:timeout`). Exit codes: 0
+`ok`, 3 `skipped:no-pymc` (a Bayes dependency does not import: one line, no traceback, nothing written), 4
+`skipped:no-rows` (< 10 agent rows or < 2 sessions), anything else `failed:exit <rc>`. A skip is not an attempt, so
+the next exit tries again.
+
+**`<state>/accel.lock`** is a new convention (WP3b): any long job that saturates the Mac's GPU, ANE or CPU may hold
+an flock on it for its duration; the fit only tests it (`flock_held`: open read-only without following a link,
+`LOCK_EX|LOCK_NB`, release) and never creates it. Nothing in the stack takes it today, so the check is a no-op until
+a job adopts it (rules: "one accelerator job per GPU or Mac"). Agents cannot read it from the sandbox
+(`<state>/**/*.lock` is read-denied); the collector, started by a hook rather than an agent's
+shell, is not under that sandbox (unverified on a live install).
+
+One record per run that got past the lock (JSON, sorted keys, one line, the last 400 kept; the reader reads the
+last 256 KiB and drops lines that do not parse to an object):
+
+```
+{"ts": 1791504000.0,                       # epoch seconds, 3 decimals
+ "trigger": "session end",                 # the collector's reason or "manual", ≤ 40 chars
+ "status": "ok" | "skipped:<why>" | "failed:timeout" | "failed:exit <rc>",
+ "rc": 0 | null,                           # null: timeout or not run
+ "evidence_id": "<64 hex>" | null,
+ "secs": 347.8 | null,                     # child wall time
+ "summary": "bayes: fit <fit_id> rows … accepted … total_s …" | null,   # the child's last "bayes: " line, ≤ 288 chars
+ "fit_id": "<16 hex>" | null,              # ok only: from the bayes.json just written
+ "gates": {"<model id>": true, ...} | null}  # ok only: stack_limits.model_gate recomputed from diag
+```
+
+`stack_usage.py status` ends with "last bayes fit: <the last record's status>". The child's other output is
+discarded.
 
 ---
 
@@ -400,6 +460,17 @@ A censored row contributes log P(Y ≥ y_obs). Per row and family (turns, ctx), 
   z_s with one session, z_g with one regime) are excluded by name (`CONSTANT_BY_CONSTRUCTION`); any other NaN R-hat or
   ESS fails the gate (T4a fix 4).
 - Quantity gate (per variable, over the per-draw T): R-hat ≤ 1.01, bulk/tail ESS ≥ 400, MCSE(T)/T ≤ 0.02.
+  **MCSE(T) by the delta method** (`stack_bayes.delta_mcse`): T solves F̄(T) = 1 − r with F̄ the mean over the
+  posterior draws d of the per-draw predictive CDF F_d, so MCSE(T) = MCSE(mean_d F_d(T)) / f̄(T), f̄ the mean
+  predictive density at T (log scale for the log-normal, so the ratio is already MCSE(T)/T; for the NB the pmf of
+  T's step, F_d interpolated linearly within it, and the result divided by T_raw). MCSE of that mean = sd / √ESS,
+  ESS the split-chain autocorrelation ESS of F_d(T) over every chain and draw (Geyer's initial monotone sequence,
+  as arviz's `ess(method="mean")`, equal to it to 1e-9 in the tests). It replaces WP2's batch means over 20
+  batches, whose own noise moved blocks across the 2 % gate between two runs with one seed; an iid sd/√N would
+  ignore the autocorrelation (an AR(1) chain with φ = 0.8 carries (1 − φ)/(1 + φ) = 1/9 of its draws' information).
+  A T with no positive density (a turns T past the sweep, §2.1 rule 4) has `mcse_rel: null`. Calibrated by
+  replication: over independent autocorrelated posteriors the spread of T matches the mean
+  predicted MCSE within [0.75, 1.33] for an NB 0.98 and a log-normal 0.9 quantile (`tests/test_stack_bayes_fit.py`).
 - Grid tier gate: edge mass < 1e-3 in the two edge cells, and the hyperparameters come from a bayes.json whose model
   gate passed and whose `seed_sha` matches (§2.1 `load_hyper`).
 - Support (appended to v2 §6, T4a fix 1): a soft-family Bayes value whose own sample fails `support()` (n ≥ 5 from
@@ -503,7 +574,7 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 | B1-T8 | step bound: with random valid blocks, \|x − c\| ≤ 0.25 d c before the clamp, values in [f, g], invariants hold (kills "step bound removed") |
 | B1-T9 | U4: rewriting bayes.json mid-session changes nothing a running session reads; a new sid applies it once; proposals without `b`/`bayes` keys equal today's; proposals for the five scope variables (A.8 item 13) carry no `bayes` key |
 | B1-T10 | provenance: snapshot `prov` is hashed and `agent_guard.read_limits_snapshot` returns ok; migration 1 → 2 keeps `live.v1.json`. A schema-1 live.json with a learned (non-seed) value, loaded twice by `load_live_locked`, keeps that value, and no `live.invalid-*` file appears |
-| B1-T11 | determinism of the fitter: same data and seed → identical bayes.json except `generated` for spc, static_cc, tool_calls, ctx_ab; turns/ctx within a tolerance set empirically (v2: not bit-reproducible across processes); the gate never relies on bit reproducibility |
+| B1-T11 | determinism of the fitter: same data and seed → identical bayes.json except `generated` for spc, static_cc, ctx_ab; turns/ctx within a tolerance set empirically (v2: not bit-reproducible across processes); the gate never relies on bit reproducibility |
 | B1-T12 | latency: apply_and_snapshot p95 ≤ 300 ms with 176 blocks |
 | B1-T13 | refresh: with a valid sched block `stack_sched_refresh` writes a model `stack_sched.load_model` accepts, method `bayes`; without it, output byte-equal to today's (WP4) |
 | B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y), 1); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current) |
@@ -737,8 +808,25 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
 
 ## H. Open and unverified
 
-- NUTS-only fit time against the 900 s timeout (v2's 1069 s includes the backtest and LOO): WP2 measures it.
+- Fit time against the 900 s timeout (v2's 1069 s includes the backtest and LOO). **Measured:** WP2 (4 × 3000,
+  with tool_calls): NUTS only 302.9 s cold, 267.1 s warm; 497 s in-process cold with the post-processing. WP3b's
+  `stack_bayes.py` on the same copy (8 chains on 8 cores, no tool_calls, warm compile cache, 2026-10-09):
+  8 × 3000 NUTS 156 s, post-processing 107 s, 276 s wall, 1069 MiB peak RSS; 8 × 4000 (shipped) NUTS 182 s,
+  post-processing 148 s, 348 s wall, 1248 MiB. The proposer window caps the data at 20 sessions, so the margin
+  (2.6×) shrinks only with rows per session.
+- **No block accepted on today's data.** At 8 × 3000 and 8 × 4000 the turns and ctx models each had 2–3
+  divergences, so both model gates fail and 0 of 171 blocks pass (WP2 at 4 × 3000: 0 for ctx, 1–2 for turns), and
+  148 of 171 blocks are `at_bound`. The data is censored by a collector defect (719 of 975 turns rows and 728 of 975
+  ctx rows censored; fixed on branch `fix/turn-limited`, not yet merged). The gates are not loosened; refit on
+  data collected after that fix before judging the models.
+- `drift` is written as `{}`: the rolling-PIT drift check (§2.1 rule 7) is not implemented; nothing is dropped
+  for drift until it is.
+- `<state>/accel.lock` (§2.8) has no holder in the stack yet.
 - Window and session row counts in today's live data: WP2.
 - The clustered check per stratum and the randomized PIT of censored rows: need a refit (WP2/WP5).
-- Turns and ctx fits are not bit-reproducible across processes with the same seed (v2 §2): B1-T11 sets the tolerance.
+- Turns and ctx fits were not bit-reproducible across processes with the same seed in v2 (§2). B1-T11 on the frozen
+  fixture (2026-10-09; WP2's environment, nutpie, 4 × 1000, two processes on one machine): the two bayes.json files
+  were identical apart from `generated` (171 blocks, 139 with an MCSE). The test keeps a tolerance of 5 combined
+  MCSEs on T for turns and ctx, since another machine or library build may still differ; the gates never rely on
+  bit reproducibility.
 - The limits in force at past sessions are approximated by that day's seed in the censoring proxy (rows 6 only).
