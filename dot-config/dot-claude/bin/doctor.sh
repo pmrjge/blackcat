@@ -142,6 +142,43 @@ PY
 }
 bayes_line
 # <<< bayes line
+# >>> sdk line (SDK-3; tests/test_sdk_doctor.py runs this block alone)
+# bin/stack_sdk.py is optional (nothing loads it), so nothing here FAILs. The lock is checked offline (`uv lock
+# --check`: no network, nothing written); the bundled CLI version is read as text from the script's uv
+# environment (never imported or run), and only once that environment exists (its first run creates it).
+sdk_line(){
+  local s="$C/bin/stack_sdk.py" pin uvb sys lock py got ver bun
+  if [ ! -f "$s" ]; then warn "sdk: bin/stack_sdk.py missing — rerun install.sh"; return 0; fi
+  pin=$(sed -n 's/^# dependencies = \["claude-agent-sdk==\([0-9][0-9A-Za-z.]*\)"\]$/\1/p' "$s" | head -n 1)
+  [ -n "$pin" ] || { warn "sdk: no claude-agent-sdk==<version> pin in bin/stack_sdk.py — rerun install.sh"; return 0; }
+  sys=$(claude --version 2>/dev/null </dev/null | awk '{print $1}')
+  uvb=$(command -v uv 2>/dev/null || { [ -x "$HOME/.local/bin/uv" ] && echo "$HOME/.local/bin/uv"; })
+  if [ -z "$uvb" ]; then warn "sdk: pin $pin, uv missing (the helper runs through uv run --script)"; return 0; fi
+  if [ ! -f "$s.lock" ]; then lock="lock missing"
+  elif "$uvb" lock --script "$s" --check --offline >/dev/null 2>&1 </dev/null; then lock="lock ok"
+  else lock="lock stale"; fi
+  bun="? (no environment yet: the first run creates it)"
+  py=$("$uvb" python find --script "$s" --offline 2>/dev/null </dev/null)
+  case "$py" in
+    */environments-v2/*/bin/python*)
+      got=$("$py" -I -B -c 'import importlib.metadata as md, importlib.util as u, os, re
+s = u.find_spec("claude_agent_sdk")
+d = os.path.dirname(s.origin) if s and s.origin else None
+try:
+    m = re.search(r"__cli_version__\s*=\s*[\x27\"]([0-9][0-9A-Za-z.+-]*)[\x27\"]", open(os.path.join(d, "_cli_version.py")).read())
+    print(md.version("claude-agent-sdk"), m.group(1) if m else "?")
+except Exception:
+    print("? ?")' 2>/dev/null </dev/null)
+      ver=${got%% *}; bun=${got#* }
+      if [ -z "$got" ] || [ "$ver" = "?" ]; then bun="? (its environment could not be read)"
+      elif [ "$ver" != "$pin" ]; then bun="? (its environment holds ${ver:-?}: the next run re-syncs it to $pin)"
+      else bun="v$bun"; fi ;;
+  esac
+  got="sdk: pin $pin, $lock, uv ok, cli system ${sys:+v}${sys:-none on PATH (Session needs it)} / bundled $bun"
+  case "$lock" in "lock ok") ok "$got" ;; *) warn "$got — rerun install.sh" ;; esac
+}
+sdk_line
+# <<< sdk line
 for f in with-stack-env mcp-headers magg-private claude-ultracode; do [ -x "$C/bin/$f" ] && ok "bin/$f" || fail "bin/$f missing or not executable — rerun install.sh"; done
 for n in claude-ninja; do
   if [ "$(readlink "$HOME/.local/bin/$n" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then

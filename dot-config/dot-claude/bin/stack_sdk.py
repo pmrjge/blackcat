@@ -5,8 +5,8 @@
 # [tool.uv]
 # exclude-newer = "2026-10-02T00:00:00Z"
 # ///
-"""claude-agent-stack for Agent SDK apps (optional; nothing loads it). The repo copy is hash-locked by
-stack_sdk.py.lock (`uv run --locked --script`); install.sh does not stage the lock yet (SDK-3).
+"""claude-agent-stack for Agent SDK apps (optional; nothing loads it). Hash-locked by stack_sdk.py.lock
+beside it (`uv run --locked --script`; install.sh stages both, doctor.sh checks the lock offline).
 Session: the supported path (ClaudeSDKClient). It connects, checks that the stack loaded before any prompt
 (StackNotLoaded: the agents, the SessionStart hooks, agent_guard's session-start marker), answers permission
 requests through one host (none: unattended, deny by default, stops at the plan; tty; an app callable),
@@ -596,8 +596,8 @@ class Session:
     host: "none" (default; unattended: --permission-prompts none, ExitPlanMode denied and, under plan,
     every builder agent and Workflow; budget_usd required; deadline_s 3600), "tty", or a callable
     can_use_tool(tool, input, context). cli: None (the `claude` on PATH), "bundled" or a path. The rest
-    goes to options(). `client` is the raw ClaudeSDKClient, an escape hatch: its stop_task leaves the
-    guard's record live (guard release unverified, D9)."""
+    goes to options(). `client` is the raw ClaudeSDKClient, an escape hatch: its stop_task fires no hook;
+    agent_guard releases the child at the next Agent/SendMessage from meta.json stoppedByUser (reap_host_stopped)."""
 
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
                  deadline_s=None, cli=None, config_dir=None, forward_subagent_text=False, transport=None,

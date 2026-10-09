@@ -1557,6 +1557,8 @@ for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$SNAP_ROOT/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
+# the Agent SDK helper's hash lock (`uv lock --script`): beside it, uv run --script resolves from it; doctor.sh checks it
+stage_script 644 "bin/stack_sdk.py.lock"
 stage_script 755 "bin/stack-who"
 # builds and tests with their output in a log (imports hooks/output_shrink.py for the masker and the lines)
 stage_script 755 "bin/stack-run"
@@ -2189,7 +2191,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_bayes_grid.py", "hooks/stack_fanout.py",
                  "hooks/stack_fanout_wire.py", "hooks/stack_bayes.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
-                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack_sdk.py.lock", "bin/stack-budget",
                  "bin/stack-tree", "bin/stack-run",
                  "bin/stack-who", "bin/stack-install", "hooks/toolsmith_policy.py",
                  "hooks/eq_core.py", "hooks/eq_policy.py", "hooks/eq_cli.py", "hooks/eq_isolation.py", "hooks/eq_guard.py",

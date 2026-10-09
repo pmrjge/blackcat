@@ -687,3 +687,30 @@ def test_eq_manifest_keys_survive_a_later_plain_install(tmp_path):
     with open(mpath, encoding="utf-8") as f:
         after = json.load(f)
     assert {k: after.get(k) for k in keys} == keys
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
+    os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
+def test_install_stages_the_sdk_lock_beside_the_helper(tmp_path):
+    """SDK-3: bin/stack_sdk.py.lock is installed byte-identical beside bin/stack_sdk.py (0644, tracked in the
+    manifest), so `uv run --script` resolves the installed helper from its hash lock, and the lock still
+    matches the installed script (uv lock --check, offline, when uv is there)."""
+    import hashlib
+    import shutil
+    import subprocess
+    home = str(tmp_path / "home")
+    os.makedirs(home)
+    conf = os.path.join(home, ".claude")
+    repo = _scratch_repo(str(tmp_path / "repo"))
+    _install(repo, home, conf, "--yes")
+    src = os.path.join(ROOT, "dot-config", "dot-claude", "bin", "stack_sdk.py.lock")
+    dst = os.path.join(conf, "bin", "stack_sdk.py.lock")
+    assert _read(dst) == _read(src) and (os.stat(dst).st_mode & 0o777) == 0o644
+    with open(os.path.join(conf, ".stack-manifest.json"), encoding="utf-8") as f:
+        files = json.load(f)["files"]
+    assert files["bin/stack_sdk.py.lock"] == hashlib.sha256(_read(src)).hexdigest()
+    uv = shutil.which("uv")
+    if uv:
+        p = subprocess.run([uv, "lock", "--script", os.path.join(conf, "bin", "stack_sdk.py"), "--check", "--offline"],
+                           capture_output=True, text=True, timeout=120, check=False)
+        assert p.returncode == 0, p.stderr[-800:]

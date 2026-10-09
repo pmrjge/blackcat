@@ -38,15 +38,18 @@ STACK_USAGE_COLLECT=0. The next
 SessionStart or SubagentStart of the session starts it again; offsets are persisted, so nothing is
 read twice and nothing is lost. Every exit path fails silently: a hook never fails because of it.
 Upgrade hand-off: a `start` that finds the lock held by a running collector of an older schema (its
-collector.json has no `schema`, or a lower one) sends it SIGTERM (final scan, exit, no propose) and
+collector.json has no `schema`, or a lower one) or of fewer columns (no `cols`, or fewer: an older collector
+would set aside a runs3.csv of this header) sends it SIGTERM (final scan, exit, no propose) and
 spawns a successor that waits up to HANDOFF_WAIT_S for the lock, then reads the session again from
 the start in this schema; its rows win (last row per key), the older rows stay (append-only).
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
-  usage/runs3.csv             segment rows (COLUMNS_V3, schema 3), append-only under usage/runs3.lock
+  usage/runs3.csv             segment rows (COLUMNS, schema 3), append-only under usage/runs3.lock
                               (fcntl), header line, last row per (session, id, seg) wins
   usage/runs3.1.csv           the archive: rows rotated out of runs3.csv (STACK_USAGE_MAX_BYTES); a
-                              runs3.csv of another header is set aside as runs3.old-schema-<epoch>.csv,
+                              runs3.csv of an older header (HEADERS) is merged into it at the next append,
+                              one of another header is set aside as runs3.old-schema-<epoch>.csv (one an
+                              older collector set aside, of a header this code reads, is merged back),
                               one rotation cannot read (a line the csv module refuses, a NUL, bad UTF-8)
                               as runs3[.1].unreadable-<epoch>.csv, byte for byte
   usage/runs2.csv, runs2.1.csv  the v2 history (COLUMNS_V2, no `model`: read as unknown), and
@@ -76,6 +79,10 @@ prompt-windows.jsonl, else the transcripts (the window's own context plus every 
 timestamped in it). The session row (id `session`, seg 0, written by every final scan, an idle exit's
 too): ctx is the guard's budget total (else the transcripts' sum), input/output/cache_*/api_calls the
 transcripts' totals, hit_* its session-scope firings.
+
+`entrypoint` (schema 3, SDK-3): Claude Code's `entrypoint` of the session (cli, sdk-py, ...), the first valid one
+on the main transcript's lines (the probe PR11: an SDK session's lines carry sdk-py), on every row of the session;
+empty when the transcript has none (an older CLI) or before its first line. A Bayes regime covariate.
 
 `model` (schema 3): the `message.model` of the segment's API calls, one id when they all agree,
 `mixed` when they do not, empty when none was reported (a `<synthetic>` line is no model). The
@@ -117,10 +124,13 @@ COLUMNS_V2 = (COLUMNS_V1
               + ["task", "stack_commit", "src"])                                                 # U
 COLUMNS_V3 = COLUMNS_V2 + ["model"]
 EQ_COLS = ["eq_run", "eq_role"]     # an equilibrium agent's run and role (guard registry): schema 3 stays, the
-COLUMNS = COLUMNS_V3 + EQ_COLS      # two cells are empty for every other agent and in rows written before them
+COLUMNS_EQ = COLUMNS_V3 + EQ_COLS   # two cells are empty for every other agent and in rows written before them
+ENTRY_COLS = ["entrypoint"]         # the session's entrypoint (transcripts; SDK-3): schema 3 stays, empty when unknown
+COLUMNS = COLUMNS_EQ + ENTRY_COLS
+HEADERS = (COLUMNS, COLUMNS_EQ, COLUMNS_V3)   # every runs3 header this collector reads; the first is the one it writes
 EMPTY_ROW = {c: "" for c in COLUMNS}         # an unmeasured field is an empty cell, never 0
 STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
-                  "stack_commit", "src", "model", "eq_run", "eq_role")      # every other column is a number (or empty)
+                  "stack_commit", "src", "model", "eq_run", "eq_role", "entrypoint")   # the rest: numbers (or empty)
 REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
@@ -162,6 +172,9 @@ NODE_HEAD_RE = re.compile(r"^\s*([A-Z]{1,3}[0-9]{1,3}[a-z]?)(?![A-Za-z0-9_])")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 EQ_RUN_RE = re.compile(r"^[0-9a-f]{8}\Z")
 EQ_ROLES = ("leader", "member")
+# Claude Code's `entrypoint` on transcript lines (cli, sdk-py, sdk-ts, claude-vscode, ...): a short lowercase word
+ENTRYPOINT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}\Z")
+ENTRY_HEAD = 256 << 10    # bytes of the main transcript read for an entrypoint when the state predates the column
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
 TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
@@ -273,7 +286,7 @@ def new_agent(main=False):
     windows (seg = window index) and which keeps the human prompts' times (and promptIds) in `humans`."""
     return {"off": 0, "ino": None, "type": None, "nseg": 0, "cur": None, "last_kind": None, "last_evt": None,
             "win": {}, "prev": None, "prev_tl": False, "emitted": {}, "meta": None, "main": bool(main),
-            "humans": [],
+            "humans": [], "ep": "",
             # wv: tot/wc/wp were kept since offset 0 (a state of an earlier collector lacks them: the
             # session row's sums and the transcript window_ctx stay empty for it). tot: the context-token
             # fields and API calls of every segment ([in, out, cc, cr, calls]); wc: a subagent's context
@@ -529,6 +542,8 @@ def feed_main_line(a, line, out):
         return
     if not isinstance(r, dict):
         return
+    if not a.get("ep") and valid_entrypoint(r.get("entrypoint")):
+        a["ep"] = r["entrypoint"]      # the session's first one: a resumed transcript keeps its own
     t = r.get("type")
     if t == "assistant":
         feed_line(a, line, out)
@@ -548,6 +563,27 @@ def feed_main_line(a, line, out):
         if k < len(a["humans"]) and a["humans"][k] == ent:
             return                      # the same prompt record written twice (a resumed transcript replays it)
         a["humans"].insert(k, ent)
+
+
+def valid_entrypoint(v):
+    return isinstance(v, str) and bool(ENTRYPOINT_RE.match(v))
+
+
+def head_entrypoint(path):
+    """The first valid `entrypoint` among the first ENTRY_HEAD bytes of a transcript; "" when none."""
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(ENTRY_HEAD)
+    except OSError:
+        return ""
+    for line in data.split(b"\n")[:-1]:
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and valid_entrypoint(r.get("entrypoint")):
+            return r["entrypoint"]
+    return ""
 
 
 def _status_code(cur, status, tl, end):
@@ -942,7 +978,10 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
     main_out, main_backlog = [], False
     if stt is not None:
         ma = st["main"] = _fresh(ma, stt, True)
+        if "ep" not in ma:               # the state of a collector from before the column: read the head once
+            ma["ep"] = head_entrypoint(mpath)
         g, live = settle(ma, mpath, stt, feed_main_line, main_out)
+        base["entrypoint"] = ma["ep"]     # every row of the session: subagents run in the same process
         main_backlog = bool(st["more"])
         grew = grew or g
         cr = current_row(ma, live)
@@ -1104,19 +1143,19 @@ def file_schemas(path):
 
 
 def _header_ok(path):
-    """Whether the file's first line is COLUMNS' header or the one before the eq_* columns (bytes: a
-    bad byte further down is no error)."""
-    return _header_of(path) in (COLUMNS, COLUMNS_V3)
+    """Whether the file's first line is one of HEADERS: COLUMNS', the one before `entrypoint` or the one before
+    the eq_* columns (bytes: a bad byte further down is no error)."""
+    return _header_of(path) is not None
 
 
 def _header_of(path):
-    """The file's header as COLUMNS or COLUMNS_V3 when it is one of them, else None (also unreadable)."""
+    """The file's header as the HEADERS entry it is, else None (also unreadable)."""
     try:
         with open(path, "rb") as fh:
             line = fh.readline(1 << 16).rstrip(b"\r\n")
     except OSError:
         return None
-    for cols in (COLUMNS, COLUMNS_V3):
+    for cols in HEADERS:
         if line == ",".join(cols).encode("ascii"):
             return cols
     return None
@@ -1156,25 +1195,40 @@ def _rotate_if_needed(cur, old):
     line the csv module refuses, a NUL or bad UTF-8 (or, for the archive, another header or no read
     access) is set aside intact as runs3[.1].unreadable-<epoch>.csv, never rewritten from the rows
     ahead of that line; an unreadable runs3.csv then starts again empty, an unreadable archive is
-    rebuilt from runs3.csv alone. Only runs3*.csv is ever touched. Called under runs3.lock."""
+    rebuilt from runs3.csv alone. Only runs3*.csv is ever touched. Called under runs3.lock.
+    Strays: an older collector still running after an install (another session's: the hand-off retires
+    only the starting session's own) sets aside a runs3.csv of today's header as runs3.old-schema-<epoch>.csv,
+    which no reader reads. Every such file whose header this code reads (HEADERS) is merged in here, at the
+    next append, the newer last_ts winning per key, and deleted once the archive holding its rows is in place."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
     except OSError:
-        return
+        size = 0
     if size and not _header_ok(cur):
         _set_aside(cur)
         return
-    legacy = size and _header_of(cur) == COLUMNS_V3      # no eq_* columns: merged now, the new file has them
-    if cap <= 0 or (size <= cap and not legacy):
+    strays = _strays(cur)
+    legacy = size and _header_of(cur) != COLUMNS     # an older header: merged now, the new file has every column
+    if cap <= 0 or (size <= cap and not legacy and not strays):
         return
     if os.path.lexists(old) and not _header_ok(old):
         _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs3.csv's
     rows = _read_strict(old) or {}
-    new = _read_strict(cur)
+    merged = []
+    for p in strays:
+        got = _read_strict(p)            # unreadable: renamed <stray>.unreadable-<epoch>.csv, which STRAY_NAME_RE
+                                         # no longer matches (it is never read again), and never deleted
+        if got is not None:
+            _merge_newer(rows, got)
+            merged.append(p)
+    new = _read_strict(cur) if size else {}
     if new is None:
         return
-    rows.update(new)                       # the last row of a key wins, as read_rows([old, cur])
+    if merged:
+        _merge_newer(rows, new)
+    else:
+        rows.update(new)                   # the last row of a key wins, as read_rows([old, cur])
     by_session = {}
     for k, r in rows.items():
         by_session.setdefault(k[0], []).append(r)
@@ -1204,7 +1258,38 @@ def _rotate_if_needed(cur, old):
         fh.write(buf.getvalue())
     os.chmod(tmp, 0o600)
     os.replace(tmp, old)
-    os.unlink(cur)
+    for p in ([cur] if size else []) + merged:
+        os.unlink(p)
+
+
+STRAY_NAME_RE = re.compile(r"\.old-schema-\d+(?:-\d+)?\.csv\Z")   # _set_aside's names, nothing appended to them
+
+
+def _strays(cur):
+    """The runs3.old-schema-<epoch>[-<n>].csv files beside runs3.csv whose header is one of HEADERS, oldest first
+    (a stray set aside again as unreadable is no longer one)."""
+    base = os.path.splitext(cur)[0] + ".old-schema-"
+    return sorted((p for p in glob.glob(glob.escape(base) + "*.csv")
+                   if STRAY_NAME_RE.search(os.path.basename(p)) and _header_ok(p)), key=_mtime)
+
+
+def _mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0.0
+
+
+def _merge_newer(rows, new):
+    """rows.update(new), except that a row of `new` replaces one of `rows` only when its last_ts is not older."""
+    def ts(r):
+        try:
+            return float(r.get("last_ts") or 0)
+        except ValueError:
+            return 0.0
+    for k, r in new.items():
+        if k not in rows or ts(r) >= ts(rows[k]):
+            rows[k] = r
 
 
 def valid_cell(col, v):
@@ -1233,6 +1318,8 @@ def valid_cell(col, v):
         return bool(EQ_RUN_RE.match(v))
     if col == "eq_role":
         return v in EQ_ROLES
+    if col == "entrypoint":
+        return bool(ENTRYPOINT_RE.match(v))
     return True
 
 
@@ -1248,7 +1335,12 @@ def append_rows(rows):
     with Locked(os.path.join(usage_dir(), APPEND_LOCK), wait=APPEND_LOCK_WAIT_S) as lk:
         if not lk.ok:            # scan_once reloads its state: the rows are derived again next tick
             raise TimeoutError(APPEND_LOCK + " busy")
-        _rotate_if_needed(cur, old)
+        try:
+            _rotate_if_needed(cur, old)
+        except OSError as exc:           # a rename or rewrite that fails never stops the recording
+            sys.stderr.write("stack_usage: rotation skipped (%s)\n" % type(exc).__name__)
+            if os.path.exists(cur) and os.path.getsize(cur) and _header_of(cur) is None:
+                raise                    # a foreign runs3.csv not set aside takes no rows: retried next tick
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
         cols = COLUMNS if new else (_header_of(cur) or COLUMNS)    # a legacy file kept by cap <= 0 stays legacy
@@ -1553,7 +1645,7 @@ def run(sid, folder, owner=None, poll=None, idle=None, wait_lock=None):
             lstart = info[2] if info else None
         started = time.time()
         meta = {"pid": os.getpid(), "owner": owner, "started": round(started, 3), "heartbeat": round(started, 3),
-                "rows": 0, "exited": None, "reason": None, "schema": SCHEMA_VERSION}
+                "rows": 0, "exited": None, "reason": None, "schema": SCHEMA_VERSION, "cols": len(COLUMNS)}
         write_json_atomic(os.path.join(sd, "collector.json"), meta)
         try:
             prune_sessions(sid)
@@ -1642,7 +1734,8 @@ def retire_older_collector(sd, sid):
     an install the session's running collector may write an older schema (no `model`: an /override-agent
     run typed now would read as unknown and be learned from). It gets SIGTERM (its final scan, then exit
     with reason "signal": no propose, no refresh; the successor does both at its own exit) when
-    collector.json says it is one of an older schema (no `schema`, or a lower one), still running
+    collector.json says it is one of an older schema (no `schema`, or a lower one) or of fewer columns (no
+    `cols`, or fewer: its rotation would set aside a runs3.csv of today's header as old-schema), still running
     (`exited` unset, heartbeat at most HANDOFF_FRESH_S old, pid alive) and, where ps can be run, the pid
     runs this session's `stack_usage.py run`. Without ps (a sandbox) the lock is the proof: its holder
     writes collector.json as soon as it takes it and the heartbeat every 30 s, so a fresh, unexited meta
@@ -1650,8 +1743,9 @@ def retire_older_collector(sd, sid):
     meta = read_json(os.path.join(sd, "collector.json"))
     if not isinstance(meta, dict):
         return False
-    schema = _num(meta.get("schema"))
-    if schema is not None and schema >= SCHEMA_VERSION:
+    schema, cols = _num(meta.get("schema")), _num(meta.get("cols"))
+    if schema is not None and (schema > SCHEMA_VERSION or (
+            schema == SCHEMA_VERSION and cols is not None and cols >= len(COLUMNS))):
         return False                              # ours, or a newer one: never stopped by older code
     if meta.get("exited") is not None:
         return False                              # it is letting go already (or the meta is stale)

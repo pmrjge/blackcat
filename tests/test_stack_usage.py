@@ -24,7 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
-USAGE_PY = HOOKS / "stack_usage.py"
+USAGE_PY = Path(os.environ.get("USAGE_PY") or HOOKS / "stack_usage.py")     # a copy: tests/sdk3_mutations.py
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 SID = "11111111-2222-3333-4444-555555555555"
 
@@ -1567,7 +1567,8 @@ def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_
         (dict(live, exited=now), None),                               # it has let go
         (dict(live, heartbeat=now - U.HANDOFF_FRESH_S - 5), None),    # stale: hung, or a crashed one's
         (dict(live, heartbeat=float("nan")), None), (dict(live, heartbeat=now + 3600), None),
-        (dict(live, schema=U.SCHEMA_VERSION), None), (dict(live, schema=U.SCHEMA_VERSION + 1), None),
+        (dict(live, schema=U.SCHEMA_VERSION, cols=len(U.COLUMNS)), None),
+        (dict(live, schema=U.SCHEMA_VERSION + 1), None),
         (live, "sleep 120"),                                          # ps: not a collector
         (live, other),                                                # ps: another session's collector
     ]
@@ -1584,7 +1585,7 @@ def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_
     with U.Locked(str(sd / "collector.lock"), nb=True):
         assert U.hook_start(event(tmp_path), owner=owner.pid) == "running" and spawned == []
     # ps confirms this session's collector (schema 2 in its meta, or none): signalled, successor spawned
-    for meta in (dict(live, schema=2), live):
+    for meta in (dict(live, schema=2), live, dict(live, schema=U.SCHEMA_VERSION)):     # SDK-3: no `cols`
         victim = subprocess.Popen(["sleep", "120"])
         monkeypatch.setattr(U, "proc_args", lambda pid: mine)
         (sd / "collector.json").write_text(json.dumps(dict(meta, pid=victim.pid)))
@@ -1597,7 +1598,7 @@ def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_
     (sd / "collector.json").write_text(json.dumps(dict(live, pid=victim.pid)))
     with U.Locked(str(sd / "collector.lock"), nb=True):
         assert U.hook_start(event(tmp_path), owner=owner.pid) == "handed off"
-    assert victim.wait(timeout=5) == -signal.SIGTERM and len(spawned) == 3 and owner.poll() is None
+    assert victim.wait(timeout=5) == -signal.SIGTERM and len(spawned) == 4 and owner.poll() is None
 
 
 def test_a_successor_waits_for_the_lock_and_then_runs(st, tmp_path):
@@ -1846,3 +1847,199 @@ def test_sched_refresh_adds_the_repo_tests_dir_only_in_the_repo_layout(tmp_path)
         assert r.returncode == 0, r.stderr
         added = {p for p in json.loads(out.read_text()) if p.startswith(str(base))}
         assert added == {str(hooks)} | ({str(want_tests)} if want_tests else set()), added
+
+
+# ---------------------------------------------------------------- SDK-3: the entrypoint column
+ENTRY_REV = "6b563cd1"        # main before the entrypoint column (the collector of COLUMNS_EQ, no `cols` in its meta)
+
+
+def ep(r, value):
+    return dict(r, entrypoint=value)
+
+
+def test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session(st, tmp_path):
+    """Probe PR11: an SDK session's transcript lines carry entrypoint sdk-py. Every row of the session (prompt
+    windows, subagent segments, the session row) gets the main transcript's first valid value; a later
+    different one (a resume through another entrypoint) and an invalid one change nothing."""
+    write_main(tmp_path, [ep(human_(0, "pid-0"), "Bad Value!"), ep(call("m1", 1), "sdk-py"),
+                          ep(human_(10, "pid-1"), "cli"), ep(call("m2", 11), "cli")])
+    write_agent(subdir(tmp_path), "w1", [ep(user("go", 2), "sdk-py"), ep(call("w1", 3, tool=False), "sdk-py")])
+    rows = {k: r for k, r in scan_final(tmp_path).items() if k[0] == SID}
+    assert {k[1] for k in rows} == {"main", "w1", "session"} and len(rows) == 4
+    assert {r["entrypoint"] for r in rows.values()} == {"sdk-py"}
+    line = next(ln for ln in (st / "usage" / "runs3.csv").read_text().splitlines() if ",w1," in ln)
+    assert line.endswith(",sdk-py") and (st / "usage" / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+
+
+def test_without_an_entrypoint_every_other_cell_is_byte_equal(st, tmp_path):
+    """SDK-3 done-when: no entrypoint on the transcripts -> the row is the earlier columns' bytes plus one empty
+    cell; COLUMNS is COLUMNS_EQ plus `entrypoint`, appended last."""
+    write_main(tmp_path, [human_(0, "pid-0"), call("m1", 1)])
+    write_agent(subdir(tmp_path), "w1", [user("go", 2), call("w1", 3, tool=False)])
+    scan_final(tmp_path)
+    assert U.COLUMNS == U.COLUMNS_EQ + ["entrypoint"] and U.HEADERS[0] == U.COLUMNS
+    lines = (st / "usage" / "runs3.csv").read_text().splitlines()
+    rows = list(csv.DictReader(io.StringIO("\n".join(lines))))
+    assert len(rows) == 3 and all(r["entrypoint"] == "" for r in rows)
+    for ln, r in zip(lines[1:], rows):
+        assert ln == ",".join(r[c] for c in U.COLUMNS_EQ) + ","
+
+
+def test_entrypoint_cell_validated_on_write_and_read(st):
+    U.append_rows([row3(id="e1", entrypoint="sdk-py"), row3(id="e2", entrypoint="x,y"),
+                   row3(id="e3", entrypoint="A"), row3(id="e4", entrypoint="a" * 33)])
+    r = U.read_rows()
+    assert [r[(SID, "e%d" % i, 0)]["entrypoint"] for i in (1, 2, 3, 4)] == ["sdk-py", "", "", ""]
+
+
+@pytest.mark.parametrize("header", ["COLUMNS_EQ", "COLUMNS_V3"])
+def test_an_older_runs3_header_is_merged_not_set_aside(st, tmp_path, header):
+    u = st / "usage"
+    u.mkdir(parents=True)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=getattr(U, header), extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerow(row3(id="old1", api_calls=4))
+    (u / "runs3.csv").write_text(buf.getvalue())
+    U.append_rows([row3(id="new1", entrypoint="sdk-py")])
+    assert not list(u.glob("runs3.old-schema*"))
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    r = U.read_rows()
+    assert r[(SID, "old1", 0)]["api_calls"] == "4" and r[(SID, "old1", 0)]["entrypoint"] == ""
+    assert r[(SID, "new1", 0)]["entrypoint"] == "sdk-py"
+
+
+def test_a_handed_off_state_reads_the_entrypoint_from_the_transcript_head(st, tmp_path):
+    """A successor that continues an older collector's state.json (no `ep`: its offsets are past the first
+    lines) reads the main transcript's head once."""
+    write_main(tmp_path, [ep(human_(0, "pid-0"), "sdk-cli"), ep(call("m1", 1), "sdk-cli")])
+    sd = U.session_dir(SID)
+    U.scan_once(SID, str(subdir(tmp_path)), final=False)
+    state = json.loads((Path(sd) / "state.json").read_text())
+    state["main"].pop("ep")
+    (Path(sd) / "state.json").write_text(json.dumps(state))
+    with open(tmp_path / "projects" / "p" / (SID + ".jsonl"), "a") as fh:
+        fh.write(json.dumps(human_(10, "pid-1")) + "\n" + json.dumps(call("m2", 11)) + "\n")
+    assert scan_final(tmp_path)[(SID, "main", 1)]["entrypoint"] == "sdk-cli"
+
+
+def test_a_collector_without_the_column_count_is_retired(st, tmp_path, owner, reap):
+    """The hand-off covers a column added within schema 3: the collector of ENTRY_REV (no `cols` in its
+    collector.json) is stopped by the next start hook, its successor writes the entrypoint, and a collector of
+    today's columns is left alone."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % ENTRY_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (ENTRY_REV, p.stderr.strip()[:80]))
+    old = tmp_path / "eq" / "stack_usage.py"
+    old.parent.mkdir()
+    old.write_text(p.stdout)
+    for f in ("stack_io.py",):
+        (old.parent / f).write_bytes((HOOKS / f).read_bytes())
+    write_main(tmp_path, [ep(human_(0, "pid-0"), "sdk-py"), ep(call("m1", 1), "sdk-py")])
+    sub = subdir(tmp_path)
+    write_agent(sub, "u1", [user("go", 0), call("a1", 1, tool=False)], atype="scout")
+    c = subprocess.Popen([PY, str(old), "run", "--session", SID, "--subagents", str(sub), "--owner-pid",
+                          str(owner.pid)], env=env_for(tmp_path), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert wait(lambda: lock_held(st) and (st / "usage" / "runs3.csv").exists())
+    assert "cols" not in collector_meta(st) and collector_meta(st)["schema"] == U.SCHEMA_VERSION
+    assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
+    assert c.wait(timeout=20) == 0
+    assert wait(lambda: collector_meta(st).get("cols") == len(U.COLUMNS), timeout=30)
+    with open(tmp_path / "projects" / "p" / (SID + ".jsonl"), "a") as fh:
+        fh.write(json.dumps(ep(human_(10, "pid-1"), "sdk-py")) + "\n" + json.dumps(ep(call("m2", 11), "sdk-py")) + "\n")
+    assert wait(lambda: rows_by_key().get((SID, "main", 1), {}).get("entrypoint") == "sdk-py", timeout=30)
+    pid = collector_meta(st)["pid"]
+    assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
+    time.sleep(0.5)
+    assert collector_meta(st)["pid"] == pid and lock_held(st)
+
+
+def test_an_older_collector_of_another_session_hides_no_rows(st, tmp_path):
+    """Review (code-review MEDIUM): the hand-off retires only the starting session's collector, so an older
+    (ENTRY_REV) collector of another session sets today's runs3.csv aside as runs3.old-schema-<epoch>.csv, which
+    no reader reads. The next append of this code merges it back (newer last_ts wins) and deletes it."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % ENTRY_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (ENTRY_REV, p.stderr.strip()[:80]))
+    d = tmp_path / "old"
+    d.mkdir()
+    (d / "stack_usage.py").write_text(p.stdout)
+    (d / "stack_io.py").write_bytes((HOOKS / "stack_io.py").read_bytes())
+    OLD = _load("stack_usage_entry_rev", d / "stack_usage.py")
+    u = st / "usage"
+    U.append_rows([row3(id="new1", entrypoint="sdk-py", last_ts="100"), row3(id="k", api_calls=1, last_ts="50")])
+    OLD.append_rows([dict(row3(id="old1", last_ts="60"), session="22222222-2222-3333-4444-555555555555"),
+                   row3(id="k", api_calls=2, last_ts="40")])                 # an older row of a key: loses
+    assert list(u.glob("runs3.old-schema-*.csv"))                            # the older code set ours aside
+    U.append_rows([row3(id="new2", last_ts="200")])
+    r = U.read_rows()
+    assert r[(SID, "new1", 0)]["entrypoint"] == "sdk-py" and (SID, "new2", 0) in r
+    assert ("22222222-2222-3333-4444-555555555555", "old1", 0) in r and r[(SID, "k", 0)]["api_calls"] == "1"
+    assert not list(u.glob("runs3.old-schema-*.csv"))                        # merged, then deleted
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+
+
+def test_a_stray_of_an_unknown_header_is_never_merged_or_deleted(st):
+    u = st / "usage"
+    u.mkdir(parents=True)
+    (u / "runs3.old-schema-1.csv").write_text("schema_version,session,future_col\n3,x,y\n")
+    U.append_rows([row3(id="a1")])
+    assert (u / "runs3.old-schema-1.csv").read_text() == "schema_version,session,future_col\n3,x,y\n"
+
+
+def test_an_unreadable_stray_is_set_aside_once(st):
+    """Review round 2 (HIGH): a stray the strict reader refuses is renamed ...unreadable-<epoch>.csv; that name must
+    stop being a stray, or every append renames it again until the name is too long and appending fails."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerow(row3(id="s1"))
+    (u / "runs3.old-schema-123.csv").write_text(buf.getvalue() + "3,\x00bad,line\n")
+    for i in range(15):
+        U.append_rows([row3(id="r%d" % i)])
+    aside = [p.name for p in u.iterdir() if "old-schema" in p.name]
+    assert len(aside) == 1 and aside[0].count("unreadable") == 1, aside
+    r = U.read_rows()
+    assert all((SID, "r%d" % i, 0) in r for i in range(15))
+
+
+def test_a_rotation_that_fails_never_stops_the_append(st, monkeypatch):
+    def boom(cur, old):
+        raise OSError(36, "File name too long")
+    monkeypatch.setattr(U, "_rotate_if_needed", boom)
+    U.append_rows([row3(id="z1")])
+    assert (SID, "z1", 0) in U.read_rows()
+
+
+def test_an_unreadable_stray_is_set_aside_once_and_appends_go_on(st):
+    """Security re-review (HIGH): the reviewer's case, a valid header and a NUL line, 14 appends."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    (u / "runs3.old-schema-123.csv").write_bytes((",".join(U.COLUMNS) + "\n").encode() + b"3,\x00bad\n")
+    for i in range(14):
+        U.append_rows([row3(id="q%d" % i)])
+    aside = [p.name for p in u.iterdir() if "old-schema" in p.name]
+    assert len(aside) == 1 and aside[0].count(".unreadable-") == 1, aside
+    r = U.read_rows()
+    assert all((SID, "q%d" % i, 0) in r for i in range(14))
+
+
+def test_rows_never_land_under_a_foreign_header(st, monkeypatch):
+    """Security re-check 3 (LOW): a runs3.csv of a header this code does not read, which could not be set aside,
+    takes no rows (retried next tick)."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    text = "schema_version,session,future_col\n3,x,y\n"
+    (u / "runs3.csv").write_text(text)
+
+    def deny(*a, **k):
+        raise OSError(13, "Permission denied")
+    monkeypatch.setattr(U.os, "replace", deny)
+    with pytest.raises(OSError):
+        U.append_rows([row3(id="f1")])
+    assert (u / "runs3.csv").read_text() == text

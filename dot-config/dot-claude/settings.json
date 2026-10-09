@@ -635,7 +635,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent|Task|SubAgent|Workflow|RunWorkflow",
+        "matcher": "Agent|Task|SubAgent|Workflow|RunWorkflow|Skill",
         "hooks": [
           {
             "type": "command",

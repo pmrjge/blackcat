@@ -1259,6 +1259,16 @@ mode you pick in that dialog, and agents dispatched afterwards inherit it. Shift
 any time: Plan is where a session starts, not a lock. The sandbox, the deny rules and the guard's hooks
 apply in every mode.
 
+While a caller is in Plan the guard refuses builders (agents that run in their own `acceptEdits`), every
+Workflow, skills that fork into a builder or into an agent not named exactly (when the guard can read the
+skill's definition: user, project up to the repository root, installed plugins; `--add-dir` and nested
+`<subdir>/.claude/skills` ones are covered only by a backstop that stops such a child at its first tool call;
+the managed skills folder is not read: [CONFIG.md](CONFIG.md) §5 lists the known gaps), and resumes of
+finished builders, for
+every caller (BlackCat, a `claude-ultracode` main thread, a subagent). Planning agents (planner, explore,
+scout, reviewers) still run.
+A main thread without ExitPlanMode leaves Plan with Shift+Tab or `--permission-mode acceptEdits`.
+
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
 | Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 46 agents that write files (`permissionMode: acceptEdits`) |
