@@ -101,6 +101,44 @@ def test_no_push_and_session_start_need_no_terminal(env):
                     **SDK_ENV) is None                     # default: no output, prompt unchanged
 
 
+# ---------------------------------------------------------------- D17: the guard's session-start marker
+@pytest.mark.parametrize("policy", ["on", "off"])
+def test_session_start_marker_on_every_source_and_policy(env, policy):
+    for src in ("startup", "resume", "clear", "compact", "fork"):
+        s, t0 = sid(), __import__("time").time()
+        out = hook({"session_id": s, "hook_event_name": "SessionStart", "source": src}, env,
+                   STACK_POLICY=policy)
+        assert out is None                                  # nothing on stdout: the prompt is unchanged
+        p = Path(env["XDG_STATE_HOME"]) / "claude-agent-stack" / s / "session-start.json"
+        m = json.loads(p.read_text())
+        assert m.keys() == {"v", "ts", "source", "policy"} and (m["v"], m["source"]) == (1, src)
+        assert m["policy"] is (policy == "on") and t0 - 1 <= m["ts"] <= __import__("time").time() + 1
+        assert p.stat().st_mode & 0o777 == 0o600
+    s = sid()                                               # a subagent's SessionStart writes none
+    hook({"session_id": s, "hook_event_name": "SessionStart", "source": "startup", "agent_id": "a1"}, env)
+    assert not (Path(env["XDG_STATE_HOME"]) / "claude-agent-stack" / s / "session-start.json").exists()
+
+
+def test_session_start_marker_failure_keeps_the_output(env, monkeypatch, capsys):
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("STACK_REPORT_FORMAT", "json")
+    real = guard.write_json_atomic
+
+    def boom(path, obj, *a, **k):
+        if os.path.basename(path) == "session-start.json":
+            raise OSError("disk full")
+        return real(path, obj, *a, **k)
+    monkeypatch.setattr(guard, "write_json_atomic", boom)
+    s = sid()
+    d = guard.sdir(s)
+    with pytest.raises(SystemExit):
+        guard.on_session_start({"session_id": s, "hook_event_name": "SessionStart", "source": "startup"}, d)
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out == {"hookEventName": "SessionStart", "additionalContext": guard.REPORT_JSON_LINE}
+    assert not os.path.exists(os.path.join(d, "session-start.json"))
+
+
 # ---------------------------------------------------------------- C: the opt-in JSON report line
 def test_json_line_reaches_main_thread_on_every_source_and_stack_agents(env):
     for src in ("startup", "resume", "clear", "compact", "fork"):

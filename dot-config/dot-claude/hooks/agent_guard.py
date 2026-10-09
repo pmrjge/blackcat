@@ -4478,6 +4478,12 @@ def on_session_start(ev, d):
     source: the limits notice for the user (systemMessage, only on a change or a fallback), the
     JSON report line (STACK_REPORT_FORMAT=json only; clear and compact start a new context too) and,
     after a compaction, the compaction digest (compact_restore)."""
+    if not ev.get("agent_id"):   # bin/stack_sdk.py's load check (D17): main thread, every source, policy too
+        try:
+            write_json_atomic(os.path.join(d, "session-start.json"),
+                              {"v": 1, "ts": time.time(), "source": ev.get("source"), "policy": policy_on()})
+        except Exception as exc:  # noqa: BLE001 - never block a session; the SDK check then fails closed
+            warn(f"session-start marker: {type(exc).__name__}")
     notice = None
     try:
         override_session_start(ev, d)
