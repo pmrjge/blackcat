@@ -315,7 +315,7 @@ knob, so `FIXED_GUARDS` and the `FIXED_LIMIT_KNOBS` self-test are unaffected (Q2
 `failed:*`) had this evidence id → `skipped:same-evidence`, or is less than 6 h old → `skipped:rate` (`--force`
 skips both); an equilibrium run is live (a `<state>/<session>/eq/<run>/` without `ended.json`, phase not
 `result`/`cleaned`, written in the last 2 h; past 4096 entries: assumed live) → `skipped:eq-run`; the collector
-cannot take `<state>/accel.lock` (`accel_acquire`: someone holds it, or it is not a regular file) →
+cannot take `<state>/accel.lock` (`accel_acquire`: someone holds it, or it is not a single-link regular file) →
 `skipped:accel-lock`; no executable `<config>/venvs/tools/bin/python` → `skipped:no-pymc`; no `stack_bayes.py`
 beside it → `skipped:no-fitter` (both release `accel.lock` at once). Otherwise the child is
 `<venv python> -I -B stack_bayes.py fit` (`-B`: `-I` ignores `PYTHONDONTWRITEBYTECODE`, and no pyc may land in
@@ -341,11 +341,11 @@ flock on it for its duration (rules: "one accelerator job per GPU or Mac"). The 
 (work order step 9): 8 NUTS chains on 8 cores for about 6 minutes.
 - **How the fit takes it.** `stack_usage.accel_acquire(holder)` opens the file read-write without following a
   link. It creates the file 0600 when absent. It opens with `O_NONBLOCK`, so a FIFO cannot block it, and takes a
-  regular file only. It then takes `LOCK_EX|LOCK_NB`. Once it holds the lock, it writes one JSON line into the
+  single-link regular file only (a hardlink to another file is never truncated). It then takes `LOCK_EX|LOCK_NB`. Once it holds the lock, it writes one JSON line into the
   file: `{"holder": "bayes-fit", "pid": <the collector>, "since": <epoch>}`. The line is informative only; the
   flock is the lock.
-- **Fail closed.** Held by anyone, or not openable as a regular file (a link, a FIFO, a directory) →
-  `skipped:accel-lock`.
+- **Fail closed.** Held by anyone, or not openable as a single-link regular file (a link, a hardlink, a FIFO,
+  a directory) → `skipped:accel-lock`. Every check runs on the open fd.
 - **How long it holds it.** The collector holds the fd from the check to the end of the fit, so no gap lies
   between test and use. The fit inherits it. The kernel drops the lock when the last fd closes, on any exit,
   SIGKILL included, and so at the latest at the fit's own 930 s cap.
@@ -898,7 +898,7 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
   yet. The tests prove the holder with a fake fitter, under `tmp` state (2026-10-09); a live install's
   collector holding it is unverified.
 - A fit orphaned by a SIGKILLed collector ends itself at 930 s (`stack_bayes.py`'s own SIGALRM cap, §2.8). The
-  tests prove it with the real `main()` around a fake fit that never ends (`--timeout 3`). A process the fit
+  tests prove it with the real `main()` around a fake fit that never ends (`--timeout 5`). A process the fit
   started itself would outlive that cap. The nutpie sampler starts none, but that is unverified on a real fit.
 - The Bayes lock pins pytensor 3.3.2 rather than the 3.3.3 the WP2 and WP3b fits ran on, because of the cooldown
   (§2.9). Re-lock on or after 2026-10-10. A fit on 3.3.2 has not been run.

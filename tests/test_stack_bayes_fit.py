@@ -447,8 +447,8 @@ def test_skipped_while_the_accelerator_lock_is_held(st, fake):
 def test_accel_acquire_takes_a_private_regular_file_and_fails_closed(st, tmp_path, monkeypatch):
     """Mutants "accel_acquire ignores a held lock" and "no regular-file check": a second taker gets None
     while the first holds it, the fd again once it is closed; the file is 0600 and carries the holder's
-    record; a symlink, a FIFO (without blocking, even where flock works on one) or a directory at the path
-    is never taken."""
+    record; a symlink, a hardlink to another file, a FIFO (without blocking, even where flock works on one) or
+    a directory at the path is never taken (mutant "no st_nlink check")."""
     lock = Path(U.accel_lock_path())
     fd = U.accel_acquire("job-a")
     assert fd is not None and U.flock_held(str(lock))
@@ -478,6 +478,11 @@ def test_accel_acquire_takes_a_private_regular_file_and_fails_closed(st, tmp_pat
     lock.unlink()
     lock.mkdir()
     assert U.accel_acquire("x") is None
+    lock.rmdir()
+    victim = tmp_path / "victim.txt"            # CWE-62: a hardlink to another file is never truncated
+    victim.write_text("keep me\n")
+    os.link(str(victim), str(lock))
+    assert U.accel_acquire("x") is None and victim.read_text() == "keep me\n"
 
 
 def test_the_fit_holds_the_accel_lock_and_an_orphan_keeps_it(st, fake, tmp_path):
@@ -560,7 +565,7 @@ def test_an_orphaned_fit_ends_itself_at_its_cap_and_frees_both_locks(st, fake, t
     """Work order step 10 (mutant "no cap in stack_bayes.py"): the real stack_bayes.main around a fit that never
     ends, under a collector that is SIGKILLed; the orphan keeps usage/bayes.lock and accel.lock, then ends
     itself (SIGALRM) at its --timeout, and both locks are free."""
-    cap = 3
+    cap = 5
     fake.mode("hang", secs=120, args=["--timeout", str(cap)])
     script = tmp_path / "collector.py"
     script.write_text(COLLECTOR)

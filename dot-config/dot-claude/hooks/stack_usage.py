@@ -1852,9 +1852,10 @@ def accel_lock_path():
 
 def accel_acquire(holder):
     """Take <state>/accel.lock for a long accelerator job (docs/BAYES.md 2.8): open it read-write without
-    following a link (created 0600 when absent; O_NONBLOCK, then a regular file only, so a FIFO or device
-    neither blocks nor counts), an exclusive non-blocking flock, then the holder's record written into it
-    (one JSON line: holder, pid of the taker, since; informative only, the flock is the lock). Returns the
+    following a link (created 0600 when absent; O_NONBLOCK, then a single-link regular file only, so a FIFO
+    or device neither blocks nor counts and a hardlink to another file is never truncated), an exclusive
+    non-blocking flock, then the holder's record written into it (one JSON line: holder, pid of the taker,
+    since; informative only, the flock is the lock); every check runs on the fd. Returns the
     fd, or None when someone holds it or it cannot be taken (fail closed: no second accelerator job beside
     an unknown holder). The caller closes the fd; a child it is passed to keeps the lock until it ends, and
     the kernel drops it on any exit, SIGKILL included."""
@@ -1864,8 +1865,9 @@ def accel_acquire(holder):
     except OSError:
         return None
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError(errno.EINVAL, "accel.lock is not a regular file")
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:   # a hardlink: another file's inode (CWE-62)
+            raise OSError(errno.EINVAL, "accel.lock is not a single-link regular file")
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
