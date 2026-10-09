@@ -25,11 +25,11 @@ HELPER = DOT / "bin" / "stack_sdk.py"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # What the Python SDK 0.2.163 adds to the CLI's environment (subprocess_cli.py), which every hook
 # inherits; CLAUDECODE is removed.
-# stack_sdk.py's size cap (D13 estimated about 650; v2 came to ~905, the SDK-2r fixes to ~970): the TTY host
-# (~110 lines: reader thread, nonce, gap, sanitising), the reducer shared by Session, run() and parse_stream
-# (~150), the load check with its plan-gate and spelling refusals, and the end-of-run loop. Still one file:
-# install.sh stages bin/ files by name, so a split means installer work.
-CAP = 975
+# stack_sdk.py's size cap (D13 estimated about 650; v2 came to ~905, the two SDK-2r rounds to ~990): the TTY host
+# (~120 lines: reader thread, nonce, gap, wrapping, sanitising), the reducer shared by Session, run() and
+# parse_stream (~150), the load check with its plan-gate checks (project agents, worktrees, add_dirs) and the
+# extra_args allowlist, and the end-of-run loop. Still one file: install.sh stages bin/ files by name.
+CAP = 1000
 SDK_ENV = {"CLAUDE_CODE_ENTRYPOINT": "sdk-py", "CLAUDE_AGENT_SDK_VERSION": "0.2.163"}
 
 

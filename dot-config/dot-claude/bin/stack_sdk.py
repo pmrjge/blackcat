@@ -42,11 +42,8 @@ SUBTYPE = dict(zip(TASK_MSGS, ("task_started", "task_progress", "task_notificati
 TYPE = re.compile(r"([\w-]+): |([\w-]+)\Z")     # label "<type>: <task>", or a bare type
 TERMINAL = frozenset({"completed", "failed", "stopped", "killed"})
 AGENT_TASKS = frozenset({"local_agent", "local_workflow"})      # the SDK's DEFERRING_TASK_TYPES
-REFUSED_EXTRA = ("permission-mode", "dangerously-skip-permissions", "allow-dangerously-skip-permissions",
-                 "permission-prompts", "permission-prompt-tool",          # D5: the host sets these,
-                 "settings", "setting-sources", "agents", "tools", "allowed-tools", "disallowed-tools",
-                 "add-dir", "mcp-config", "plugin-dir")                   # the stack's files and options() the rest
-EXTRA_KEY = re.compile(r"[a-z][a-z0-9-]*")       # one spelling only: no '=', '_', upper case or leading dashes
+EXTRA_OK = ("debug", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")  # SDK-2r2:
+#   an allowlist (D5): the CLI's flag namespace, hidden flags included, is too large to deny by name
 REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name", "sandbox",  # D4: files are the truth
               "max_budget_usd", "setting_sources")                        # budget_usd= and sources= own these
 POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")
@@ -362,16 +359,24 @@ def stack_agents(config):
     return out
 
 
-def project_agent_files(cwd, config):
-    """Every .claude/agents/*.md from cwd up to the repository root (or /): the CLI prefers them to
-    <config>/agents by name, so they could add or shadow agents behind the D3 deny list (SDK-2r S1)."""
-    out, d, user = [], os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(config, "agents"))
+def project_agent_files(cwd, config, extra=()):
+    """Every .claude/agents directory the CLI may read project agents from (2.1.287: recursively, dotfiles too):
+    cwd up to the repository root (or /), a linked worktree's main checkout, and `extra` (add_dirs). Any one,
+    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1)."""
+    def text(p):
+        with open(p, encoding="utf-8") as fh:
+            return fh.read().strip()
+    d, roots, user = os.path.realpath(cwd or os.getcwd()), [*extra], os.path.realpath(os.path.join(config, "agents"))
     while True:
-        a = os.path.join(d, ".claude", "agents")
-        if os.path.realpath(a) != user:
-            out += sorted(glob.glob(os.path.join(glob.escape(a), "*.md")))
-        if os.path.exists(os.path.join(d, ".git")) or os.path.dirname(d) == d:
-            return out
+        roots.append(d)
+        g = os.path.join(d, ".git")
+        if os.path.isfile(g):                            # gitdir: <main>/.git/worktrees/<n>; commondir ../..
+            with contextlib.suppress(OSError, IndexError):
+                gd = os.path.join(d, text(g).split("gitdir:", 1)[1].strip())
+                roots.append(os.path.dirname(os.path.realpath(os.path.join(gd, text(os.path.join(gd, "commondir"))))))
+        if os.path.lexists(g) or os.path.dirname(d) == d:
+            return [a for r in roots for a in [os.path.join(str(r), ".claude", "agents")]
+                    if os.path.lexists(a) and os.path.realpath(a) != user]
         d = os.path.dirname(d)
 
 
@@ -452,7 +457,7 @@ async def ask_callable(host, tool, inp, ctx, timeout_s=HOST_WAIT_S):
     import anyio
     from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
     if tool == "AskUserQuestion" and isinstance(inp, dict):     # answers come from the host's user only (S4)
-        inp = {k: v for k, v in inp.items() if k != "answers"}
+        inp = {k: v for k, v in inp.items() if k not in ("answers", "annotations")}     # R5: the notes too
     try:
         with anyio.fail_after(timeout_s):
             r = host(tool, inp, ctx)
@@ -508,7 +513,14 @@ class TtyHost:
             os.write(self.wfd, (text + "\n").encode("utf-8", "replace"))
 
     def quote(self, text, cap):
-        return "\n".join("  | " + ln for ln in clean_text(text, cap).splitlines() or [""])
+        """Every row shown starts with '  | ': lines are cut at half the terminal width, tabs expanded, since a
+        longer line would wrap to column 0 by itself (SDK-2r R3)."""
+        try:
+            w = max(16, (os.get_terminal_size(self.wfd).columns - 4) // 2)
+        except OSError:
+            w = 38
+        return "\n".join("  | " + ln[i:i + w] for ln in clean_text(text, cap).expandtabs(4).splitlines() or [""]
+                         for i in range(0, len(ln) or 1, w))
 
     async def line(self, prompt):
         """One answer typed after `prompt` is shown; None on timeout or EOF."""
@@ -540,13 +552,13 @@ class TtyHost:
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         self._lock = self._lock or anyio.Lock()
         deny = PermissionResultDeny(message="denied at the terminal")
-        who = one_line(getattr(ctx, "agent_id", None) or "main thread", 80)
+        who = one_line(getattr(ctx, "agent_id", None) or "main thread", 24)
         async with self._lock:
             if tool == "AskUserQuestion":
                 answers = {}
                 for q in [q for q in (inp or {}).get("questions") or [] if isinstance(q, dict)]:
                     opts = [str((o or {}).get("label", "")) for o in q.get("options") or [] if isinstance(o, dict)]
-                    menu = "\n".join(f"  {i + 1}) {one_line(o, 200)}" for i, o in enumerate(opts[:20]))
+                    menu = self.quote("\n".join(f"{i + 1}) {one_line(o, 200)}" for i, o in enumerate(opts[:20])), 6000)
                     text = self.quote(q.get("question", ""), 1000)
                     ln = await self.line(f"\nstack_sdk: question ({who}):\n{text}\n{menu}\n"
                                          "answer (number or text, empty denies):")
@@ -554,13 +566,14 @@ class TtyHost:
                         return deny
                     picks = [opts[int(x) - 1] for x in ln.split(",") if x.strip().isdigit() and 0 < int(x) <= len(opts)]
                     answers[str(q.get("question", ""))] = ", ".join(picks) if picks else ln
-                return PermissionResultAllow(updated_input=dict(inp, answers=answers)) if answers else deny
+                kept = {k: v for k, v in inp.items() if k != "annotations"}  # R5: user notes come from the user
+                return PermissionResultAllow(updated_input=dict(kept, answers=answers)) if answers else deny
             if tool == "ExitPlanMode":
                 nonce, plan = f"{secrets.randbelow(10000):04d}", self.quote((inp or {}).get("plan", ""), 8000)
                 ln = await self.line(f"\nstack_sdk: plan ({who}):\n{plan}\ntype {nonce} to approve; anything else denies:")
                 return PermissionResultAllow() if ln == nonce else deny
             shown = self.quote(json.dumps(inp, ensure_ascii=False, default=str), 2000)
-            ln = await self.line(f"\nstack_sdk: {who} wants {one_line(tool, 100)}:\n{shown}\nallow once? [y/N]:")
+            ln = await self.line(f"\nstack_sdk: {who} wants {one_line(tool, 40)}:\n{shown}\nallow once? [y/N]:")
             return PermissionResultAllow() if (ln or "").lower() in ("y", "yes") else deny
 
     def close(self):
@@ -586,7 +599,7 @@ class Session:
                  deadline_s=None, cli=None, config_dir=None, forward_subagent_text=False, transport=None,
                  on_message=None, tty=None, load_timeout_s=LOAD_WAIT_S, row=True, **kw):
         bad = [k for k in REFUSED_KW if k in kw] + [
-            k for k in (kw.get("extra_args") or {}) if not EXTRA_KEY.fullmatch(str(k)) or k in REFUSED_EXTRA]
+            k for k in (kw.get("extra_args") or {}) if k not in EXTRA_OK]
         if bad or permission_mode == "bypassPermissions":
             raise ValueError("refused: %s (the host and the stack's files decide; bypassPermissions never)"
                              % (", ".join(map(str, bad)) or "bypassPermissions"))
@@ -607,6 +620,8 @@ class Session:
         ok = isinstance(deadline_s, (int, float)) and deadline_s > 0     # S8: <= 0 never unbounds host none
         self.deadline_s = deadline_s if ok or host != "none" else DEADLINE_NONE_S
         self.config = config_dir or config_root(self.env)
+        if config_dir and self.env.setdefault("CLAUDE_CONFIG_DIR", config_dir) != config_dir:    # R6: one config
+            raise ValueError("config_dir and env CLAUDE_CONFIG_DIR differ: the CLI would load another config")
         self.extra, self.kw = dict(kw.pop("extra_args", None) or {}), kw
         self.forward_subagent_text, self.load_timeout_s, self.row = forward_subagent_text, load_timeout_s, row
         self.tty, self._own_tty = tty or (TtyHost() if host == "tty" else None), tty is None
@@ -635,7 +650,8 @@ class Session:
             deny += ["ExitPlanMode"] + ([*(f"Agent({n})" for n, m in sorted(self.agents.items())
                                            if m not in (None, "plan", "default")), "Workflow"] if plan else [])
         extra = dict(self.extra, **({"permission-prompts": "none"} if self.host == "none" else {}))
-        return options(self.agent, **dict(kw, budget_usd=self.budget_usd, permission_mode=self.permission_mode,
+        mode = self.permission_mode or ("plan" if self.host == "none" else None)   # the flag outranks repo settings
+        return options(self.agent, **dict(kw, budget_usd=self.budget_usd, permission_mode=mode,
                                           disallowed_tools=deny, extra_args=extra, env=self.env, cli_path=self.cli_path,
                                           include_hook_events=True, forward_subagent_text=self.forward_subagent_text,
                                           can_use_tool=None if self.host == "none" else self._can_use_tool))
@@ -687,7 +703,7 @@ class Session:
                     raise StackNotLoaded(f"the permission mode drifted off plan: {actual!r} (pass permission_mode "
                                          "explicitly to waive the plan gate: logged gate_waived)")
                 odd = sorted(h for h in have - set(self.agents) if ":" not in h)   # plugin agents keep no mode
-                odd += project_agent_files(self.kw.get("cwd"), self.config)
+                odd += project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())
                 if odd:                                  # S1: no deny rule can cover agents from elsewhere
                     raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: "
                                          + ", ".join(map(str, odd[:10])))
@@ -777,7 +793,7 @@ class Session:
             with anyio.CancelScope() as self._scope:
                 if self.asked:
                     await self._settle()                 # C4: a turn the CLI woke for since the last ask
-                self.asked, r.t0, r.first = True, time.monotonic(), None      # C5: timed from the prompt
+                self.asked, r.t0, r.first, self.failure = True, time.monotonic(), None, None  # C5; R4: per ask
                 await self._client.query(prompt)
                 ended_by = await self._read(r)
             ended_by = self._stop or ended_by if self._scope.cancel_called else ended_by
@@ -794,6 +810,8 @@ class Session:
             out["inflight_at_end"] = inflight           # what the ceiling or the deadline cut
         if self.failure:
             out["error"] = self.failure
+            if not (r.results and r.results[-1].get("is_error")):   # R4: a crash is error; the CLI's own
+                out["outcome"] = "error"                            # error result keeps its class (budget: partial)
         if self.row:
             out["row"] = write_row(out, self.env)
         return out

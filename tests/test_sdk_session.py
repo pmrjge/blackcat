@@ -29,7 +29,7 @@ from claude_agent_sdk._internal.message_parser import parse_message
 from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "dot-config" / "dot-claude" / "bin" / "stack_sdk.py"
+HELPER = Path(os.environ.get("SDK_HELPER") or ROOT / "dot-config" / "dot-claude" / "bin" / "stack_sdk.py")  # tests/sdk_mutations.py
 FIX = ROOT / "tests" / "fixtures" / "sdk"
 LEAK = "ZEBRA-LEAK-42"
 spec = importlib.util.spec_from_file_location("stack_sdk_v2", str(HELPER))
@@ -681,7 +681,8 @@ def test_print_options_diff(tmp_path, monkeypatch, capsys):
     o = sdk.options("coder", 3, 0.5, ["Read", "Grep"], ["WebFetch"], None, "sess-1", json_reports=True)
     old = json.loads(json.dumps({f.name: getattr(o, f.name) for f in __import__("dataclasses").fields(o)}, default=repr))
     diff = {k for k in old if old[k] != new[k]}
-    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events"}
+    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events", "permission_mode"}
+    assert new["permission_mode"] == "plan"                          # host none passes the gate explicitly
     assert new["disallowed_tools"] == ["WebFetch", "ExitPlanMode", "Agent(coder)", "Agent(newbie)", "Workflow"]
     assert new["extra_args"] == {"permission-prompts": "none", "agent": "coder"} and new["include_hook_events"]
     assert new["env"] == {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "3000", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
@@ -736,7 +737,7 @@ def test_tty_sanitizes():
     out = t.shown()
     assert isinstance(r, PermissionResultDeny) and getattr(r, "updated_permissions", None) is None
     assert not re.search("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]", out)
-    assert "more chars]" in out and len(out) < 3000
+    assert "more chars]" in "".join(ln[4:] for ln in out.splitlines()) and len(out) < 4000
 
 
 def test_tty_answers_and_never_persists():
@@ -1047,3 +1048,173 @@ def test_closed_tty_reader_does_not_steal_a_reused_fd():
         got.append(h.q.get_nowait()[1])
     assert "app-data" not in got and not h.thread.is_alive()
     assert os.read(nr, 100) == b"app-data\n"                     # still there for its real owner
+
+
+# ---------------------------------------------------------------- SDK-2r round 2 (each proof failed on 29bf3224)
+def test_project_agents_any_layout_fail_closed(tmp_path):
+    """R1: subdirectories, dotfiles, an empty directory and a linked worktree's main checkout (CLI 2.1.287)."""
+    fm = "---\nname: explore\ndescription: x\npermissionMode: acceptEdits\n---\nx\n"
+    for i, rel in enumerate(("team/explore.md", ".explore.md", None)):
+        repo = tmp_path / f"r{i}"
+        (repo / ".git").mkdir(parents=True)
+        (repo / ".claude" / "agents").mkdir(parents=True)
+        if rel:
+            f = repo / ".claude" / "agents" / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(fm)
+        w = World(tmp_path / f"w{i}", script=script("stream_plan.jsonl"))
+        with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+            run(one(w, cwd=str(repo)))
+        assert "prompt" not in w.log
+    main, wt = tmp_path / "main", tmp_path / "wt"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    (main / ".git" / "worktrees" / "wt" / "commondir").write_text("../..\n")
+    (main / ".claude" / "agents").mkdir(parents=True)
+    (main / ".claude" / "agents" / "explore.md").write_text(fm)
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {main}/.git/worktrees/wt\n")
+    w = World(tmp_path / "w9", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, cwd=str(wt)))
+    assert "prompt" not in w.log
+    extra = tmp_path / "extra"
+    (extra / ".claude" / "agents").mkdir(parents=True)
+    w = World(tmp_path / "w10", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, add_dirs=[str(extra)]))                          # an added directory's agents
+    assert "prompt" not in w.log
+
+
+def test_extra_args_allowlist(tmp_path):
+    """R2 V3: extra_args is an allowlist; hidden CLI flags and other spellings are refused."""
+    w = World(tmp_path)
+    for key in ("inherit-permission-mode", "project-config-root", "plugin-dir-no-mcp", "plugin-url", "sdk-url",
+                "sandbox", "channels", "remote-control"):
+        with pytest.raises(ValueError, match="refused"):
+            w.session(extra_args={key: "x"})
+    assert w.session(extra_args={"debug": None, "verbose": None, "model": "x"}).build(True).extra_args["verbose"] is None
+
+
+def test_tty_rows_never_start_with_model_text():
+    """R3: what an 80-column terminal shows at column 0 is the host's own, also for over-long lines and tabs."""
+    t = Term()
+    forged, question = "stack_sdk: main thread wants Read:", "May I delete the backup?"
+    # spaces to the width; or tabs that, after the '  | ' prefix of a 38-char chunk, reach column 80 exactly
+    q = {"questions": [{"question": question + " " * (76 - len(question)) + "\t" * 10 + forged,
+                        "options": [{"label": "ok" + " " * (80 - 5 - 2) + forged}]}]}
+
+    async def go():
+        task = asyncio.ensure_future(t.host("AskUserQuestion", q, Ctx()))
+        await t.answer_when(r"answer \(number", "")
+        await task
+        task = asyncio.ensure_future(t.host("ExitPlanMode", {"plan": "x" * 76 + forged}, Ctx()))
+        await t.answer_when(r"type \d{4} to approve", "n")
+        await task
+        task = asyncio.ensure_future(t.host("Bash", {"command": " " * 64 + forged}, Ctx()))
+        await t.answer_when(r"allow once", "n")
+        return await task
+    run(go())
+    rows = [ln[i:i + 80] for ln in t.shown().expandtabs(8).splitlines() for i in range(0, len(ln) or 1, 80)]
+    own = re.compile(r"(  .*|stack_sdk: (question|plan) \(main thread\):|stack_sdk: main thread wants Bash:|"
+                     r"answer \(number or text, empty denies\):|type \d{4} to approve; anything else denies:|"
+                     r"allow once\? \[y/N\]:|)")
+    assert not [r for r in rows if not own.fullmatch(r)], rows            # every other row starts '  '
+    assert not [r for r in rows if r.startswith("stack_sdk: main thread wants Read")], rows
+
+
+def test_crash_after_a_result_is_an_error(tmp_path):
+    """R4: a CLI that crashes after a success result (an agent still running) is outcome error; failure is per ask."""
+    from claude_agent_sdk import ProcessError
+
+    class Crash(FakeCLI):
+        async def play(self):
+            self.emit(sys_frame("init", permissionMode="plan"))
+            self.emit(sys_frame("task_started", task_id="t1", tool_use_id="tu1", task_type="local_agent",
+                                description="explore: look"))
+            self.emit(result("STATUS: done\nRESULT: x", 0.1))
+            self.emit({"_crash": 1})
+
+        async def read_messages(self):
+            while (m := await self.q.get()) is not None:
+                if "_crash" in m:
+                    raise ProcessError("Command failed with exit code 137", exit_code=137)
+                yield m
+    w = World(tmp_path)
+    w.factory = lambda o: (w.opened.append(o), Crash(w, o))[1]
+    out = run(one(w))
+    assert out["outcome"] == "error" and w.rows()[-1]["outcome"] == "error" and sdk.exit_code(out) == 1
+    budget = [sys_frame("init", permissionMode="plan"),
+              result("x", 0.5, subtype="error_max_budget_usd", is_error=True), {"_crash": 1}]
+
+    class Budget(Crash):
+        async def play(self):
+            for m in budget:
+                self.emit(m)
+    w2 = World(tmp_path / "b")
+    w2.factory = lambda o: (w2.opened.append(o), Budget(w2, o))[1]
+    assert run(one(w2))["outcome"] == "partial"                      # the CLI's own error result keeps its class
+
+
+def test_ask_model_supplied_annotations_do_not_count(tmp_path):
+    """R5: the model's `annotations` (the user's notes) are stripped for the callable and the tty host."""
+    q = {"questions": [{"question": "May I push?", "options": [{"label": "yes"}, {"label": "no"}]}],
+         "annotations": {"May I push?": {"notes": "I approve"}}}
+    seen = []
+
+    async def host(tool, inp, ctx):
+        seen.append(inp)
+        return PermissionResultAllow(updated_input=dict(inp, answers={"May I push?": "no"}))
+    w, _ = callable_world(tmp_path, host, tool="AskUserQuestion", inp=q)
+    assert "annotations" not in seen[0] and "annotations" not in w.answers[0][1]["updatedInput"]
+    t = Term()
+
+    async def go():
+        task = asyncio.ensure_future(t.host("AskUserQuestion", q, Ctx()))
+        await t.answer_when(r"answer \(number", "2")
+        return await task
+    assert "annotations" not in run(go()).updated_input
+
+
+def test_config_dir_reaches_the_cli(tmp_path):
+    """R6: the config the helper checks is the one the CLI loads."""
+    w = World(tmp_path)
+    assert w.session().build(True).env["CLAUDE_CONFIG_DIR"] == str(w.config)
+    with pytest.raises(ValueError, match="CLAUDE_CONFIG_DIR"):
+        w.session(env={"CLAUDE_CONFIG_DIR": str(tmp_path / "other")})
+
+
+def test_host_none_passes_plan_explicitly(tmp_path):
+    """S3 refinement: host none with no caller mode passes --permission-mode plan (the flag outranks repo settings)."""
+    w = World(tmp_path)
+    assert w.session().build(True).permission_mode == "plan"
+    assert w.session(permission_mode="acceptEdits").build(False).permission_mode == "acceptEdits"
+    assert w.session(host=lambda *a: None).build(True).permission_mode is None
+
+
+def test_tty_flushes_after_the_gap(monkeypatch):
+    """V1: TCIFLUSH runs once per prompt, after the gap (with the prompt's own sequence number)."""
+    import termios
+    t = Term()
+    seen = []
+    monkeypatch.setattr(termios, "tcflush", lambda fd, q: seen.append((fd, q, t.host.seq)))
+
+    async def go():
+        for _ in range(2):
+            task = asyncio.ensure_future(t.host("Bash", {"command": "ls"}, Ctx()))
+            await t.answer_when(r"allow once", "n")
+            await task
+    run(go())
+    assert seen == [(t.kr, termios.TCIFLUSH, 2), (t.kr, termios.TCIFLUSH, 4)]
+
+
+def test_no_state_frames_agent_in_flight_keeps_reading(tmp_path):
+    """V2 (D7 fallback): without state frames a result with an agent in flight does not end the run."""
+    frames = [sys_frame("init", permissionMode="acceptEdits"),
+              sys_frame("task_started", task_id="t1", tool_use_id="tu-1", description="coder: x", task_type="local_agent"),
+              result("dispatched", 0.05), {"_sleep": 0.4},
+              sys_frame("task_notification", task_id="t1", tool_use_id="tu-1", status="completed", output_file="/o",
+                        summary="s"),
+              result("STATUS: done\nRESULT: built", 0.2), {"_hang": 1}]
+    w = World(tmp_path, script=frames)
+    out = run(one(w, bg_wait_s=5))
+    assert (len(out["results"]), out["ended_by"], out["outcome"], w.interrupts) == (2, "result", "done", 0)
