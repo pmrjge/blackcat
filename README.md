@@ -1260,9 +1260,11 @@ any time: Plan is where a session starts, not a lock. The sandbox, the deny rule
 apply in every mode.
 
 While a caller is in Plan the guard refuses builders (agents that run in their own `acceptEdits`), every
-Workflow, skills that fork into a builder (when the guard can read the skill's definition: user, project up
-to the repository root, installed plugins; `--add-dir` and nested `<subdir>/.claude/skills` ones are covered
-only by a backstop that stops such a child at its first tool call), and resumes of finished builders, for
+Workflow, skills that fork into a builder or into an agent not named exactly (when the guard can read the
+skill's definition: user, project up to the repository root, installed plugins; `--add-dir` and nested
+`<subdir>/.claude/skills` ones are covered only by a backstop that stops such a child at its first tool call;
+the managed skills folder is not read: [CONFIG.md](CONFIG.md) §5 lists the known gaps), and resumes of
+finished builders, for
 every caller (BlackCat, a `claude-ultracode` main thread, a subagent). Planning agents (planner, explore,
 scout, reviewers) still run.
 A main thread without ExitPlanMode leaves Plan with Shift+Tab or `--permission-mode acceptEdits`.

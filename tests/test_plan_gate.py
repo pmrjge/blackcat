@@ -547,3 +547,45 @@ def test_review3_a_fork_into_explore_and_a_builder_without_fork_still_pass():
     write_def(os.path.join(e.tmp, ".claude", "skills", "safe", "SKILL.md"), "---\ncontext: fork\nagent: explore\n---\n")
     write_def(os.path.join(e.tmp, ".claude", "skills", "nofork", "SKILL.md"), "---\nagent: orchestrator\n---\n")
     assert ok(skill_call(e, "safe")) and ok(skill_call(e, "nofork"))
+
+
+# ---------------------------------------------------------------- security re-check 4 (f58b64e1)
+@pytest.mark.parametrize("front", [
+    "---\ncontext: fork\nagent: coder---eviewer\n---\n",     # the CLI's frontmatter ends at the mid-line ---
+    "---\ncontext: fork\nx: ---\nagent: explore\n---\n",     # ... so the CLI sees no agent: general-purpose
+    "---\ncontext: fork\nagent: Code-Reviewer\n---\n",       # the CLI looks the agent up exactly
+    "---\ncontext: fork\nagent: explore,coder\n---\n",
+    "---\ncontext: fork\nagent: explore#x\n---\n",
+    "---\ncontext: fork\nagent: explore\n  coder\n---\n",    # a folded plain scalar: "explore coder"
+    "---\ncontext: fork\nagent: [explore, coder]\n---\n",
+    '---\ncontext: fork\nagent: "explore "\n---\n',
+])
+def test_recheck4_fork_agent_is_read_as_the_cli_reads_it(front):
+    """A fork's agent is what the CLI reads (frontmatter up to the first --- after line 1, exact lookup, else
+    general-purpose or the first active agent): any other spelling of a safe name may be a builder."""
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "y", "SKILL.md"), front)
+    r = skill_call(e, "y")
+    assert refused(r) and "forks into" in r.reason, r
+
+
+@pytest.mark.parametrize("name_line", ['name: "sh\\x69p"', "name: ship---"])
+def test_recheck4_an_aliased_fork_under_an_escaped_or_cut_name_is_refused(name_line):
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "zz", "SKILL.md"),
+              "---\ncontext: fork\nagent: coder\n" + name_line + "\n---\n")
+    r = skill_call(e, "ship")
+    assert refused(r) and "forks into 'coder'" in r.reason, r
+
+
+@pytest.mark.parametrize("front", [
+    "---\ncontext: fork\nagent: explore\n---\n",
+    '---\ncontext: fork\nagent: "explore"\n---\n',
+    "---\ncontext: fork\nagent: explore  # note\n---\n",
+    "---\ncontext: fork\nagent: planner\n---\n",
+    "---\r\ncontext: fork\r\nagent: explore\r\n---\r\n",
+])
+def test_recheck4_a_plain_safe_agent_still_passes(front):
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "y", "SKILL.md"), front)
+    assert ok(skill_call(e, "y"))

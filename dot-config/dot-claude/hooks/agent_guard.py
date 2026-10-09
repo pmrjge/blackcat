@@ -685,9 +685,15 @@ def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
 # backtracking; any spelling of the key, comments, tags, anchors, block scalars, flow style); every `agent:` key
 # counts (a duplicate: either may win), and a fork whose agent is not plainly readable (none, flow style, indented,
 # escaped, a `key :` spelling, an agent key the plain reading misses) is also general-purpose. CRLF too.
+# The frontmatter ends where the CLI's regex ends it (the first --- after line 1, even mid-line), and an agent name
+# is compared exactly, as the CLI looks it up (2.1.287: exact agentType, else general-purpose, else the first
+# active agent): only a whole `agent: <name>` line with no folded continuation is read as a name.
 YAML_ESCAPE_RE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|\r?\n[ \t]*)")
 AGENT_KEY_RE = re.compile(r"""\bagent\b["']?\s*:""")
-SKILL_AGENT_RE = re.compile(r"""^["']?agent["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
+NAME_KEY_RE = re.compile(r"""\bname\b["']?\s*:""")
+# a whole top-level line `agent: <name>` (optionally quoted, optionally an end-of-line comment): the only
+# spelling read as a name; the CLI looks it up exactly (else general-purpose, else its first active agent)
+SKILL_AGENT_LINE_RE = re.compile(r"""["']?agent["']?[ \t]*:[ \t]*(["']?)([A-Za-z0-9_.:-]+)\1(?:[ \t]+#.*)?[ \t]*\Z""")
 SKILL_FM_NAME_RE = re.compile(r"""^["']?name["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
 SKILL_HEAD = 65536        # bytes of a skill file read for its frontmatter
 SKILL_TRUNCATED = "\ncontext: fork\nagent: ?\n"   # appended to a head with no closing --- in it: fails closed
@@ -749,10 +755,12 @@ def skill_frontmatter(path):
     more, head = len(text) > SKILL_HEAD, text[:SKILL_HEAD].lstrip("\ufeff")
     if not head.startswith("---"):
         return ""
-    parts = head.split("\n---", 1)
-    if more and len(parts) == 1:
-        return head + SKILL_TRUNCATED
-    return parts[0]
+    # the CLI's /^---\s*\n([\s\S]*?)---\s*\n?/: it ends at the first --- after line 1, even mid-line
+    nl = head.find("\n")
+    end = head.find("---", nl + 1) if nl >= 0 else -1
+    if end < 0:
+        return head + SKILL_TRUNCATED if more else head
+    return head[:end]
 
 
 def skill_alias_files(sk, segs, cwd, conf):
@@ -773,7 +781,11 @@ def skill_alias_files(sk, segs, cwd, conf):
     for f, q in cands:
         fm = skill_frontmatter(q)
         m = SKILL_FM_NAME_RE.search(fm)
-        if fm.endswith(SKILL_TRUNCATED) or (m and m.group(1).rpartition(":")[2] == sk):
+        # a fork whose name: is not plainly readable (an escape, a `key :` spelling, a name key the plain
+        # reading misses) may be named anything: it counts for every name
+        odd = skill_forks(fm) and bool("\\" in fm or re.search(r"\s:", fm)
+                                       or len(NAME_KEY_RE.findall(fm)) > len(SKILL_FM_NAME_RE.findall(fm)))
+        if fm.endswith(SKILL_TRUNCATED) or odd or (m and m.group(1).rpartition(":")[2] == sk):
             out.append((f, q))
     if segs:
         for r in project_roots(cwd):
@@ -796,6 +808,19 @@ def skill_forks(fm):
     return "context" in d and "fork" in d
 
 
+def _plain_agents(fm):
+    """The names of the frontmatter's whole-line `agent: <name>` keys (SKILL_AGENT_LINE_RE) that no indented
+    line continues (a folded plain scalar). YAML line breaks only (\\r\\n, \\r, \\n); linear."""
+    out, nxt = [], ""                    # walked bottom-up: nxt is the next non-blank line below
+    for ln in reversed(re.split(r"\r\n?|\n", fm)):
+        m = SKILL_AGENT_LINE_RE.match(ln)
+        if m and not nxt.startswith((" ", "\t")):
+            out.append(m.group(2))
+        if ln.strip():
+            nxt = ln
+    return out[::-1]
+
+
 def forked_skill_agents(name, cwd, conf=None):
     """The agents the skill `name` forks into, one per definition that may fork (skill_forks): its `agent:` keys,
     plus general-purpose when none is plainly readable or an agent key may hide (an escape, a `key :` spelling,
@@ -804,7 +829,7 @@ def forked_skill_agents(name, cwd, conf=None):
     for p in skill_files(name, cwd, conf):
         fm = skill_frontmatter(p)
         if skill_forks(fm):
-            got = SKILL_AGENT_RE.findall(fm)
+            got = _plain_agents(fm)
             if not got or "\\" in fm or re.search(r"\s:", fm) or len(AGENT_KEY_RE.findall(fm)) > len(got):
                 got.append("general-purpose")
             out += got
@@ -865,7 +890,7 @@ def on_skill(ev, d):
     ti = tool_input(ev)
     name = next((ti[k] for k in ("skill", "command", "name") if isinstance(ti.get(k), str) and ti[k].strip()), "")
     for a in forked_skill_agents(name, ev.get("cwd")):
-        why = plan_unsafe(ev, norm(a))
+        why = plan_unsafe(ev, a)        # exact, as the CLI looks it up: a mis-cased safe name is unsafe
         if why:
             deny("Plan mode: the skill '%s' forks into '%s' (context: fork) while planning: %s. %s"
                  % (name.strip()[:80], a[:80], why, PLAN_APPROVE))
