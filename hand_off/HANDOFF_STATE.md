@@ -2,14 +2,14 @@
 
 One coherent state; it replaces every earlier version of this file (the 2026-10-05 stop, the per-branch "as of" notes and
 the obsolete cells are gone; the 20:22 update adds Bayes 3a, `shrink-on`, `bayes-3a-fixes` and the measurements; the 23:06
-update records both merges, the C10 on main `47dce9f4`, the Claude and Codex reinstalls and the live checks). Supersedes
+update records both merges, the C10 on main `47dce9f4`, the reinstall and the live checks). Supersedes
 `claude_info/HANDOFF_FULL.md` §0, §6 and §7 where they differ; HANDOFF_FULL stays the reference for R1/R2, the Stage-4 lever
 table, the L1 review findings and older decisions. The next session starts with `hand_off/NEXT_SESSION_PROMPT.md`.
 
 Key: **[v]** read in a file or git when this was written · **[r]** from a report or a plan, not re-run · **[unverified]**
 nobody checked it.
 
-Paths: **M** `/Users/pmrj/ZDone/claude-agent-stack` (main checkout, repo of record; layout: three directories under `dot-config/`
+Paths: **M** `/Users/pmrj/ZDone/claude-agent-stack` (main checkout, repo of record; layout: `dot-config/{dot-claude,dot-equilibrium}`
 since A9) · **H** `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb`
 (its git-ignored `.claude-work/` holds the job files; its branch `golden/handoff-plan-continuation-c09473` is superseded, section 3)
 · **W** `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/project-redundancy-review-21d544` (branch
@@ -19,18 +19,19 @@ since A9) · **H** `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/cla
 
 ## 1. State
 
+- 2026-10-09: the Codex implementation was removed on branch `remove-codex` (user decision; awaits its C10 and the ff).
 - **main = `47dce9f4`** [v] (`git -C M log --oneline -8 main`, 23:06): `shrink-on` (`c6ad573b`, `1a8a8481`, `a0791669`) and
   `bayes-3a-fixes` (`f914fd8d`, `47dce9f4`) ff-merged by the user on Bayes 3a (`91fd17d2`, 5 commits on `d6046693`). Below it
   `d6046693` (hand_off) on `52c1abcc` (`limits-raise`). Merged on main earlier (the user ran every ff merge): audit-fixes,
   eq-runtime-2 (A7: H5 removed; A8: E7 cell pass), docs-reorg, the jsonschema fix, hs-update-1007b, hs-next, and **dot-config**
-  (A9 repository move: the Claude, Codex and Equilibrium trees live under `dot-config/`; `./install.sh --codex` is the single
-  Codex installer; `extract_src` `parents[5]` re-pinned; the WALL lookup depth rule; the instructor patch is applied on main),
+  (A9 repository move: the Claude and Equilibrium trees live under `dot-config/`; `extract_src` `parents[5]` re-pinned;
+  the WALL lookup depth rule; the instructor patch is applied on main),
   post-merge (`b2ee53e8` + `ff8c3392`).
 - **C10 on main `47dce9f4`: GREEN** [v: `H/.claude-work/c10/c10-bayes-3a-fixes-47dce9f4.summary`, user terminal 2026-10-08
   21:11-22:05]: `failed_ids` empty (0 failed; the 7 known environment ids all pass outside the sandbox); install_smoke 282 passed /
   1 failed (the known `openpty` check); every other gate exit 0: lint_agents, prompt_budget, agent_guard and stack_progress
   self-tests, `bash -n` (311 tracked `*.sh`), instructor 77, image_studio 125, eq-wall 102, eq mutants 39/39 killed,
-  equilibrium_paths, moved_paths 109, pool_sha, wiki_check, hand_off 40, codex 2184, eq_harness 639, pytest chunks
+  equilibrium_paths, moved_paths 109, pool_sha, wiki_check, hand_off 40, eq_harness 639, pytest chunks
   2164 + 1073 + 2700 + 1432 passed. The hand-off (`c4bbedc7` on `golden/handoff-plan-continuation-c09473`) was cherry-picked onto
   `47dce9f4` as branch `golden/work-order-continuation-b06255` (W), which awaits the user's ff.
 - **Programs started 2026-10-08 23:04** (another orchestrator; Bayes tracker `H/.claude-work/bayes/plan.md` "STAGE 3b-4
@@ -72,8 +73,8 @@ since A9) · **H** `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/cla
   left unapplied: `Limits.where` wording when the seed is None; `bin/stack-budget` shows raw seeds on a fallback.
 - **C10 on main `d6046693`**: done by the user 2026-10-08, green modulo environment (section 6). The 7 known environment ids are in
   `resume-770728/.claude-work/c10/c10-eqcli-321f037.failed_ids` (test_limits_guard T10, test_stack_tree x3, test_stack_usage x3).
-- **Installed stack = `47dce9f4` = main** [v 23:05: `commit` in `~/.claude/.stack-manifest.json` (written 22:44) and in
-  `~/.codex/.stack-manifest.json` (22:46) are both `47dce9f4a4a6…`]: the user reinstalled Claude and Codex after the green C10.
+- **Installed stack = `47dce9f4` = main** [v 23:05: `commit` in `~/.claude/.stack-manifest.json` (written 22:44) is
+  `47dce9f4a4a6…`]: the user reinstalled after the green C10.
   output_shrink now cuts by default (kill switch `STACK_OUTPUT_SHRINK=shadow` or `off`).
 - **Live checks, 2026-10-08 23:05** (from an agent Bash sandbox in W):
   - [v] `stack_limits.py show '*prompt*'`: `hard.prompt` 300M, `soft.prompt` 33M, `soft.prompt.orchestrator` 140M (live v22,
@@ -174,7 +175,7 @@ Known loss: worktrees T and S (2026-10-05, cause unknown). The rescue folder `H/
 
 | # | task | state |
 |---|---|---|
-| 19 | ff `shrink-on`, then `bayes-3a-fixes`; one C10 on main; reinstall | **done 2026-10-08** [v]: both merged (main `47dce9f4`); C10 on main GREEN (`c10-bayes-3a-fixes-47dce9f4.summary`: 0 failed ids, install_smoke 282/1 openpty); Claude and Codex manifests at `47dce9f4`; hand-off cherry-picked onto main as `golden/work-order-continuation-b06255` (section 1) |
+| 19 | ff `shrink-on`, then `bayes-3a-fixes`; one C10 on main; reinstall | **done 2026-10-08** [v]: both merged (main `47dce9f4`); C10 on main GREEN (`c10-bayes-3a-fixes-47dce9f4.summary`: 0 failed ids, install_smoke 282/1 openpty); the manifest at `47dce9f4`; hand-off cherry-picked onto main as `golden/work-order-continuation-b06255` (section 1) |
 | 1 | Reinstall and C10 on main `d6046693` | **done 2026-10-08, GREEN modulo environment** [r] (user terminal; details in section 6). Optional follow-up, main-coder: default `UV_CACHE_DIR` in `_run_install` (`tests/test_install_state.py:501-511`) and in the smoke harness. A re-run needs the user's terminal, a short clone path (`/tmp/c10s`) and `UV_CACHE_DIR` set (the agent sandbox refuses the `tools/instructor` directories) |
 | 3 | Programs (section 9), in the merge order | Bayes 3a and its fixes merged; started 23:04: T-guard-timeout (#20), SDK-1 (`sdk/1`), Bayes WP2, WP4 (`bayes/4`), 3b (`bayes/3b`); 3c waits for the guard merge |
 | 20 | T-guard-timeout (pre-existing, already at `d6046693`): `timeout 5 cp x <cfg>/hooks/f` passes agent_guard's protected-path check | in progress on `fix/guard-timeout` (no commits at 23:06); fix direction, proof test and mutant in `H/.claude-work/shrink-on/plan.md`; security surface (auditor + code-reviewer); first in the merge order |
@@ -189,9 +190,9 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
 1. **Merges, then one C10: done 2026-10-08** [v]: `shrink-on` and `bayes-3a-fixes` ff-merged (main `47dce9f4`); C10 on main
    green (section 1). Still yours: the wiki `docs-reorg` branch (the wiki push is yours); the ff of this hand-off
    (`git -C M merge --ff-only golden/work-order-continuation-b06255`).
-2. **Reinstall: done 2026-10-08** [v: both manifests at `47dce9f4`]. Procedure for the next one (after each program merge and
+2. **Reinstall: done 2026-10-08** [v: the manifest at `47dce9f4`]. Procedure for the next one (after each program merge and
    its green C10; quit every Claude Code session first; agents never run `install.sh`): `H/.claude-work/dot-config/REINSTALL.md`,
-   i.e. `./install.sh --dry-run`, `./install.sh --yes`, then `./install.sh --codex`, from M. Check: the manifest commit is main's;
+   i.e. `./install.sh --dry-run`, then `./install.sh --yes`, from M. Check: the manifest commit is main's;
    `grep -n '^tools:' ~/.claude/agents/orchestrator.md` has `Bash`; `bash ~/.claude/bin/doctor.sh` from your terminal (the agent
    sandbox run on 23:05 shows sandbox-only FAILs, section 1). Undo: `./install.sh --restore` (backups in
    `~/.local/state/claude-agent-stack-backups`).
@@ -222,8 +223,7 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
 - Docs facts (T1g): `--agent` tools apply to the main thread (`-p` unverified); `--tools` restricts built-ins, `--allowedTools`
   only auto-approves; only `Read()`/`Edit()` path rules are consulted.
 - C10 on main `d6046693` (2026-10-08, user terminal) [r]: reinstall done (manifest == main `d6046693`; orchestrator `tools:` has `Bash`; live limits
-  `hard.prompt` 300M, `soft.prompt.orchestrator` 140M). Full run: all 7 known failures passed; `tests/test_moved_paths.py` green; `codex_tests`
-  42F/112E under the long `/var/folders` path were path length (rerun from the short clone `/tmp/c10s`: 2184 passed);
+  `hard.prompt` 300M, `soft.prompt.orchestrator` 140M). Full run: all 7 known failures passed; `tests/test_moved_paths.py` green;
   `test_install_hardening` dry-run test and the install_smoke `--dry-run wrote HOME [.cache]` check fail only with `UV_CACHE_DIR` unset
   (`install.sh:1410` `uv python find` writes scratch `HOME/.cache/uv`; `_run_install` never sets it; with it set the test passes, 1 passed).
   Remaining install_smoke failure: the `openpty` pty check (known, environmental).
@@ -233,7 +233,6 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
 ## 7. Open items
 
 - Equilibrium broker TOCTOU: `load_wall_module` vs `Wall.start` in `eq_harness` (latent, MEDIUM, pre-existing).
-- `STACK_CODEX_VIA_TOP=1` inner-installer bypass of agent_guard (LOW; `~/.codex` unguarded).
 - T-guard-timeout (pre-existing): a `timeout <duration>` prefix hides the command word from agent_guard's protected-path scan
   (section 4 #20; in progress on `fix/guard-timeout`).
 - output_shrink `updatedToolOutput` replacement: **resolved**, seen live 2026-10-08 23:05 (section 1 live checks). Small follow-up:
@@ -263,16 +262,15 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
 | reset-to-main `76e1cd4` | `hand_off/RESET_TO_MAIN.sh` (dry run by default) |
 | l7-mech `a05d508` | B1 hand-back check, B3 `first_write` signal, L10 trims |
 | s3-integ `b1a0703` | Stage 3 quality pass (behaviour-neutral) |
-| Codex installer (codex-build `cfad7fa`) | now `dot-config/dot-codex_config`, installed by `./install.sh --codex` |
 | eq-track `c0b2d8d` | the harness tracked as `dot-config/dot-equilibrium` (A5 path relativisation, A9 move) |
-| audit-fixes `ad10c9ba` | no-push git gaps in both guards, web check, STACK_HOOK_RE, deferred profile |
+| audit-fixes `ad10c9ba` | no-push git gaps in agent_guard, web check, STACK_HOOK_RE, deferred profile |
 | eq-runtime-2 `258d3a35` | harness p6/p7/CLI/E_rt, both product bugs fixed, A6-A8; 183 harness mutants killed |
 | docs-reorg `f20c7a89`, jsonschema fix, hs-update-1007b, hs-next | layout, requirements, hand-off text |
 | dot-config | A9 move, single installer, `parents[5]` re-pin, WALL lookup depth rule, instructor patch; C10 green bar the above |
 | limits-raise `52c1abcc`, hand_off `d6046693` | orchestrator soft prompt 140M, `hard.prompt` 300M, F2; C10 green modulo environment |
 | bayes/3a `91fd17d2` | WP0a fixture, WP0b/1a `docs/BAYES.md` v3, WP1c fixes, WP3a shadow Bayes tier + grid; regressions fixed in `bayes-3a-fixes` (merged) |
 | shrink-on `a0791669` | output_shrink cuts successful Bash results over 8000 chars by default, `bin/stack-run`, review fixes (S1-S4, R1-R3); C10 green on main `47dce9f4` |
-| bayes-3a-fixes `47dce9f4` | install.sh stages `hooks/stack_bayes_grid.py`, lint_agents exemption for the b1v2 fixture, scipy importorskip; C10 on main green (0 failed ids, install_smoke 282/1); reinstalled (Claude and Codex) |
+| bayes-3a-fixes `47dce9f4` | install.sh stages `hooks/stack_bayes_grid.py`, lint_agents exemption for the b1v2 fixture, scipy importorskip; C10 on main green (0 failed ids, install_smoke 282/1); reinstalled |
 
 ## 9. Next programs (plans saved; started 2026-10-08 23:04)
 

@@ -10,7 +10,7 @@ suite fails when
   file there that does not exist (a mention of the git-ignored wiki checkout docs/wiki/ is not a link);
 - docs/wiki (the GitHub wiki, its own repository) is tracked or not ignored.
 
-2026-10-07 (dot-config): DIR_MOVES covers dot-claude, codex_config and equilibrium, which moved whole under
+2026-10-07 (dot-config): DIR_MOVES covers dot-claude and equilibrium, which moved whole under
 dot-config/ (renames only). Every file of the pre-move tree (PRE_MOVE_COMMIT) must exist at its new path, and
 no tracked file may name the old directory in a path shape (dir_ref_hits). FROZEN lists the files that keep
 old strings on purpose (pooled data, recorded or pinned bytes, fixtures, pinned c0 files, files agents may not
@@ -42,7 +42,6 @@ MOVES = {
 PRE_MOVE_COMMIT = "63ab4f04"
 DIR_MOVES = {
     "dot-claude": "dot-config/dot-claude",
-    "codex_config": "dot-config/dot-codex_config",
     "equilibrium": "dot-config/dot-equilibrium",
 }
 # Files that keep old path strings on purpose (recorded, pooled or pinned bytes), matched with fnmatch on the
@@ -137,14 +136,6 @@ LINE_EXEMPT = {
     "install.sh": _lines(r"before the dot-config/ move", r"prev_commit:dot-claude\b",
                          r'prev_paths="\$SUPPLY_PATHS dot-claude"', r'"dot-claude/settings\.json"\):'),
     "tests/prompt_budget.py": _lines(r'^OLD_DOT = "dot-claude"'),
-    "dot-config/dot-codex_config/lib/source_snapshot.py": _lines(r"^LEGACY_PATHS = "),
-    "dot-config/dot-codex_config/tests/test_source_snapshot.py":
-        _defs("test_changes_since_a_pre_move_commit_covers_the_old_paths"),
-    "dot-config/dot-codex_config/tests/test_installer_e2e.py":
-        _defs("test_supply_review_from_a_pre_move_install_covers_the_old_paths"),
-    # provenance at a commit, in the installed guard (its bytes stay unchanged)
-    "dot-config/dot-codex_config/hooks/codex_guard.py":
-        _lines(r"Ported from dot-claude/hooks/agent_guard\.py at commit"),
     # frozen prose: flags.json (a freeze input) and its copy DEFAULT_FLAGS; a comment in the sha-pinned mediator
     "dot-config/dot-equilibrium/harness/flags.json": _lines(r"\(dot-claude/agents/<type>\.md `model:`"),
     "dot-config/dot-equilibrium/harness/eq_harness.py": _lines(r"\(dot-claude/agents/<type>\.md `model:`"),
@@ -176,9 +167,9 @@ def old_path_re(old):
     return re.compile(r"(?<![\w.-])" + _SEP.join(re.escape(p) for p in old.split("/")) + r"(?![\w-])")
 
 
-# --- the three moved directories: path-shaped references only ---------------------------------------------
-# `equilibrium` is also an agent type (subagent_type, settings/flags/limits keys) and `codex_config` an identity
-# ("installer": "codex_config", codex_config_* modules): only a path shape counts, never the bare word.
+# --- the moved directories: path-shaped references only ---------------------------------------------------
+# `equilibrium` is also an agent type (subagent_type, settings/flags/limits keys): only a path shape counts, never
+# the bare word.
 _Q = r"""["']"""
 # the new spelling (dot-config/dot-claude, "dot-config" / "dot-claude", a brace list dot-config/{dot-claude,...})
 # and run-output dirs are removed first: .claude-work/equilibrium/runs, the frozen package under
@@ -193,7 +184,7 @@ _JOIN_CTX = re.compile(r"join\(|Path\(|joinpath|PurePath|os\.path")
 
 
 def dir_ref_hits(old, line):
-    """True when `line` names the old directory `old` (dot-claude, codex_config, equilibrium) as a path."""
+    """True when `line` names the old directory `old` (dot-claude, equilibrium) as a path."""
     line = _AGENT_FILES.sub(r"\1/AGENT", _RUNS.sub("RUNS", _NEW_DOTCLAUDE.sub("NEW", _NEW_BRACES.sub("NEW", line))))
     n = re.escape(old)
     word = r"(?<![\w.-])" + n + r"(?![\w-])"
@@ -269,14 +260,10 @@ def test_old_path_pattern(old, text, hit):
     ("dot-claude", "'$HERE/dot-claude'/hooks", True),
     ("dot-claude", "cp -r dot-claude\\\\hooks x", True),
     ("dot-claude", "see dot-config/dot-claude/hooks and dot-claude/hooks", True),
-    ("codex_config", "bash codex_config/install.sh", True),
-    ("codex_config", "':(exclude)codex_config'", True),
-    ("codex_config", 'os.path.join(ROOT, "codex_config", "probes")', True),
-    ("codex_config", 'ROOT / "codex_config" / "probes"', True),
-    ("codex_config", '"$HERE/codex_config"/install.sh', True),
-    ("codex_config", '"codex_config" + "/x"', True),
-    ("codex_config", "$M/codex_config", True),
-    ("codex_config", "cd codex_config", True),
+    ("equilibrium", "bash equilibrium/harness/eq_check.sh", True),
+    ("equilibrium", 'ROOT / "equilibrium" / "wall"', True),
+    ("equilibrium", '"equilibrium" + "/x"', True),
+    ("equilibrium", "cd equilibrium", True),
     ("equilibrium", "see equilibrium/COMPARE_eq.md", True),
     ("equilibrium", "$M/equilibrium", True),
     ("equilibrium", "ROOT / 'equilibrium' / 'wall'", True),
@@ -290,14 +277,10 @@ def test_old_path_pattern(old, text, hit):
     ("dot-claude", 'ROOT / "dot-config" / "dot-claude" / "hooks"', False),
     ("dot-claude", 'os.path.join(ROOT, "dot-config", "dot-claude")', False),
     ("dot-claude", "~/.claude/hooks and dot-claude-code", False),
-    ("codex_config", "dot-config/dot-codex_config/install.sh", False),
-    ("codex_config", 'ROOT / "dot-config" / "dot-codex_config"', False),
     ("equilibrium", "dot-config/dot-equilibrium/items", False),
     ("equilibrium", 'ROOT / "dot-config" / "dot-equilibrium" / "wall"', False),
     # identities and the agent type are not paths
-    ("codex_config", '"installer": "codex_config"', False),
-    ("codex_config", "importlib: codex_config_install, codex_config_probe", False),
-    ("codex_config", "the codex_config installer", False),
+    ("equilibrium", "importlib: equilibrium_paths, equilibrium_layout", False),
     ("equilibrium", "subagent_type: equilibrium", False),
     ("equilibrium", '"equilibrium": {"effort": "max"}', False),
     ("equilibrium", '"agent_effort": {"equilibrium": "max"}', False),
@@ -322,7 +305,7 @@ def test_old_path_pattern(old, text, hit):
     ("equilibrium", "rsync -a $W/equilibrium/ x", True),
     ("equilibrium", "work_carried and equilibrium/harness", True),
     # integration sweep, 2026-10-07: false positives fixed narrowly
-    ("dot-claude", "Move to `dot-config/{dot-claude,dot-codex_config,dot-equilibrium}` with", False),
+    ("dot-claude", "Move to `dot-config/{dot-claude,dot-equilibrium}` with", False),
     ("dot-claude", "cp -r {dot-claude,lib} x", True),
     ("equilibrium", "(exception: an \\`equilibrium\\` run's members, spawned only by that agent)", False),
     ("equilibrium", "equilibrium\\harness\\eq_check.sh", True),
@@ -332,9 +315,9 @@ def test_old_path_pattern(old, text, hit):
     ("equilibrium", "cp -pR equilibrium x", True),
     ("equilibrium", 'S=$(mktemp -d) && cp -pR equilibrium "$S/stage"', True),
     ("equilibrium", "rsync -a equilibrium x", True),
-    ("codex_config", "git ls-files codex_config", True),
+    ("equilibrium", "git ls-files equilibrium", True),
     ("equilibrium", 'os.path.join(ROOT, "equilibrium")', True),
-    ("codex_config", "Path(ROOT, 'codex_config')", True),
+    ("equilibrium", "Path(ROOT, 'equilibrium')", True),
     ("equilibrium", "claude -p --agent equilibrium --max-budget-usd 0.50", False),
     ("equilibrium", 'os.path.join(ROOT, "equilibrium.md")', False),
     ("equilibrium", 'json.dumps({"agent": "equilibrium"})', False),

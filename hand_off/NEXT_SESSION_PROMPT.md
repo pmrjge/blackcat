@@ -7,13 +7,13 @@ You are BlackCat resuming the claude-agent-stack work (previous session 2026-10-
 Resume from files only.
 
 ## Goal
-Finish the remaining plan on top of main `47dce9f4` (shrink-on and bayes-3a-fixes merged, C10 on main green, Claude and Codex
+Finish the remaining plan on top of main `47dce9f4` (shrink-on and bayes-3a-fixes merged, C10 on main green,
 reinstalled): the guard fix T-guard-timeout, SDK-1, Bayes WP2/WP4/3b/3c, then the later SDK and Bayes steps, each landed in the
 saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1 state, 2 decisions, 4 left to do, 5 user steps,
 9 programs).
 
 ## Paths
-- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main was `47dce9f4` at the hand-off: verify; layout dot-config/{dot-claude,dot-codex_config,dot-equilibrium})
+- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main was `47dce9f4` at the hand-off: verify; layout dot-config/{dot-claude,dot-equilibrium})
 - H = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb (git-ignored `.claude-work/` holds job files; its branch `golden/handoff-plan-continuation-c09473` is superseded, do not merge it). Agent Bash sandboxes cannot write H; the Write and Edit tools can.
 - Hand-off branch: `golden/work-order-continuation-b06255` (worktree /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/project-redundancy-review-21d544, on `47dce9f4`), awaiting the user's ff
 - Merged by the user: `limits-raise` (soft prompt orchestrator 140M, hard.prompt 300M, live), `bayes/3a` (`91fd17d2`), `shrink-on` (`a0791669`), `bayes-3a-fixes` (`47dce9f4`)
@@ -30,8 +30,8 @@ saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1 state,
 ## First actions
 1. Spawn one verifier (read-only) for a state report: main tip (`git -C M log --oneline -8 main`); whether
    `golden/work-order-continuation-b06255` is merged; the tips of `fix/guard-timeout`, `sdk/1`, `sdk/2`, `bayes/3b`, `bayes/3c`,
-   `bayes/4` against main (`git -C M log --oneline main..<b>`); the installed manifest commits (`~/.claude/.stack-manifest.json`,
-   `~/.codex/.stack-manifest.json`) against main; the newest `c10-*.summary` in H/.claude-work/c10/. The verifier's hook refuses
+   `bayes/4` against main (`git -C M log --oneline main..<b>`); the installed manifest commit (`~/.claude/.stack-manifest.json`)
+   against main; the newest `c10-*.summary` in H/.claude-work/c10/. The verifier's hook refuses
    harness, stack_progress and install runs: use a coder for those.
 2. Guard fix T-guard-timeout on `fix/guard-timeout`: `timeout 5 cp x <cfg>/hooks/f` passes agent_guard's protected-path scan
    because in `_Scan.scan_words` the duration operand ends the command position; keep the command position over the
@@ -62,4 +62,4 @@ saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1 state,
 - Security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*, doctor.sh, agent tool lists) get security-auditor + code-reviewer before merge.
 - C10 on main after every merge, and a full C10 on a branch tip before calling it merge-ready (a targeted-test pass is not a C10: Bayes 3a was merged on one and broke 12 tests); with an ff-only merge the tip C10 is the C10 on main, unless main moved in between. Full C10s run only from the user's terminal (`c10-ref.sh <ref>` in H/.claude-work/c10/, short clone /tmp/c10s, `UV_CACHE_DIR` set; launch from `cd ~`). Tests under `.claude-work` show about 130 known path failures; compare against the known ids.
 - Limits: 24 tool calls per BlackCat prompt and the orchestrator soft token limit (140M, live): checkpoint plan.md files. The rules file is exactly at the prompt_budget gate: any rules text needs a gate or trim decision from the user.
-- Open items to carry (HANDOFF_STATE sections 4 and 7): T-guard-timeout (agent_guard, fix direction in H/.claude-work/shrink-on/plan.md); `output_shrink.py report` needs M as its argument when run from a linked worktree; doctor.sh needs the user's terminal (sandbox-only FAILs); broker TOCTOU in `load_wall_module` vs `Wall.start` (MEDIUM, latent); `STACK_CODEX_VIA_TOP=1` bypass (LOW); A4 fold after the user's paid probe; optional `UV_CACHE_DIR` default in `_run_install` and the smoke harness (main-coder); side branches, scratch worktrees and `refs/rescue/shrink-on-51dcd288` for the user (section 3); model display: check project-level `.claude/agents` shadowing in that other session.
+- Open items to carry (HANDOFF_STATE sections 4 and 7): T-guard-timeout (agent_guard, fix direction in H/.claude-work/shrink-on/plan.md); `output_shrink.py report` needs M as its argument when run from a linked worktree; doctor.sh needs the user's terminal (sandbox-only FAILs); broker TOCTOU in `load_wall_module` vs `Wall.start` (MEDIUM, latent); A4 fold after the user's paid probe; optional `UV_CACHE_DIR` default in `_run_install` and the smoke harness (main-coder); side branches, scratch worktrees and `refs/rescue/shrink-on-51dcd288` for the user (section 3); model display: check project-level `.claude/agents` shadowing in that other session.

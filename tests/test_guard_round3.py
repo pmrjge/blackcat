@@ -361,9 +361,6 @@ def test_supply_diff_covers_everything_the_install_ships():
     shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-config/dot-claude"}
     shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git"}}
     shipped.discard("lib/stack_diff.py")    # read only by the read-only --diff mode: it builds nothing
-    # ./install.sh --codex execs it before any Claude-side step; it takes its own source snapshot and
-    # runs its own supply review, and the Claude install never reads it
-    shipped.discard("dot-config/dot-codex_config/install.sh")
     tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
                                  check=True).stdout.split())
     top = {p.split("/", 1)[0] for p in tracked}
