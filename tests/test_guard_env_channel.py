@@ -115,6 +115,27 @@ def test_a_command_past_a_scan_limit_fails_closed():
     assert G.secrets_leak_in("eval " * 9 + "'echo hi'") is None          # no trigger: never scanned
 
 
+def test_a_scan_limit_stays_opaque_outside_the_secrets_scan(tmp_path):
+    """Only the secrets scan turns a scan limit into a hit of its own: the others keep "opaque" (None if unwanted)."""
+    deep = "eval " * 9 + "'git status; rm -rf x > y'"     # no push: the push scan's own reading finds 'git push'
+                                                          # even past MAX_NEST (on main too)
+    big = "git status > out; " + "true " * (G.MAX_COMMAND // 5 + 10)
+    for cmd in (deep, big):
+        assert G.remote_write_in(cmd)[0] == "opaque", cmd[:60]
+        assert not G.git_push_in(cmd) and not G.forge_write_in(cmd), cmd[:60]
+        assert G.protected_write_in(cmd, {"cwd": str(tmp_path)}) is None, cmd[:60]
+
+
+def test_a_scan_limit_denies_with_the_guard_fail_reason(capsys):
+    """A secrets-scan limit is denied as an unchecked command, not as an API-key leak."""
+    command = "eval " * 9 + "'CLAUDE_CODE_SESSION_KIND=bg claude -p hi'"
+    assert G.secrets_leak_in(command)[0] == "limit"
+    with pytest.raises(SystemExit):
+        G.no_push_main(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}))
+    out = capsys.readouterr().out
+    assert '"permissionDecision": "deny"' in out and "Split it into simpler commands" in out and "API key" not in out
+
+
 def test_a_parser_failure_fails_closed(monkeypatch, capsys):
     """A scanner exception on a command naming the channel denies (the trigger covers the names)."""
     def boom(*a, **k):

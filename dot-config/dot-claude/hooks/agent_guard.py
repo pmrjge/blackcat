@@ -8604,8 +8604,9 @@ class _Scan(object):
 
     def limit(self, what):
         """A command past a scan limit (nesting, size, time): opaque; the secrets scan wants no "opaque", so
-        there it is an overflow hit (fail closed: `eval` x9 or 1 MB of padding hid a secrets/envchan hit)."""
-        return self.overflow(what) if "secrets" in self.want else self.hit("opaque", what)
+        there it is a "limit" hit (fail closed: `eval` x9 or 1 MB of padding hid a secrets/envchan hit; the
+        hook denies it with GUARD_FAIL_REASON, not SECRETS_REASON)."""
+        return ("limit", self.overflow(what)[1]) if "secrets" in self.want else self.hit("opaque", what)
 
     def scan(self, command, depth=0):
         """First remote write in a shell command: (kind, what), or None."""
@@ -12614,6 +12615,7 @@ def no_push_main(raw):
         deny(FORGE_REASON % what if kind == "forge" else
              OPAQUE_REASON % what if kind == "opaque" else
              INDEX_REASON % what if kind == "index" else
+             GUARD_FAIL_REASON % what if kind == "limit" else
              SECRETS_REASON % what if kind == "secrets" else
              ENV_CHANNEL_REASON % what if kind == "envchan" else
              INSTALL_REASON % what if kind == "install" else
