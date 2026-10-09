@@ -1,0 +1,22 @@
+BASE  11 named tests: PASS (2.3s)
+KILLED G1  test_a_paid_run_needs_the_flag_and_the_exact_consent_env                 a paid run without the consent env [1.5s] E       Failed: DID NOT RAISE SystemExit
+KILLED G2  test_a_paid_run_needs_the_flag_and_the_exact_consent_env                 any non-empty consent env accepted [1.5s] E       Failed: DID NOT RAISE SystemExit
+KILLED G3  test_dry_run_is_the_default_and_spends_nothing                           paid is the default (dry run only on --dry-run) [1.2s] E       SystemExit: 2
+KILLED G4  test_a_paid_run_logs_the_envelope_first_and_reports                      the ledger does not open with the envelope [1.3s] E       AssertionError: assert ('start' == 'envelope'
+KILLED C1  test_a_probe_outside_its_envelope_or_without_a_turn_limit_is_refused     a probe cap of 0, NaN or a string accepted [1.2s] E       Failed: DID NOT RAISE BudgetError
+KILLED C2  test_a_probe_outside_its_envelope_or_without_a_turn_limit_is_refused     no turn limit required [1.2s] E       Failed: DID NOT RAISE BudgetError
+KILLED C3  test_group_sums_and_the_total_are_enforced                               the caps of a group may sum above its envelope [1.2s] E       Failed: DID NOT RAISE BudgetError
+KILLED C4  test_caps_shrink_with_the_reported_spend_and_stop_before_the_envelope    the runtime cap ignores the group's envelope [1.6s] E       AssertionError: assert ['ran', 'ran', 'ran'] == ['ran', 'cap_used', 'ran']
+KILLED C5  test_caps_shrink_with_the_reported_spend_and_stop_before_the_envelope    the runtime cap ignores the $2.00 total [2.0s] E       AssertionError: assert (['ran', 'skipped', 'ran'] == ['ran', 'skipped', 'ran']
+KILLED C6  test_a_session_never_gets_more_than_its_probe_has_left                   a session's cap not bounded by what the probe has left [1.2s] E       assert 0.4 <= (0.4 - 0.2512345)
+KILLED C7  test_a_session_never_gets_more_than_its_probe_has_left                   no floor: a session may start with almost nothing left [1.2s] E       Failed: DID NOT RAISE BudgetError
+KILLED U1  test_an_unreported_cost_fails_closed                                     a missing cost counts as $0 [1.6s] E       AssertionError: assert ['ran', 'ran', 'ran'] == ['refused', '...d', 'skipped']
+KILLED U2  test_an_unreported_cost_fails_closed                                     an unreported cost does not stop the run [1.2s] E       AssertionError: assert (True is True and 'refused' == 'cost_unknown'
+KILLED U3  test_an_unreported_cost_fails_closed                                     after an unreported cost, sessions still start [1.2s] E       AssertionError: assert ['ran', 'skipped', 'skipped'] == ['refused', '...d', 'skipped']
+KILLED U4  test_an_unreported_cost_fails_closed                                     a later result lowers an unreported session's booking [1.2s] E       assert (0.01 == 0.12 ± 1.2e-07
+KILLED U5  test_caps_shrink_with_the_reported_spend_and_stop_before_the_envelope    a session cut short by CapUsed stops the whole run [1.2s] E       AssertionError: assert ['ran', 'refused', 'skipped'] == ['ran', 'cap_used', 'ran']
+KILLED R1  test_render_never_carries_prompt_text_and_lists_every_part               the report's prompt check is off [1.2s] E           Failed: DID NOT RAISE ValueError
+KILLED R2  test_a_hook_decision_or_an_unloaded_stack_leaves_e1_unknown              E1: a PreToolUse hook's decision read as the rule's [1.2s] E       AssertionError: assert {'E1a': 'no',..., 'E1d': 'no'} == {'E1a': 'unkn...d': 'unknown'}
+KILLED R3  test_a_hook_decision_or_an_unloaded_stack_leaves_e1_unknown              E1c read from permission_denials without the control's calibration [1.2s] E       AssertionError: {'stack_rule_installed': True, 'sandbox_enabled': True, 'sandbox_auto_allow': True, 'c
+KILLED R4  test_every_part_answers_in_the_good_world_within_its_caps                the CLI's config dir exported (CLAUDE_CONFIG_DIR renames the login's keychain entry) [1.5s] E           AssertionError: assert ('CLAUDE_CONFIG_DIR' not in {'XDG_STATE_HOME': '/private/tmp/claude-501/pyt
+20 of 20 killed
