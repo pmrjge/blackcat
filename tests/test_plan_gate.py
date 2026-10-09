@@ -457,6 +457,20 @@ def test_e3_a_child_without_meta_json_fails_open():
     assert ok(r) and not r.stderr.strip(), r.stderr                     # read as absent (stack_io.read_json)
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads a mode-0 folder")
+def test_e3_an_unreadable_plan_folder_fails_open_quietly():
+    """Security review of 3f481922 (F2): a plan folder that cannot be listed is no hit, never a crash."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3u"))
+    folder = os.path.join(e.sdir(), "plan")
+    os.chmod(folder, 0)
+    try:
+        r = child_call(e, "F7", FORK, "acceptEdits", "e3-writer")
+    finally:
+        os.chmod(folder, 0o700)
+    assert ok(r) and not r.stderr.strip(), r.stderr
+
+
 def test_e3_skill_markers_lapse_once_the_main_thread_leaves_plan():
     e = env()
     assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3l"))

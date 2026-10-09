@@ -1265,7 +1265,8 @@ skill's definition: user, project up to the repository root, installed plugins; 
 `<subdir>/.claude/skills` ones are covered only by a backstop that stops such a child, a fork included, at its
 first tool call, once its `meta.json` exists;
 the managed skills folder is not read: [CONFIG.md](CONFIG.md) §5 lists the known gaps), and resumes of
-finished builders, for
+finished builders (a resumed safe-type agent that an `--add-dir` definition gives `acceptEdits` is a known
+gap), for
 every caller (BlackCat, a `claude-ultracode` main thread, a subagent). Planning agents (planner, explore,
 scout, reviewers) still run.
 A main thread without ExitPlanMode leaves Plan with Shift+Tab or `--permission-mode acceptEdits`.

@@ -286,6 +286,11 @@ MUTANTS = [  # (id, mutant, file key, named test, anchor, replacement)
     ('G50', 'a fork child in default mode is refused', "guard",
      PG + 'test_e3_a_fork_child_in_a_reading_or_unreported_mode_passes',
      'PLAN_CHILD_MODES = ("plan", "default")', 'PLAN_CHILD_MODES = ("plan",)'),
+    # ---- security review of 3f481922
+    ('G53', 'the listdir guard catches only a vanished folder', "guard",
+     PG + 'test_e3_an_unreadable_plan_folder_fails_open_quietly',
+     '        except OSError:\n            hit = False\n',
+     '        except FileNotFoundError:\n            hit = False\n'),
     ("U16", "rows land under a foreign header", "usage", SU + "test_rows_never_land_under_a_foreign_header",
      "            if os.path.exists(cur) and os.path.getsize(cur) and _header_of(cur) is None:\n"
      "                raise ",
