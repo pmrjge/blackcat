@@ -1957,21 +1957,54 @@ def _bayes_nice():
         pass
 
 
-def _bayes_child(cmd, env, timeout):
-    """(returncode or None on timeout, stdout bytes). Its own session and process group, niced; on the
-    timeout the whole group is killed and reaped."""
+def _bayes_child(cmd, env, timeout, keep_fds=()):
+    """(returncode, stdout bytes, None | "timeout" | "signal"). Its own session and process group, niced;
+    the fds in keep_fds stay open in it (usage/bayes.lock: a fit whose collector was SIGKILLed keeps the
+    lock until it ends, so no second fit starts beside it). On the timeout, or a SIGTERM to this process
+    while it runs, the whole group is killed and reaped (returncode None) and the SIGTERM handler in place
+    before is called when it is a function (the collector's: stop after this exit), then restored (the
+    `bayes` CLI, default handler: the fit ends recorded failed:signal and the command returns). An
+    ignored SIGTERM stays ignored."""
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                         env=env, cwd="/", close_fds=True, start_new_session=True, preexec_fn=_bayes_nice)
-    try:
-        out, _ = p.communicate(timeout=timeout)
-        return p.returncode, out or b""
-    except subprocess.TimeoutExpired:
+                         env=env, cwd="/", close_fds=True, pass_fds=tuple(keep_fds), start_new_session=True,
+                         preexec_fn=_bayes_nice)
+    why = {}
+
+    def kill(reason):
+        why.setdefault("k", reason)
         try:
             os.killpg(p.pid, signal.SIGKILL)
         except OSError:
-            p.kill()
-        p.communicate()
-        return None, b""
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    prev, hooked = None, False
+
+    def on_term(signum, frame):
+        kill("signal")
+        if callable(prev):
+            prev(signum, frame)
+
+    try:
+        prev = signal.getsignal(signal.SIGTERM)
+        if prev is not signal.SIG_IGN:
+            signal.signal(signal.SIGTERM, on_term)
+            hooked = True
+    except ValueError:                  # not the main thread: no handler, the timeout still holds
+        pass
+    try:
+        try:
+            out, _ = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill("timeout")
+            out, _ = p.communicate()
+    finally:
+        if hooked:
+            signal.signal(signal.SIGTERM, prev)
+    k = why.get("k")
+    return (None if k else p.returncode), (b"" if k else out or b""), k
 
 
 def _bayes_doc_info():
@@ -1998,8 +2031,9 @@ def bayes_fit(trigger="manual", force=False, now=None):
     usage/bayes.json.rec. Skipped: STACK_BAYES=off (nothing recorded); another fit holds usage/bayes.lock
     (nothing recorded); no proposals; the same evidence id as the last attempt, or one less than
     BAYES_MIN_GAP_S ago (unless force); an equilibrium run live or the accelerator lock held; no tools venv
-    python (skipped:no-pymc) or no stack_bayes.py. The child: `<venv python> -I stack_bayes.py fit`, env
-    bayes_env(), cwd /, niced, its own process group, killed at BAYES_TIMEOUT_S. Only its own summary line
+    python (skipped:no-pymc) or no stack_bayes.py. The child: `<venv python> -I -B stack_bayes.py fit`, env
+    bayes_env(), cwd /, niced, its own process group, holding the bayes.lock fd too, killed at
+    BAYES_TIMEOUT_S (failed:timeout) or on a SIGTERM to the collector (failed:signal). Only its own summary line
     ("bayes: ...") is kept from its output. Never raises; returns the record."""
     now = time.time() if now is None else now
     res = {"ts": round(now, 3), "trigger": str(trigger)[:40], "status": None, "rc": None, "evidence_id": None,
@@ -2011,14 +2045,14 @@ def bayes_fit(trigger="manual", force=False, now=None):
         with Locked(os.path.join(usage_dir(), "bayes.lock"), nb=True) as lk:
             if not lk.ok:
                 return dict(res, status="skipped:locked")
-            res["status"] = _bayes_run(res, force, now)
+            res["status"] = _bayes_run(res, force, now, lock_fd=lk.fh.fileno())
             _bayes_record(res)
     except Exception as exc:  # noqa: BLE001 - a detached job's housekeeping: never fail the collector
         res["status"] = "failed:%s" % type(exc).__name__
     return res
 
 
-def _bayes_run(res, force, now):
+def _bayes_run(res, force, now, lock_fd=None):
     eid = _proposals_evidence()
     res["evidence_id"] = eid
     if eid is None:
@@ -2040,12 +2074,14 @@ def _bayes_run(res, force, now):
     if not os.path.isfile(script):
         return "skipped:no-fitter"
     t0 = time.monotonic()
-    rc, out = _bayes_child([py, "-I", script, "fit"], bayes_env(), BAYES_TIMEOUT_S)
+    # -B: -I implies -E, so refresh_env's PYTHONDONTWRITEBYTECODE is ignored; no pycs in the hooks folder
+    rc, out, killed = _bayes_child([py, "-I", "-B", script, "fit"], bayes_env(), BAYES_TIMEOUT_S,
+                                   keep_fds=() if lock_fd is None else (lock_fd,))
     res["rc"], res["secs"] = rc, round(time.monotonic() - t0, 1)
     lines = [ln for ln in out.decode("utf-8", "replace").splitlines() if SUMMARY_RE.match(ln)]
     res["summary"] = lines[-1] if lines else None
-    if rc is None:
-        return "failed:timeout"
+    if killed:
+        return "failed:" + killed
     status = BAYES_RC.get(rc, "failed:exit %d" % rc)
     if status == "ok":
         res.update(_bayes_doc_info())

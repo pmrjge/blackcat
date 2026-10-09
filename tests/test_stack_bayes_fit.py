@@ -50,6 +50,7 @@ SEED = L.load_seed()
 GOOD_MODEL = {"gate": True, "diag": {"rhat_max": 1.003, "ess_bulk_min": 1841, "ess_tail_min": 1680, "divergences": 0,
                                      "ebfmi_min": 0.76, "constant": ["z_s"], "nan": []}}
 BAD_MODEL = {"gate": True, "diag": dict(GOOD_MODEL["diag"], divergences=2)}
+PASS_MODEL = {"gate": True, "diag": dict(GOOD_MODEL["diag"], constant=[])}
 
 FAKE_PY = r'''#!/usr/bin/python3
 import json, os, subprocess, sys, time
@@ -151,7 +152,7 @@ def test_runs_the_venv_python_isolated_niced_in_its_own_group_and_records_the_fi
     r = U.bayes_fit("session end", now=1e9)
     assert r["status"] == "ok" and r["rc"] == 0 and r["evidence_id"] == EID
     (c,) = fake.calls()
-    assert c["argv"] == ["-I", str(HOOKS / "stack_bayes.py"), "fit"]
+    assert c["argv"] == ["-I", "-B", str(HOOKS / "stack_bayes.py"), "fit"]          # -B: no pycs in hooks/
     assert c["cwd"] == "/" and c["pgid"] == c["pid"] and c["sid"] == c["pid"]      # its own session and group
     if can_renice():
         assert c["nice"] >= os.getpriority(os.PRIO_PROCESS, 0) + U.BAYES_NICE
@@ -212,7 +213,8 @@ def test_default_timeout_is_900_s_and_reaches_the_child(st, fake, monkeypatch):
     assert U.BAYES_TIMEOUT_S == 900.0
     seen = []
     real = U._bayes_child
-    monkeypatch.setattr(U, "_bayes_child", lambda cmd, env, timeout: seen.append(timeout) or real(cmd, env, timeout))
+    monkeypatch.setattr(U, "_bayes_child",
+                        lambda cmd, env, timeout, **kw: seen.append(timeout) or real(cmd, env, timeout, **kw))
     U.bayes_fit("idle", now=1e9)
     assert seen == [900.0]
 
@@ -224,6 +226,102 @@ def test_a_held_bayes_lock_skips_without_running(st, fake):
         assert U.bayes_fit("idle", now=1e9)["status"] == "skipped:locked"
     assert fake.calls() == [] and recs(st) == []
     assert U.bayes_fit("idle", now=1e9)["status"] == "ok"
+
+
+COLLECTOR = r'''
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("stack_usage_collector", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = m
+spec.loader.exec_module(m)
+m.bayes_python = lambda: sys.argv[2]
+m.bayes_fit("idle", now=1e9)
+'''
+
+
+def _wait_pids(fake, secs=20.0):
+    pj, end = fake.bin / "pids.json", time.monotonic() + secs
+    while time.monotonic() < end:
+        try:
+            return json.loads(pj.read_text())
+        except (OSError, ValueError):
+            time.sleep(0.05)
+    pytest.fail("the fake fitter never started")
+
+
+def _reap(pids):
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _gone(pid, secs=5.0):
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_the_fitter_keeps_the_bayes_lock_when_the_collector_dies(st, fake, tmp_path):
+    """Security review F2: the fitter inherits the usage/bayes.lock fd, so a SIGKILLed collector's orphaned fit
+    still holds the lock and the next collector's exit skips (skipped:locked) instead of starting a second fit."""
+    fake.mode("sleep", secs=20)
+    script = tmp_path / "collector.py"
+    script.write_text(COLLECTOR)
+    col = subprocess.Popen([sys.executable, str(script), str(HOOKS / "stack_usage.py"), str(fake.py)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pids = []
+    try:
+        pids = _wait_pids(fake)
+        col.kill()
+        col.wait(10)
+        assert _gone(pids[0], 0.3) is False                           # the orphaned fit is still running
+        with U.Locked(str(st / "usage" / "bayes.lock"), nb=True) as lk:
+            assert not lk.ok
+        write_props(st, EID2)
+        assert U.bayes_fit("session end", now=1e9 + 1, force=True)["status"] == "skipped:locked"
+    finally:
+        col.kill()
+        _reap(pids)
+    assert _gone(pids[0])
+    with U.Locked(str(st / "usage" / "bayes.lock"), nb=True) as lk:      # freed once the fit is gone
+        assert lk.ok
+
+
+def test_a_sigterm_during_the_fit_kills_its_group_and_reaches_the_collectors_handler(st, fake):
+    """A SIGTERM to the collector while the fit runs kills the fit's whole group (recorded failed:signal) and
+    calls the collector's own handler (stop); the handler is restored afterwards."""
+    import threading
+    fake.mode("sleep", secs=20)
+    seen = []
+
+    def handler(*_):
+        seen.append(1)
+    old = signal.signal(signal.SIGTERM, handler)
+    box = {}
+
+    def term_when_started():
+        box["pids"] = _wait_pids(fake)
+        os.kill(os.getpid(), signal.SIGTERM)
+    th = threading.Thread(target=term_when_started, daemon=True)
+    try:
+        th.start()
+        t = time.monotonic()
+        r = U.bayes_fit("idle", now=1e9)
+        th.join(5)
+        assert r["status"] == "failed:signal" and r["rc"] is None and time.monotonic() - t < 15, r
+        assert seen == [1] and signal.getsignal(signal.SIGTERM) is handler
+        assert all(_gone(pid) for pid in box["pids"])
+        assert recs(st)[-1]["status"] == "failed:signal"
+    finally:
+        signal.signal(signal.SIGTERM, old)
+        _reap(box.get("pids", []))
 
 
 def test_no_pymc_is_a_clean_skip_through_the_real_fitter(st, fake):
@@ -352,7 +450,7 @@ def test_the_record_is_capped_and_bad_lines_are_dropped(st, fake, monkeypatch):
 
 
 def test_never_raises(st, fake, monkeypatch):
-    monkeypatch.setattr(U, "_bayes_run", lambda *a: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(U, "_bayes_run", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
     assert U.bayes_fit("idle")["status"] == "failed:RuntimeError"
 
 
@@ -570,9 +668,48 @@ def test_the_reader_refuses_a_value_at_the_cap_without_at_bound():
     assert B.self_check(_doc_with(blk), SEED, EID) is not None
     t = _block(fam="turns", model_id="turns-nb2s-h4", T=40, T_raw=39.2, pi90=[30.0, L.TURNS_MAX],
                qx=[10, 20, 30, 35, 39, 45, 50, 60], cap=L.TURNS_MAX)
-    assert t["at_bound"] is False                              # == cap is not past it: the writer leaves it
+    assert t["at_bound"] is True                               # reaching the cap is enough (the reader's rule)
+    L._bayes_doc_checked(_doc_with(t, "turns.coder"), SEED)
+    t["at_bound"] = False
     with pytest.raises(L._BayesInvalid):
         L._bayes_doc_checked(_doc_with(t, "turns.coder"), SEED)
+
+
+def test_a_soft_T_rounded_up_to_the_cap_is_flagged_and_the_fit_is_written():
+    """Reviews (code item 3, security F1): soft T = ceil2(T_raw) rounds T_raw in (9.9e9, 1e10) up to exactly
+    CTX_MAX; the writer must flag it, or self_check refuses the whole document (and that evidence is never
+    retried)."""
+    blk = _block(T=L.ceil2(9.95e9), T_raw=9.95e9, pi90=[5e7, 9e9],
+                 qx=[7e6, 8e7, 3.3e8, 1e9, 2.7e9, 4e9, 5e9, 9.95e9])
+    assert blk["T"] == L.CTX_MAX and blk["at_bound"] is True
+    assert B.self_check(_doc_with(blk), SEED, EID) is None
+
+
+class _FakeGrid:
+    @staticmethod
+    def lognormal_post(obs, cens, mu, tau, sig, oo, oc):
+        return [0.0], [1.0], {"edge_mass": 0.0}
+
+    @staticmethod
+    def lognormal_quantile(etas, w, p, sig, tnew, rho, pres):
+        return (math.log(9.95e9) if p >= 0.9 else math.log(1e9)), (math.log(1e9), math.log(9.95e9))
+
+
+def test_a_grid_block_rounded_up_to_the_cap_is_kept_and_flagged(monkeypatch):
+    """The stdlib grid tier (stack_limits.bayes_grid_block) has the same rounding: its T at CTX_MAX is kept with
+    at_bound true, not dropped by _valid_block."""
+    monkeypatch.setattr(L, "_grid_mod", lambda: _FakeGrid)
+    hyper = {"ctx": {"types": {"coder": {"mu": 20.0, "scale": 1.0}}, "rho": 0.0, "tau_t": 1.0, "tau_new": 0.5,
+                     "p_resume": 0.0}, "breach": []}
+    entry = {"b": {"y": [1e9], "cens": [0], "resume": [0], "sess": ["s1"]}, "n": 1, "agents": 1, "ci": [1e9, 1e9],
+             "x": [1e9], "sessions": 1}
+    blk = L.bayes_grid_block(entry, hyper, "soft.agent.coder", SEED["vars"]["soft.agent.coder"])
+    assert blk is not None and blk["T"] == L.CTX_MAX and blk["at_bound"] is True
+    entry["b"]["y"] = [1e6]                              # well inside the cap: not flagged
+    monkeypatch.setattr(_FakeGrid, "lognormal_quantile",
+                        staticmethod(lambda *a: (math.log(2e6), (math.log(1e6), math.log(3e6)))))
+    blk = L.bayes_grid_block(entry, hyper, "soft.agent.coder", SEED["vars"]["soft.agent.coder"])
+    assert blk is not None and blk["at_bound"] is False
 
 
 def test_a_turns_block_past_its_sweep_has_no_mcse_and_fails_the_quantity_gate():
@@ -624,8 +761,9 @@ def test_the_sched_block_passes_the_schedulers_reader_when_it_has_one(tmp_path):
         pytest.skip("stack_sched_refresh has no load_bayes_sched (WP4 not merged)")
     t = sorted(L._types(SEED))[0]
     pool = sorted(SEED["pools"])[0]
-    doc = bayes_doc()
-    doc["sched"] = {"model_gate": {"turns": True, "spc": True, "ctx_ab": True, "static_cc": True},
+    # passing diag for the four source models: WP4 recomputes the sched model gate from models.<id>.diag
+    doc = bayes_doc({m: PASS_MODEL for m in ("turns-nb2s-h4", "spc-ln-h4", "ctx_ab-kq-h2", "static_cc-ln-h2")})
+    doc["sched"] ={"model_gate": {"turns": True, "spc": True, "ctx_ab": True, "static_cc": True},
                     "types": {t: _sched_entry()}, "pools": {pool: _sched_entry(False)}}
     out = SR._sched_checked(json.loads(json.dumps(doc)), EID, SEED["sha"], SEED)
     assert out and t in out["types"] and pool in out["pools"]
@@ -643,6 +781,109 @@ def test_self_check_refuses_what_the_reader_would_drop():
     e["turns"]["S"] = e["turns"]["L"] + 1
     bad = dict(d, sched={"model_gate": {}, "types": {sorted(L._types(SEED))[0]: e}, "pools": {}})
     assert B.self_check(bad, SEED, EID).startswith("sched types")
+
+
+def test_sampler_defaults():
+    """docs/BAYES.md 1.3: nutpie, 8 chains x 4000 draws after 2000 tuning, target_accept 0.98, seed 20261003."""
+    assert (B.CHAINS, B.DRAWS, B.TUNE, B.TARGET_ACCEPT, B.SEED) == (8, 4000, 2000, 0.98, 20261003)
+
+
+# ---------------------------------------------------------------- assemble(): the post-sampling part of fit()
+class _A:
+    """A posterior variable as fit() sees it in an xarray Dataset: `.values` shaped (chain, draw[, k])."""
+
+    def __init__(self, v):
+        self.values = np.asarray(v, float)
+        self.shape = self.values.shape
+
+
+def _hier_post(rng, ix, shp, eta, log_scale, kind, sess=True, rho=True, regime=False):
+    nt = len(ix.types)
+    z = lambda *k: 0.05 * rng.standard_normal(shp + k)  # noqa: E731
+    p = {"a0": float(np.mean(eta)) + z(), "b_fam": z(len(ix.fams)), "g": 0.5 + z(), "u_p": z(len(ix.peff)),
+         "tau_t": 0.5 + np.abs(z()), "eta_type": eta + z(nt)}
+    ls = "log_alpha" if kind == "nb" else "log_sigma"
+    p[ls + "_t"] = log_scale + z(nt)
+    p[ls] = float(np.mean(log_scale)) + z(len(ix.pools))
+    if sess:
+        p["tau_s"], p["tau_ts"] = 0.1 + np.abs(z()), 0.1 + np.abs(z())
+    if rho:
+        p["rho"] = -0.2 + z()
+    if regime:
+        p["tau_g"], p["z_g"] = 0.2 + np.abs(z()), z(len(ix.regimes))
+    return {k: _A(v) for k, v in p.items()}
+
+
+def _synthetic_fit(rng):
+    ix = B.Index(SEED, {}, ["s1", "s2"], ["r1", "r2"])
+    nt, shp = len(ix.types), (2, 50)
+    t_eta = np.full(nt, math.log(8.0))
+    t_eta[0] = math.log(1e4)                         # type 0: turns beyond its sweep -> at_bound, mcse null
+    c_eta = np.full(nt, math.log(1e6))
+    c_eta[0] = math.log(5e9)                         # type 0: ctx predictive past CTX_MAX -> clamped
+    c_ls = np.where(np.arange(nt) % 2 == 0, math.log(0.3), math.log(1.3))   # narrow: 2 x soft T binds hard.agent
+    posts = {"turns": _hier_post(rng, ix, shp, t_eta, np.full(nt, math.log(2.0)), "nb", regime=True),
+             "ctx": _hier_post(rng, ix, shp, c_eta, c_ls, "ln"),
+             "spc": _hier_post(rng, ix, shp, np.full(nt, math.log(12.0)), np.full(nt, math.log(0.5)), "ln"),
+             "static_cc": _hier_post(rng, ix, shp, np.full(nt, math.log(2e4)), np.full(nt, math.log(0.3)), "ln",
+                                     sess=False, rho=False)}
+    z = lambda *k: 0.05 * rng.standard_normal(shp + k)  # noqa: E731
+    posts["ctx_ab"] = {k: _A(v) for k, v in {
+        "k_t": math.log(3e4) + z(nt), "q_t": -2.0 + z(nt), "u_pk": z(len(ix.peff)), "u_pq": z(len(ix.peff)),
+        "K0": math.log(3e4) + z(), "Q0": -2.0 + z(), "tau_tk": 0.1 + np.abs(z()), "tau_tq": 0.1 + np.abs(z())}.items()}
+    posts["resume_ctx"] = {"alpha": _A(2.0 + np.abs(z())), "gamma": _A(0.1 + np.abs(z()))}
+    builders = [t for t in ix.types if ix.pool_of[t] == "builder"][:3]
+    recs = []
+    for t in list(ix.types[1:6]) + builders:
+        for i in range(6):
+            recs.append({"session": "s%d" % (1 + i % 2), "id": "%s-%d" % (t, i), "seg": int(i == 5), "type": t,
+                         "status": "complete", "cens_turns": False, "cens_ctx": False, "cens": False,
+                         "api_calls": 10.0, "ctx": 1e6, "ctx_at_first_write": 3e5, "first_ctx": 1e5})
+    frames = {"turns": recs, "ctx": recs}
+    gates = {B.MODEL_ID[k]: True for k in ("turns", "ctx", "spc", "static_cc", "ctx_ab", "resume_ctx")}
+    qd = lambda q: {"rhat": 1.0, "ess_bulk": float(np.size(q)), "ess_tail": float(np.size(q))}  # noqa: E731
+    out = B.assemble(posts, frames, ix, SEED, "r1", 0.2, rng, {"vars": {}, "pools": {}}, 20.0, gates, recs, True,
+                     qd_fn=qd)
+    return ix, gates, out
+
+
+def test_assemble_builds_blocks_hyper_and_sched_the_reader_takes():
+    """Code review item 2: fit()'s post-sampling (blocks, the hard.agent 2 x soft binding, the turns sweep and
+    its at_bound, hyper_of, regime_terms, type and pool sched entries) on synthetic posteriors, numpy only."""
+    ix, gates, (hyper, vars_, sched, notes) = _synthetic_fit(np.random.default_rng(11))
+    assert notes == {"turns": "seen", "ctx": "only"}
+    assert set(hyper) == {"turns", "ctx"} and set(hyper["ctx"]["types"]) == set(ix.types)
+    doc = json.loads(json.dumps(dict(bayes_doc({m: PASS_MODEL for m in gates}), hyper=hyper, vars=vars_,
+                                     sched=sched)))
+    for v, blk in doc["vars"].items():
+        L._norm_block(blk, SEED["vars"][v]["unit"])
+    assert B.self_check(doc, SEED, EID) is None
+    binding = free = 0
+    for t in ix.types:
+        soft, hard = doc["vars"].get("soft.agent." + t), doc["vars"].get("hard.agent." + t)
+        if not soft or not hard or soft["at_bound"]:
+            continue
+        q99 = hard["qtab"]["x"][list(L.QTAB_P).index(0.99)]
+        assert hard["T"] == L.hard_agent_T(q99, soft["T"])[0], t
+        if L.HARD_OVER_SOFT * soft["T"] > q99:
+            binding += 1
+            assert hard["T_raw"] == L.HARD_OVER_SOFT * soft["T"]
+            assert hard["diag"]["mcse_rel"] == soft["diag"]["mcse_rel"]
+        else:
+            free += 1
+            assert hard["T_raw"] == pytest.approx(q99)
+    assert binding and free
+    t0 = ix.types[0]
+    s0 = doc["vars"]["soft.agent." + t0]                 # its upper predictive quantiles pass CTX_MAX
+    assert s0["at_bound"] is True and s0["qtab"]["x"][-1] == L.CTX_MAX and s0["T"] < L.CTX_MAX
+    tb = doc["vars"]["turns." + t0]
+    assert tb["at_bound"] is True and tb["diag"]["mcse_rel"] is None and not L.quantity_gate(tb["diag"])
+    ok = doc["vars"]["turns." + ix.types[1]]
+    assert ok["at_bound"] is False and ok["diag"]["mcse_rel"] is not None and ok["qtab"]["x"] == sorted(ok["qtab"]["x"])
+    assert sched["types"] and sched["pools"] and "fixer" in sched and "resume_ctx" in sched
+    assert sched["model_gate"] == {"turns": True, "spc": True, "ctx_ab": True, "static_cc": True}
+    assert all(B.sched_entry_ok(e, True) for e in sched["types"].values())
+    assert all(B.sched_entry_ok(e, False) for e in sched["pools"].values())
 
 
 # ---------------------------------------------------------------- B1-T11: two real fits (opt-in)

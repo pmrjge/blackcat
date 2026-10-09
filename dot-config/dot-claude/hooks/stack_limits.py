@@ -1754,6 +1754,8 @@ def bayes_grid_block(entry, hyper, var, spec):
            "status": "supported" if sup else "pooled",
            "diag": {"rhat": None, "ess_bulk": None, "ess_tail": None, "mcse_rel": None,
                     "edge_mass": info["edge_mass"]}}
+    # T = ceil2(T_raw) can round up to exactly CTX_MAX: a value at the cap is flagged (section 2.1 rule 4)
+    blk["at_bound"] = max([blk["T"], blk["T_raw"], blk["pi90"][1]] + blk["qtab"]["x"]) >= CTX_MAX
     return _valid_block(blk, spec["unit"])
 
 

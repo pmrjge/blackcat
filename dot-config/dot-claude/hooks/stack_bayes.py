@@ -679,9 +679,10 @@ def shrink_of(post, j):
 # ---------------------------------------------------------------- blocks (BAYES.md 2.1)
 def clamp_at_cap(T, T_raw, pi90, qx, cap):
     """Rule 4's range: T, T_raw, pi90 and qtab.x clamped to [0, cap] (WP2: the ctx predictives of sparse
-    types pass CTX_MAX = 1e10). Returns (T, T_raw, pi90, qx, clamped)."""
+    types pass CTX_MAX = 1e10). Returns (T, T_raw, pi90, qx, clamped): clamped when a value reached the cap
+    (the reader's rule: a value at the cap needs at_bound, e.g. a soft T = ceil2(T_raw) rounded up to 1e10)."""
     vals = [T, T_raw] + list(pi90) + list(qx)
-    clamped = any(v > cap for v in vals)
+    clamped = any(v >= cap for v in vals)             # reached or passed: the reader's rule (2.1 rule 4)
     c = lambda v: min(max(float(v), 0.0), cap)  # noqa: E731
     return c(T), c(T_raw), [c(v) for v in pi90], [c(v) for v in qx], clamped
 
@@ -824,7 +825,7 @@ def fit(cfg, out, log=print):
         posts[name], frames[name] = dt["posterior"].dataset, fr
         log("fit %s: n %d (cens %d) %.1f s" % (name, len(fr), sum(r["cens"] for r in fr), secs))
     # --- M3 scheduler models
-    sched_ok = not cfg["no_sched"]
+    sched_ok, n_ref_ab = not cfg["no_sched"], None
     if sched_ok:
         comp = [dict(r, spc=r["wall_s"] / r["api_calls"], cens=False) for r in recs
                 if r["status"] == "complete" and (r["wall_s"] or 0) > 0]
@@ -856,66 +857,9 @@ def fit(cfg, out, log=print):
     nuts_s = sum(timing.values())
     gates = {k: bool(L.model_gate({"gate": True, "diag": d})) for k, d in diags.items()}
     t_post = time.perf_counter()
-    # --- per-variable blocks: turns.<t>, soft.agent.<t>, hard.agent.<t> for every seed type
     pv = props or {"vars": {}, "pools": {}}
-    pool_of = L._pool_of(seed)
-    hyper, vars_, sw_types, reg_note = {}, {}, {}, {}
-    for name, kind in (("ctx", "ln"), ("turns", "nb")):
-        post = posts[name]
-        off, extra, reg_note[name] = regime_terms(post, ix, cur_reg, rng)
-        hyper[name] = hyper_of(post, kind, ix, p_resume, off, extra)
-        for j, t in enumerate(ix.types):
-            counts = type_counts(frames[name], t)
-            if kind == "ln":
-                P = pred_ln(post, j, p_resume, off, extra)
-                ps = sorted(set(L.QTAB_P))
-                qx = [float(v) for v in P.quantiles(ps)]
-                soft_T = None
-                for fam in ("soft.agent", "hard.agent"):
-                    v = "%s.%s" % (fam, t)
-                    if v not in seed["vars"]:
-                        continue
-                    p = 1 - L.RISK[fam]
-                    T_raw = qx[ps.index(p)] if p in ps else float(P.quantiles((p,))[0])
-                    qd = P.draw_quantile(p)
-                    mrel = P.mcse_rel(T_raw)
-                    if fam == "soft.agent":
-                        T, at_b = L.ceil2(T_raw), False
-                        soft_T, soft_mrel = T, mrel
-                    else:
-                        T, at_b = L.hard_agent_T(T_raw, soft_T)
-                        if soft_T and L.HARD_OVER_SOFT * soft_T > T_raw:     # the binding term: 2 x soft T
-                            T_raw, mrel = L.HARD_OVER_SOFT * soft_T, soft_mrel
-                    vars_[v] = make_block(fam, MODEL_ID[name], T, T_raw,
-                                          [float(np.quantile(qd, .05)), float(np.quantile(qd, .95))], qx, at_b,
-                                          counts, shrink_of(post, j), _status(fam, t, counts, pv, pool_of),
-                                          qdiag(qd), mrel, L.CTX_MAX)
-            else:
-                v = "turns." + t
-                P = pred_nb(post, j, p_resume, off, extra)
-                kcap = int(min(KMAX, max(SWEEP_MIN, SWEEP_FACTOR * ix.ceiling[t])))
-                p = 1 - L.RISK["turns"]
-                mix_ps = sorted(set(L.QTAB_P) | {p, 0.25})
-                sw = P.sweep(mix_ps, (p, 0.5), kcap)
-                sw_types[t] = sw
-                if v not in seed["vars"]:
-                    continue
-                qx = [float(PredNB.quantile_of(sw["mix"][q], q)[0]) if sw["mix"][q] else float(kcap + 1)
-                      for q in L.QTAB_P]
-                if sw["mix"][p] is not None:
-                    _q, T_raw, _pmf = PredNB.quantile_of(sw["mix"][p], p)
-                    T, mrel, at_b = int(math.ceil(T_raw)), P.mcse_rel(sw["mix"][p], p), False
-                else:                                   # beyond the sweep: T >= kcap + 1 acts as the ceiling
-                    T_raw, T, mrel, at_b = float(kcap + 1), kcap + 1, None, True
-                qd = 1.0 + sw["draw"][p].reshape(P.shape)
-                at_b = at_b or any(x > kcap for x in qx)
-                qx = [min(x, float(kcap + 1)) for x in qx]
-                vars_[v] = make_block("turns", MODEL_ID[name], T, T_raw,
-                                      [float(np.quantile(qd, .05)), float(np.quantile(qd, .95))], qx, at_b, counts,
-                                      shrink_of(post, j), _status("turns", t, counts, pv, pool_of), qdiag(qd), mrel,
-                                      float(kcap + 1))
-    # --- the sched block
-    sched = build_sched(posts, gates, ix, recs, sw_types, p_resume, cur_reg, rng, n_ref_ab) if sched_ok else None
+    hyper, vars_, sched, reg_note = assemble(posts, frames, ix, seed, cur_reg, p_resume, rng, pv,
+                                             n_ref_ab, gates, recs, sched_ok)
     post_s = time.perf_counter() - t_post
     versions = {"python": sys.version.split()[0], "pymc": pm.__version__, "pytensor": pytensor.__version__,
                 "nutpie": nutpie.__version__, "arviz": az.__version__, "numpy": np.__version__,
@@ -951,6 +895,75 @@ def fit(cfg, out, log=print):
                          fit_id, len(rows), len(recs), len(ix.sessions), sum(gates.values()), len(gates), len(vars_),
                          len(acc), "%d/%d" % (len(sched["types"]), len(sched["pools"])) if sched else "none",
                          nuts_s, post_s, total, rss))
+
+
+def assemble(posts, frames, ix, seed, cur_reg, p_resume, rng, pv, n_ref_ab, gates, recs, sched_ok=True, qd_fn=None):
+    """The post-sampling part of fit(), numpy only: the turns/ctx hyperparameters, the blocks of turns.<t>,
+    soft.agent.<t> and hard.agent.<t> for every seed type, and the sched block (None unless sched_ok).
+    posts: {"turns", "ctx"[, "spc", "static_cc", "ctx_ab", "resume_ctx"]: posterior}, each posterior a
+    mapping of names to arrays with `.values` shaped (chain, draw[, k]) (an xarray Dataset in the fit);
+    frames: the turns and ctx rows each model saw (with `cens`); qd_fn: the per-draw quantity diagnostics
+    (qdiag, arviz). Returns (hyper, vars, sched, regime notes)."""
+    qd_fn = qd_fn or qdiag
+    pool_of = L._pool_of(seed)
+    hyper, vars_, sw_types, reg_note = {}, {}, {}, {}
+    for name, kind in (("ctx", "ln"), ("turns", "nb")):
+        post = posts[name]
+        off, extra, reg_note[name] = regime_terms(post, ix, cur_reg, rng)
+        hyper[name] = hyper_of(post, kind, ix, p_resume, off, extra)
+        for j, t in enumerate(ix.types):
+            counts = type_counts(frames[name], t)
+            if kind == "ln":
+                P = pred_ln(post, j, p_resume, off, extra)
+                ps = sorted(set(L.QTAB_P))
+                qx = [float(v) for v in P.quantiles(ps)]
+                soft_T = None
+                for fam in ("soft.agent", "hard.agent"):
+                    v = "%s.%s" % (fam, t)
+                    if v not in seed["vars"]:
+                        continue
+                    p = 1 - L.RISK[fam]
+                    T_raw = qx[ps.index(p)] if p in ps else float(P.quantiles((p,))[0])
+                    qd = P.draw_quantile(p)
+                    mrel = P.mcse_rel(T_raw)
+                    if fam == "soft.agent":
+                        T, at_b = L.ceil2(T_raw), False
+                        soft_T, soft_mrel = T, mrel
+                    else:
+                        T, at_b = L.hard_agent_T(T_raw, soft_T)
+                        if soft_T and L.HARD_OVER_SOFT * soft_T > T_raw:     # the binding term: 2 x soft T
+                            T_raw, mrel = L.HARD_OVER_SOFT * soft_T, soft_mrel
+                    vars_[v] = make_block(fam, MODEL_ID[name], T, T_raw,
+                                          [float(np.quantile(qd, .05)), float(np.quantile(qd, .95))], qx, at_b,
+                                          counts, shrink_of(post, j), _status(fam, t, counts, pv, pool_of),
+                                          qd_fn(qd), mrel, L.CTX_MAX)
+            else:
+                v = "turns." + t
+                P = pred_nb(post, j, p_resume, off, extra)
+                kcap = int(min(KMAX, max(SWEEP_MIN, SWEEP_FACTOR * ix.ceiling[t])))
+                p = 1 - L.RISK["turns"]
+                mix_ps = sorted(set(L.QTAB_P) | {p, 0.25})
+                sw = P.sweep(mix_ps, (p, 0.5), kcap)
+                sw_types[t] = sw
+                if v not in seed["vars"]:
+                    continue
+                qx = [float(PredNB.quantile_of(sw["mix"][q], q)[0]) if sw["mix"][q] else float(kcap + 1)
+                      for q in L.QTAB_P]
+                if sw["mix"][p] is not None:
+                    _q, T_raw, _pmf = PredNB.quantile_of(sw["mix"][p], p)
+                    T, mrel, at_b = int(math.ceil(T_raw)), P.mcse_rel(sw["mix"][p], p), False
+                else:                                   # beyond the sweep: T >= kcap + 1 acts as the ceiling
+                    T_raw, T, mrel, at_b = float(kcap + 1), kcap + 1, None, True
+                qd = 1.0 + sw["draw"][p].reshape(P.shape)
+                at_b = at_b or any(x > kcap for x in qx)
+                qx = [min(x, float(kcap + 1)) for x in qx]
+                vars_[v] = make_block("turns", MODEL_ID[name], T, T_raw,
+                                      [float(np.quantile(qd, .05)), float(np.quantile(qd, .95))], qx, at_b, counts,
+                                      shrink_of(post, j), _status("turns", t, counts, pv, pool_of), qd_fn(qd), mrel,
+                                      float(kcap + 1))
+    # --- the sched block
+    sched = build_sched(posts, gates, ix, recs, sw_types, p_resume, cur_reg, rng, n_ref_ab) if sched_ok else None
+    return hyper, vars_, sched, reg_note
 
 
 def _status(fam, t, counts, pv, pool_of):

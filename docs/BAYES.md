@@ -106,7 +106,7 @@ nodes, for the NB; analytic for the log-normal), and the resume mix at the windo
 |---|---|---|---|
 | `turns-nb2s-h4` (M1) | api_calls, agent rows | shifted NB2: y − 1 ~ NB(mu, alpha_t), censored rows log P(Y ≥ y) | L1, S1, S2 |
 | `ctx-ln-h4` (M2) | ctx, agent rows | log-normal, censored rows log Φ((lin − log y)/σ) (LOO beat gamma: Δelpd 16.8, SE 5.3) | L2, L3 |
-| `spc-ln-h4`, `static_cc-ln-h2`, `ctx_ab-kq-h2`, `resume_ctx-t-1`, `tool_calls-nb2s-h4` (M3) | as v2 §4 S3–S11 | as v2 | S3–S11 |
+| `spc-ln-h4`, `static_cc-ln-h2`, `ctx_ab-kq-h2`, `resume_ctx-t-1`, `tool_calls-nb2s-h4` (not fitted by WP3b, §1.3) (M3) | as v2 §4 S3–S11 | as v2 | S3–S11 |
 | `scope-ln-anchored-1` (M4) | window_ctx (main rows), session ctx (session rows) | log-normal, single level, seed-anchored grid (stdlib) | L4–L8 |
 | `grades-ord-1` (M5) | graded runs | ordinal logit | Q1, Q2 (§E) |
 | `width-1` (M6) | per-child wall, failures, rate limits | §C | advice |
@@ -205,8 +205,9 @@ Validation (`load_bayes(seed, evidence_id)`, all or nothing unless stated):
    non-negative ints. **At the cap:** a block whose `T`, `T_raw`, `pi90[1]` or any `qtab.x` reaches the range's
    upper end (CTX_MAX, TURNS_MAX) must carry `at_bound: true`, else the whole file is dropped (`_norm_block`).
    The writer clamps there instead of failing: the ctx predictives of sparse types pass CTX_MAX = 1e10 (WP2), so
-   `stack_bayes.make_block` clamps T, T_raw, pi90 and qtab.x to [0, cap] and sets `at_bound` when any value was
-   past it. A turns quantile beyond the type's sweep (max(400, 4 × its ceiling), at most KMAX 5000 < TURNS_MAX)
+   `stack_bayes.make_block` clamps T, T_raw, pi90 and qtab.x to [0, cap] and sets `at_bound` when any value
+   reached it (a soft T = ceil2(T_raw) rounds T_raw in (9.9e9, 1e10) up to exactly 1e10; the grid tier's
+   `bayes_grid_block` flags the same way). A turns quantile beyond the type's sweep (max(400, 4 × its ceiling), at most KMAX 5000 < TURNS_MAX)
    is reported at the sweep's end with `at_bound: true` and `mcse_rel: null`, so it fails the quantity gate
    (rule 5): such a T would act as the ceiling (A.2 L1), never as a learned value.
 5. Per-block acceptance (a failing block is dropped, the file kept): `tier == "nuts"`, `risk == RISK[family]`, the
@@ -316,10 +317,14 @@ skips both); an equilibrium run is live (a `<state>/<session>/eq/<run>/` without
 `result`/`cleaned`, written in the last 2 h; past 4096 entries: assumed live) → `skipped:eq-run`; someone holds an
 flock on `<state>/accel.lock` → `skipped:accel-lock`; no executable `<config>/venvs/tools/bin/python` →
 `skipped:no-pymc`; no `stack_bayes.py` beside it → `skipped:no-fitter`. Otherwise the child is
-`<venv python> -I stack_bayes.py fit`, cwd `/`, its own session and process group, `nice` +10, stdin and stderr
-null, the environment `refresh_env()` minus every `PYTENSOR*`, `NUMBA_*`, `AESARA*`, `THEANO*` knob plus
-`PYTENSOR_FLAGS=base_compiledir=<state>/bayes-cache/pytensor,cxx=,mode=NUMBA` and
-`NUMBA_CACHE_DIR=<state>/bayes-cache/numba`; at 900 s the whole group is killed (`failed:timeout`). Exit codes: 0
+`<venv python> -I -B stack_bayes.py fit` (`-B`: `-I` ignores `PYTHONDONTWRITEBYTECODE`, and no pyc may land in
+the hooks folder), cwd `/`, its own session and process group, `nice` +10, stdin and stderr null, the
+`usage/bayes.lock` fd inherited (a fit whose collector was SIGKILLed keeps the lock until it ends, so no second
+fit starts beside it), the environment `refresh_env()` minus every `PYTENSOR*`, `NUMBA_*`, `AESARA*`, `THEANO*`
+knob plus `PYTENSOR_FLAGS=base_compiledir=<state>/bayes-cache/pytensor,cxx=,mode=NUMBA` and
+`NUMBA_CACHE_DIR=<state>/bayes-cache/numba`; at 900 s the whole group is killed (`failed:timeout`), and so on a
+SIGTERM to the collector while it runs (`failed:signal`; the collector's own handler then stops it as before).
+A fit orphaned by a SIGKILLed collector has no 900 s cap of its own (§H). Exit codes: 0
 `ok`, 3 `skipped:no-pymc` (a Bayes dependency does not import: one line, no traceback, nothing written), 4
 `skipped:no-rows` (< 10 agent rows or < 2 sessions), anything else `failed:exit <rc>`. A skip is not an attempt, so
 the next exit tries again.
@@ -337,7 +342,7 @@ last 256 KiB and drops lines that do not parse to an object):
 ```
 {"ts": 1791504000.0,                       # epoch seconds, 3 decimals
  "trigger": "session end",                 # the collector's reason or "manual", ≤ 40 chars
- "status": "ok" | "skipped:<why>" | "failed:timeout" | "failed:exit <rc>",
+ "status": "ok" | "skipped:<why>" | "failed:timeout" | "failed:signal" | "failed:exit <rc>",
  "rc": 0 | null,                           # null: timeout or not run
  "evidence_id": "<64 hex>" | null,
  "secs": 347.8 | null,                     # child wall time
@@ -371,12 +376,13 @@ user's yes (WP6). `BAYES_LIVE ⊆ {"soft.agent", "soft.prompt", "soft.session"}`
 decision is needed to lift this). `BAYES_GRID_LIVE ⊆ BAYES_LIVE`, and a family enters it only after the rolling-origin
 backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 
-### 3.3 Promotion (per family) needs all four
+### 3.3 Promotion (per family) needs all five
 
 1. the model gate passes on 3 consecutive refits (`usage/bayes.json.rec`);
 2. B1-T14 (§A.9) passes on a rolling origin with ≥ 3 folds that train on ≥ 2 sessions, supported stratum;
 3. ≥ 5 new sessions in shadow, with the would-vs-§4 report (WP6);
-4. the user's approval, recorded in CONFIG.md §9.
+4. the user's approval, recorded in CONFIG.md §9;
+5. the drift check (§2.1 rule 7) is implemented and written for that family (WP3b writes drift as {}).
 
 ### 3.4 Rollback (any one)
 
@@ -385,7 +391,8 @@ backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 - delete `limits/bayes.json` or `limits/advice.json`: falls back to empirical, static or today's defaults;
 - `live.v1.json` (kept by the migration) restores the pre-Bayes state;
 - drift: the fitter sets `drift.<family>.breach = true` (§2.1) when the rolling PIT over the last 5 sessions fails
-  (KS p < 0.01); `load_bayes` drops that family's blocks, so it falls back to §4 at the next session. The Goodhart
+  (KS p < 0.01); `load_bayes` drops that family's blocks, so it falls back to §4 at the next session. Not
+  implemented in WP3b (drift is {}): promotion item 5. The Goodhart
   guard (partial/blocked rate of the family's types in `reports.jsonl` up > 5 points after a change) is a WP6 report
   item that asks the user to roll back; it is not automatic.
 
@@ -822,6 +829,10 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
 - `drift` is written as `{}`: the rolling-PIT drift check (§2.1 rule 7) is not implemented; nothing is dropped
   for drift until it is.
 - `<state>/accel.lock` (§2.8) has no holder in the stack yet.
+- A fit orphaned by a SIGKILLed collector runs to its end without the 900 s cap (it keeps `usage/bayes.lock`,
+  so it is never doubled); a cap inside `stack_bayes.py` itself is not implemented.
+- WP3c builds on WP3b's `requirements/tools-bayes.in`, the install.sh staging of `hooks/stack_bayes.py` and the
+  `test_install_state` extras map; run an OSV / pip-audit scan before the hashed `tools-bayes.txt` ships.
 - Window and session row counts in today's live data: WP2.
 - The clustered check per stratum and the randomized PIT of censored rows: need a refit (WP2/WP5).
 - Turns and ctx fits were not bit-reproducible across processes with the same seed in v2 (§2). B1-T11 on the frozen
