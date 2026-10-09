@@ -224,7 +224,8 @@ Validation (`load_bayes(seed, evidence_id)`, all or nothing unless stated):
 7. Drift: blocks of a family with `drift.<family>.breach == true` are dropped (the family falls back to §4). The
    producer (which rows, the randomized PIT, the clustered KS p, the minimum count) is §A.12. A `drift` key outside
    `RISK`, or an entry without `ks_p` in [0, 1], a count `sessions` and a bool `breach`, drops the whole file
-   (rule 4, `stack_limits.py:1482-1490` at b4bed8b8); a family without an entry is never dropped for drift.
+   (rule 4, `stack_limits.py:1482-1490` at b4bed8b8). A family without an entry is not dropped for drift. A
+   breached entry that an under-minimum fit carried forward (§A.12) is an entry, and it drops the family.
 Returns `{var: block}` of the accepted blocks, or `None`.
 
 `load_hyper(seed)` (used by `propose()` and by apply, stdlib): reads the same file with rules 1, 3, 4, 6 and 7 (a
@@ -452,15 +453,17 @@ backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 ### 3.3 Promotion (per family) needs all five
 
 1. the model gate passes on 3 consecutive refits (`usage/bayes.json.rec`);
-2. B1-T14 (§A.9) gives ACCEPT on a rolling origin with ≥ 3 folds that train on ≥ 2 sessions, in the
-   **production** (current-regime) supported stratum, with `informative: true` and fold-specific hyperparameters
-   from the shipped fitter, each fold's model gate passing (§A.11). An ACCEPT on the any-regime stratum, on the
-   frozen fixture or on the WP5 hybrid copy is a rehearsal, never this item;
+2. B1-T14 (§A.9) gives ACCEPT on a rolling origin with ≥ 3 folds that train on ≥ 2 sessions and have test rows in
+   the **production** supported stratum (support at the test session's own regime, as apply computed it at that
+   session's start, §A.11.2). The run also needs `informative: true`, fold-specific hyperparameters from the
+   shipped fitter, each fold's model gate passing, and its own simulated power ≥ `B1_MIN_POWER` = 0.5 against a
+   2.5 r hit rate (§A.11.1). An ACCEPT on the any-regime stratum, on the frozen fixture or on the WP5 hybrid copy is
+   a rehearsal, never this item;
 3. ≥ 5 new sessions in shadow, with the would-vs-§4 report (WP6);
 4. the user's approval, recorded in CONFIG.md §9;
 5. the drift check (§2.1 rule 7, §A.12) is implemented and installed, and the last gated fit wrote
-   `drift.<family>` for that family with `breach: false` (a fit with too few recent rows writes no entry and does
-   not count; WP3b writes drift as {}).
+   `drift.<family>` for that family from a check that ran, with `breach: false`. A fit with too few recent rows
+   writes no entry, or carries a previous breach forward, and does not count. WP3b writes drift as {}.
 
 A WP5 ACCEPT is evidence for item 2 only; it changes no code constant (`BAYES_LIVE` stays as §3.2 says).
 
@@ -522,7 +525,7 @@ A censored row contributes log P(Y ≥ y_obs). Per row and family (turns, ctx), 
 | 2 | `compacted == 1` | cens | cens | excluded from static_cc, ctx(n) |
 | 3 | `turn_limited == 1` or `hit_turn == 1` | cens | cens | observed |
 | 4 | any measured `hit_*` == 1 (soft or hard, any scope) | cens | cens | observed |
-| 5 | agent row whose window's main row has `hit_soft == 1` or `hit_hard_prompt == 1` (**main-window join**) | cens | cens | observed |
+| 5 | agent row whose window's main row has `hit_soft == 1` or `hit_hard_prompt == 1` (**main-window join**), except a clean finish: `status_code == 0` with every own `hit_*` measured 0 (user decision 2026-10-09, §A.11.5; code: WP5 5b) | cens | cens | observed |
 | 6 | `status_code == 1` and every `hit_*` cell empty (pre-697a685 rows) | cens when api_calls ≥ NEAR × turns limit in force | cens when ctx ≥ NEAR × soft.agent in force | observed |
 | 7 | `status_code == 1` with `hit_*` measured, all 0 | observed | observed | observed |
 | 8 | `status_code == 2` (blocked: consent, sandbox, permission) | observed | observed | observed |
@@ -540,9 +543,11 @@ A censored row contributes log P(Y ≥ y_obs). Per row and family (turns, ctx), 
 - Main rows (L4–L6): censored on their own `hit_soft` or `hit_hard_prompt`; session rows (L7, L8): on `hit_soft` or
   `hit_hard_session`.
 - Row 5 after the collector fix: it is the dominant censor (302 of 451 turns-censored window rows on the WP5 hybrid
-  copy), and 182 of those 302 are clean finishes (`status_code` 0) with every own `hit_*` measured 0. Whether to
-  exempt them is an open user decision with a recommendation, §A.11.5; until it is taken the code keeps row 5 as
-  written.
+  copy). 182 of those 302 are clean finishes (`status_code` 0) with every own `hit_*` measured 0.
+- **The user decided on 2026-10-09 (option (c), §A.11.5) to exempt those clean finishes.** They count as observed.
+  This changes `censor_flags` (`stack_limits.py`, read by the live proposer and by the fitter) and tests B1-T6 and
+  B1-T19. WP5 5b implements it; no collector column is added. On the hybrid copy, turns-censored rows go from 451 to
+  269. Until that code lands on main, the code still censors every row 5 row, and 5b and 5d report both rules.
 
 ### A.4 Gates and support
 
@@ -660,7 +665,7 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 | B1-T3 | hostile bayes.json: NaN/Infinity tokens, negative, non-monotone qtab, wrong `qtab.p`, wrong evidence_id, wrong seed_sha, another risk table, a fixed-guard name (e.g. `STACK_MAX_FANOUT`, `STACK_BAYES`), an unknown name, > 4 MiB, deep nesting → whole file ignored, method `empirical`, values equal §4's, no exception (kills "fixed-guard name accepted"). Positive control: a bayes.json whose `hyper` comes from `docs/bayes/b1v2/out_v2/hyper_ctx.json` and `hyper_turns.json` (`nuts` blocks, rho < 0) is accepted by `load_hyper` and `load_bayes` |
 | B1-T4 | gate fallback: block rhat 1.02, ess_bulk 300, ess_tail 300, mcse_rel 0.03, model with 1 divergence, ebfmi 0.2, `gate: true` with failing diag → `empirical`, value = §4's |
 | B1-T5 | prior holds: a type with no own rows never moves; turns and hard.* never move unless supported |
-| B1-T6 | censoring: one row per A.3 line → expected flags for turns and ctx separately; the status_code-1 proxy switches off when `hit_*` is measured |
+| B1-T6 | censoring: one row per A.3 line → expected flags for turns and ctx separately; the status_code-1 proxy switches off when `hit_*` is measured; WP5 5b: a row 5 clean finish (`status_code` 0, own `hit_*` measured 0) is observed, and the same row with one own `hit_*` empty is censored |
 | B1-T7 | pins: `soft.prompt.orchestrator` never leaves 140M and `hard.prompt` never leaves 300M under 10k random blocks; env override origin `env` and exact; no fixed-guard name in bayes.json / live / proposals (advice.json: WP7c) |
 | B1-T8 | step bound: with random valid blocks, \|x − c\| ≤ 0.25 d c before the clamp, values in [f, g], invariants hold (kills "step bound removed") |
 | B1-T9 | U4: rewriting bayes.json mid-session changes nothing a running session reads; a new sid applies it once; proposals without `b`/`bayes` keys equal today's; proposals for the five scope variables (A.8 item 13) carry no `bayes` key |
@@ -668,12 +673,12 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 | B1-T11 | determinism of the fitter: same data and seed → identical bayes.json except `generated` for spc, static_cc, ctx_ab; turns/ctx within a tolerance set empirically (v2: not bit-reproducible across processes); the gate never relies on bit reproducibility |
 | B1-T12 | latency: apply_and_snapshot p95 ≤ 300 ms with 176 blocks |
 | B1-T13 | refresh: with a valid sched block `stack_sched_refresh` writes a model `stack_sched.load_model` accepts, method `bayes`; without it, output byte-equal to today's (WP4) |
-| B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y), 1); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current). **WP5 (§A.11):** the gating stratum is production (current-regime) support, any-regime is reported beside it; the verdict is `informative: false` = REJECT (exit 1) unless the stratum has ≥ 40 scorable test rows (uncensored, or censored above T), (hi − lo)/n ≤ 0.10 and, for soft families, hi − lo below the 5 % quantile of the run's clustered null K; hyperparameters come from one shipped-fitter fit per fold, and a fold whose model gate fails makes the family `blocked:gate` (exit 1) |
+| B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y−), 1), F(y−) = P(Y < y): F(y) for the log-normal, F(y − 1) for the NB (WP5 5b changes `pit()`, `b1_backtest.py:161-164`, which uses F(y)); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current). **WP5 (§A.11):** the gating stratum is production support (at the test session's own regime); any-regime is reported beside it. The verdict is REJECT (`folds`) unless ≥ 3 eligible folds have test rows in the family's production stratum. It is `informative: false` = REJECT (exit 1) unless the stratum has ≥ 40 scorable test rows (uncensored, or censored above T), (hi − lo)/n ≤ 0.10 and, for soft families, hi − lo < q05, the empirical 5 % quantile of the run's clustered null K. Hyperparameters come from one shipped-fitter fit per fold at the test session's regime; a fold whose model gate fails makes the family `blocked:gate` (exit 1). The run reports its simulated power against a 2.5 r hit rate; an ACCEPT counts for §3.3 item 2 only at power ≥ `B1_MIN_POWER` (0.5) |
 | B1-T15 | 10k random blocks: `decide_bayes`'s state for a sparse soft type has value ≥ c (asserted before `enforce_invariants`) (kills "no hold:sparse") |
 | B1-T16 | proposals with `bayes_hyper_source: "stdlib-moments"`, absent, or another seed_sha → no grid block used, method `empirical`; `load_hyper` without a gated bayes.json returns (None, None) and `propose()` writes no grid block (kills "moment hyperparameters accepted"); bayes.json deleted after propose → grid block unused, method `empirical`; `drift.soft.agent.breach = true` → same; an AST check that no `eb_hyper_*` is defined in, or referenced from, stack_bayes_grid.py or stack_limits.py |
 | B1-T17 | a fake posterior with one constant-per-chain parameter not in `CONSTANT_BY_CONSTRUCTION` (NaN R-hat) → model gate false → `empirical`; the same with `z_s` constant → gate unaffected (kills "NaN-skipping R-hat") |
 | B1-T18 | seed, proposals and snapshot stay `schema_version` 1; live.json is 2; `read_limits_snapshot` accepts `prov` (kills "SCHEMA bumped instead of LIVE_SCHEMA") |
-| B1-T19 | a main-window `hit_soft` (and, separately, `hit_hard_prompt`) censors the agent rows of that window only, for turns and ctx (kills "main-window join dropped") |
+| B1-T19 | a main-window `hit_soft` (and, separately, `hit_hard_prompt`) censors the agent rows of that window only, for turns and ctx (kills "main-window join dropped"); WP5 5b: rows with `status_code` 1, 2 or empty in such a window stay censored, while a clean finish with own `hit_*` measured 0 is observed (kills "clean-finish exemption dropped" and "exemption widened to every status") |
 | B1-T20 | a hostile bayes.json `sched` block (NaN, lo > med, S > L, unknown type, fixed-guard name) → `combine()` output equals today's (WP4) |
 | S1 | `STACK_BAYES=shadow` with valid blocks: live.json values, snapshot `values`/`origin` and §4 history records are byte-identical to `STACK_BAYES=off` on the same inputs (kills "shadow applies values") |
 | S2 | in shadow, each variable with an accepted block gets exactly one `method: "bayes-shadow"` record with `would`, `decision`, `T`, `p_hit_c`, `fit_id`, `applied: false`; with `STACK_BAYES=off` none |
@@ -724,19 +729,46 @@ u = hi − lo (the *unknown* rows: censored with y ≤ T) and m = n − u *scora
 T):
 - I1: m ≥ 40 (`.claude-work/bayes/plan.md:145`);
 - I2: u / n ≤ 0.10;
-- I3 (soft families only): u < q05(K0), the 5 % quantile of the run's own session-clustered null K0 (the `--sims`
-  draws the check already makes). Since hi ≥ u, P0(K ≤ hi) ≥ P0(K ≤ u) ≥ 0.05 whenever u ≥ q05: a T that is too
-  high could then never fail. Deny-type families (turns, hard.agent) need I1 and I2 and are read one-sided, "no
-  excess" (A.7, Q1).
+- I3 (soft families only): u < q05, with q05 = min{k : #{K0* ≤ k} ≥ 0.05 · sims}, computed on the same null draws
+  K0* (the `--sims` draws the check already makes) and the same empirical CDF as P(K ≤ hi). Since hi ≥ u,
+  P0(K ≤ hi) ≥ P0(K ≤ u) ≥ 0.05 whenever u ≥ q05: a T that is too high could then never fail. With this convention,
+  exactly 5 % of null draws at 0 gives q05 = 0, so u = 0 fails I3. An index such as `K0[int(0.05 · sims)]` or an
+  interpolating percentile would return 1 there and let a vacuous ACCEPT through. The 5b proof is a K0 with exactly
+  5 % zeros and u = 0, which must give `informative: false`.
+- Deny-type families (turns, hard.agent) need I1 and I2 and are read one-sided, "no excess" (A.7, Q1).
 
-Any condition failing gives `informative: false`, and the family's verdict is REJECT (exit 1), never ACCEPT; the
-summary names the failed conditions and prints n, m, u and q05. Reported, not gated: the run's simulated power
-against a true hit rate of 2.5 r (T too low) and r/5 (T too high), drawn from the same clustered predictive.
+Any condition failing gives `informative: false`, and the family's verdict is REJECT (exit 1), never ACCEPT. The
+summary names the failed conditions and prints n, m, u and q05.
+
+**Minimum power, `B1_MIN_POWER = 0.5`** (user decision 2026-10-09).
+- **What the run reports.** `power_2.5r`, its own simulated power against a true hit rate of 2.5 r on the
+  gating stratum. It also reports `power_r/5` (T too high), which is never gated.
+- **When it gates.** An ACCEPT counts toward §3.3 item 2 only when `power_2.5r ≥ B1_MIN_POWER`. Below it the
+  verdict stays ACCEPT with `power_ok: false`, and promotion item 2 is not met.
+- **How 5b computes it.** It uses the per-fold predictives the clustered check already builds, and S = `--sims`
+  replicates. Each replicate:
+  - draws one session effect w per fold;
+  - draws y* for every test row of the stratum from its type's predictive given w;
+  - counts a hit when y* > T_alt, where T_alt is that predictive's (1 − 2.5 r) quantile, so the row's marginal hit
+    rate is 2.5 r;
+  - counts the hits only on the rows that were scorable in the data. The rows that were unknown keep their status:
+    they add 1 each to hi_sim = lo_sim + u and never to lo_sim;
+  - applies the run's own check: reject when P0(K ≥ lo_sim) < 0.05 or P0(K ≤ hi_sim) < 0.05, with P0 from the
+    null draws.
+
+  `power_2.5r` is the share of replicates that reject.
+- **Recommended: per run.** The simulation adapts to the run's actual folds, rows, unknowns and fitted
+  heterogeneity, and it costs as much as the null draws. The fallback is the pre-registered design power of the
+  nearest cell of the table below, which ignores the run's u and fitted tau_new. Use it only if 5b shows the per-run
+  simulation to be infeasible.
+- **Where 0.5 sits.** At the minimum (3 folds, 40 rows, w = 0) the design power is 0.53 under the priors and 0.50
+  exact at v2 (0.496). The bound therefore asks for more than the minimum folds or rows in practice (A.11.1 table).
 
 Where 0.10 comes from (prior-predictive power, soft.agent, r = 0.10; scripts, JSON and logs in the work-order
 checkout's `.claude-work/bayes-wp5/power/`). Model: log Y = m + tau_new·w_s + sigma·e, one w_s ~ N(0, 1) per test
 session (one per fold), F folds with n/F rows each, the oracle T at the exact marginal 0.9 quantile; under H1 T
-gives a true hit rate p1. Each row is unknown with probability w, independently of Y. The check is the script's:
+gives a true hit rate p1. Each row is unknown with probability w, independently of Y. This assumption is
+optimistic: censored rows are lower bounds, so hidden hits are more frequent than r. The check is the script's:
 reject when P0(K ≥ lo) < 0.05 or P0(K ≤ hi) < 0.05. (tau_new, sigma) come from three sources: the §1.2 priors
 (tau_s ~ Gamma(2, 2/0.239), tau_ts ~ Gamma(2, 2/0.399), tau_new = sqrt(tau_s² + tau_ts²), log sigma ~ N(0, 0.5) +
 HalfNormal(0.3)·N(0, 1); 1500 datasets per cell, 4000 null draws each); v2's NUTS fit (0.546, 1.21); and WP2's
@@ -752,22 +784,45 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
 | WP2, 3, 40 | 0.32 (0) | 0.27 (0) | 0.25 (0) | 0.18 (0) | 0.03 (0) | 0 |
 | WP2, 6, 200 | 0.51 (0.47) | 0.43 (0) | 0.43 (0) | 0.30 (0) | 0.04 (0) | 2 |
 
-- The T-too-low side: over all 18 cells (3 sources × F ∈ {3, 6} × n ∈ {40, 100, 200}), w = 0.10 keeps at least
-  0.78 of the w = 0 power (the minimum is WP2, 3 folds, n 200: 0.265 / 0.337); w = 0.20 keeps as little as 0.56,
-  w = 0.50 as little as 0.06. Hence I2's 0.10.
-- The T-too-high side has power ≤ 0.016 at w = 0.10 and ≤ 0.13 at w = 0.05 in every cell: no width bound short of
-  u ≈ 0 makes it testable, which is what I3 checks on the run itself. The arithmetic: hi ≥ u, so with u ≥ q05 no
-  lo can reject. For iid Bin(40, 0.1), P(K = 0) = 0.9⁴⁰ = 0.0148 and P(K ≤ 1) = 0.0805, so q05 = 1; session
-  clustering raises P0(K = 0) to 0.046 (prior, 3 folds) and 0.227 (WP2, 3 folds, q05 = 0: never testable).
-- Size at w = 0 is 0.04–0.10 (two one-sided 0.05 checks on a discrete K), and 0.014–0.034 at w = 0.10.
-- Second route: an exact computation (Gauss–Hermite over w_s, convolution over folds, `exact.py`) at w = 0
-  reproduces the simulation: v2, 6, 100: 0.836 / 0.845 against 0.844 / 0.821; v2, 6, 200: 0.911 / 0.934 against
-  0.910 / 0.932; WP2, 3, 40: 0.317 / 0 against 0.317 / 0. The one gap (v2, 3, 40, T-too-high: 0.506 exact against
-  0.269 simulated) is P0(K = 0) = 0.0498, on the 0.05 cut, where 4000 null draws decide either way.
-- What the minimum buys: even at w = 0, 3 folds of 40 rows detect a 2.5× hit rate with power 0.53 (prior, v2) or
-  0.32 (WP2's heterogeneity). Power 0.8 needs about 6 folds and n ≈ 100 (v2) to 200 (prior), and WP2's tau_new
-  never reaches it (0.51 at 6 folds, n 200). An ACCEPT at the minimum is weak evidence; the reported power says
-  how weak.
+- **The T-too-low side.** Over all 18 cells (3 sources × F ∈ {3, 6} × n ∈ {40, 100, 200}), w = 0.10 keeps at
+  least 0.785 of the w = 0 power. Two cells tie at that minimum on the unrounded power.json values: WP2, 3 folds,
+  n 200 (0.2647 / 0.3373 = 0.7846) and v2, 3 folds, n 40 (0.4180 / 0.5327 = 0.7847). w = 0.20 keeps as little as
+  0.56, and w = 0.50 as little as 0.06. Hence I2's 0.10.
+- **The T-too-high side** has power ≤ 0.016 at w = 0.10 and ≤ 0.131 at w = 0.05 in every cell. No width bound
+  short of u ≈ 0 makes it testable, which is what I3 checks on the run itself.
+  - The arithmetic: hi ≥ u, so with u ≥ q05 no lo can reject.
+  - For iid Bin(40, 0.1), P(K = 0) = 0.9⁴⁰ = 0.0148 and P(K ≤ 1) = 0.0805, so q05 = 1.
+  - Session clustering raises P0(K = 0) to 0.046 (prior, 3 folds) and to 0.227 (WP2, 3 folds; q05 = 0, never
+    testable).
+- **Size** at w = 0 is 0.04–0.10 (two one-sided 0.05 checks on a discrete K), and 0.014–0.034 at w = 0.10.
+- **The q05 column and the convention.** The column is the median over datasets of `power.py`'s
+  `K0[int(0.05 · sims)]`, which is not the I3 convention. The power figures do not use it: rejection there is
+  `searchsorted` on the empirical CDF, the check's own convention, so they are unaffected. In the 6 fixed-hyper
+  cells that `exact.py` computes with the I3 convention (argmin of CDF ≥ 0.05), the column agrees:
+  - v2, 3, 40: 1;
+  - v2, 6, 100: 4;
+  - v2, 6, 200: 9;
+  - WP2, 3, 40: 0;
+  - WP2, 6, 100: 1;
+  - WP2, 6, 200: 2.
+- **Second route.** An exact computation at w = 0 (`exact.py`: Gauss–Hermite over w_s, convolution over folds)
+  reproduces the simulation:
+
+  | cell | exact | simulated |
+  |---|---|---|
+  | v2, 6, 100 | 0.836 / 0.845 | 0.844 / 0.821 |
+  | v2, 6, 200 | 0.911 / 0.934 | 0.910 / 0.932 |
+  | WP2, 3, 40 | 0.317 / 0 | 0.317 / 0 |
+  | WP2, 6, 100 | 0.487 / 0.424 | 0.480 / 0.414 |
+  | WP2, 6, 200 | 0.505 / 0.461 | 0.508 / 0.471 |
+
+  There are two gaps, both at v2, 3, 40, where P0(K = 0) = 0.0498 sits on the cut and 4000 null draws decide
+  either way: T-too-high 0.506 exact against 0.269 simulated, and T-too-low 0.496 against 0.533 (size 0.078
+  against 0.059).
+- **What the minimum buys.** Even at w = 0, 3 folds of 40 rows detect a 2.5× hit rate with power about 0.5.
+  Power 0.8 needs about 6 folds and n ≈ 100 (v2) to 200 (prior). WP2's tau_new never reaches it (0.51 at 6 folds,
+  n 200), and under it soft.agent cannot pass I3 below 6 folds × 100 rows: q05 = 0 at 3 folds for n 40, 100 and 200
+  (P0(K = 0) 0.227, 0.117, 0.067) and at 6 folds × 40 (0.130).
 
 **A.11.2 Strata: production and any-regime.** Both are scored and printed.
 - *Production* is the support that apply computes. The training entry of a test type is built from the training
@@ -776,20 +831,20 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
   `classify(...)[0] == "supported"` decides the stratum.
 - *Any-regime* is today's `b1_backtest.py:224`: `regime_ok` is forced true on all training rows of the type.
 - **Production gates** promotion item 2 (§3.3). Only a production-supported variable can tighten (A.5 steps 3–5;
-  §1.1 support needs the current regime), so the decisions a promotion would let act are exactly those.
-  Any-regime is a calibration diagnostic of the model on held-out sessions and the rehearsal input (5d), never
-  binding.
-- A production stratum with no rows fails I1 (`informative: false`). On the WP2 window it has none: 11
-  current-regime agent rows, 0 production-supported variables in every family, against 21 any-regime supported
-  for soft.agent and hard.agent (`.claude-work/bayes/wp2/counts.json`, `support`).
+  §1.1 support needs the regime current at that session's start), so the decisions a promotion would let act are
+  exactly those. Any-regime is a calibration diagnostic of the model on held-out sessions, never binding.
+- A production stratum with no rows fails I1 (`informative: false`). On the WP2 window it need not be empty:
+  regimes span many sessions (one covers 12), so folds whose test session shares an earlier session's regime can be
+  production-supported. counts.json's 0 supported is the copy's current regime only (11 agent rows). 5d prints the
+  production n per fold.
 - The sparse check, hits(deployed) ≤ hits(current) at both ends, runs on each stratum's complement.
 
 **A.11.3 Fold protocol.**
 - Sessions are ordered by their first row (`session_order`). Fold k tests on the agent rows of session k and trains
   on sessions 0 … k − 1 only. It never trains on session k or on any later session; the driver records each fold's
   training session set and evidence id, and asserts the test session is not in it.
-- A fold is eligible when it trains on ≥ 2 sessions. The verdict needs ≥ 3 eligible folds (§3.3 item 2) and uses the
-  last `--folds N` of them (default: all).
+- A fold is eligible when it trains on ≥ 2 sessions. The verdict needs ≥ 3 eligible folds with ≥ 1 test row in the
+  family's production stratum (§3.3 item 2, A.11.4). It uses the last `--folds N` eligible folds (default: all).
 - **Hyperparameters: one fit per fold, by the shipped fitter**, `stack_bayes.py fit --no-sched --out <dir>`, with its
   shipped sampler (8 chains × 4000 draws, 2000 tuning, target_accept 0.98, seed 20261003, `--timeout` default; no
   `--chains`/`--draws`/`--tune` override). It runs under a temporary `XDG_STATE_HOME` holding only the fold's
@@ -797,6 +852,17 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
 - The driver (`tests/b1_folds.py`, 5b) copies `hyper.turns` and `hyper.ctx` of each fold's bayes.json into
   `fold<k>_turns.json` and `fold<k>_ctx.json`, the shape `load_hyper_file` reads. It never uses stdlib moments, the
   v2 files, or one all-rows fit for every fold.
+- **The fold's regime.** The fit for fold k treats the test session's regime (its rows' `regime` cell) as current,
+  as apply did at that session's start.
+  - Why it matters: without this, `load_inputs` takes `proposals.regime` or `L.current_regime()`
+    (`stack_bayes.py:820-822`), which is the machine's hash today (checkout, sched model, `sched_policy()`,
+    `STACK_SOFT_LIMIT_SCALE`; `stack_limits.py:2477-2485`). `hyper_of` folds that regime's offset into every
+    `types.<t>.mu` and tau_g² into tau_new (`stack_bayes.py:624-636`, `:684-698`).
+  - The driver passes the regime explicitly through a `--regime <hex16>` option of `stack_bayes.py fit` (additive;
+    5b or 5c), used in place of the proposals / `current_regime` lookup. It never uses the live or checkout regime.
+  - `fold<k>_gate.json` records the regime and the fitter's note (`data.regime_current`: seen | new | only |
+    new-prior).
+  - 5b proof: two fold states that differ only in `STACK_SOFT_LIMIT_SCALE` give the same `fold<k>_ctx.json`.
 - It refuses a target that resolves into the live `<state>`. It takes `<state>/accel.lock`, or refuses without an
   explicit `--no-accel-lock`. The user runs the fits from a terminal after confirming no C10, eq run or other fit is
   active (user decision Q-D, 2026-10-09). Cost: about one 348 s fit per fold at 20 training sessions, less for
@@ -812,16 +878,28 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
 
 **A.11.4 Verdict and exit codes,** per family, first match wins:
 1. an error gives exit 2;
-2. fewer than 3 eligible folds gives REJECT (`folds`);
+2. fewer than 3 eligible folds with ≥ 1 test row in the family's production stratum gives REJECT (`folds`);
 3. a failed fold gate gives `blocked:gate`;
 4. `informative: false` gives REJECT (`informative`);
 5. a failed check gives REJECT;
-6. otherwise ACCEPT.
+6. otherwise ACCEPT. It carries `power_2.5r` and `power_ok` (power ≥ `B1_MIN_POWER`); only an ACCEPT with
+   `power_ok: true` counts toward §3.3 item 2.
 
 The exit code is 0 only when every family in `--families` is ACCEPT, and 1 otherwise; `blocked:gate` exits 1 with
-its own label. The summary JSON adds, per family: `verdict`; `informative` {`ok`, `n`, `m`, `u`, `q05`, `failed`};
-both strata; and `gates` per fold. The frozen fixture stays REJECT (3 folds, but `--min-train-sessions 1`;
-`tests/test_stack_bayes.py:1121-1132`).
+its own label. A low power does not change the exit code: it decides promotion, not calibration.
+
+The summary JSON adds, per family:
+- `verdict`;
+- `informative` {`ok`, `n`, `m`, `u`, `q05`, `folds_production`, `folds_any`, `failed`}, where the two fold counts
+  are the eligible folds with ≥ 1 test row in each stratum;
+- `power_2.5r`, `power_r/5`, `power_ok`;
+- both strata;
+- `gates` per fold.
+
+5b proofs:
+- 5 eligible folds, only one of them with a production-supported test session (60 scorable rows), must give REJECT
+  (`folds`).
+- The frozen fixture stays REJECT: 3 folds, but `--min-train-sessions 1` (`tests/test_stack_bayes.py:1121-1132`).
 
 **A.11.5 Data route (5-0 probe and the hybrid build, 2026-10-09).**
 
@@ -839,8 +917,8 @@ copy had 1: any-hit rows fall from 113 to 36, a biased-low 258 turns-censored ro
   seg): 961 of 969 rows. Every hook-time cell is kept from the frozen copy: hit_*, window, window_ctx, regime, snap,
   sess_src, eq_*, and session-row ctx.
 - Session 56d518b1, caught mid-session by the copy, takes every column of its 7 copy keys from the rescan. Its 188
-  later rows are not merged: they would take the current-regime agent rows from 11 to 124 with rows that were in
-  flight at the scan.
+  later rows are not merged: they would take the agent rows of the copy's current regime from 11 to 124 with rows
+  that were in flight at the scan.
 - The 8 rows of ea290b85 have no agent transcripts left. They are kept as collected and flagged
   (`ea290b85-flagged.json`), all censored, 6 with `turn_limited = 1` (probably old-collector false positives;
   unverifiable). 5d and 5f report the fit with and without them.
@@ -860,19 +938,18 @@ copy.
 
 *What the hybrid can and cannot feed.*
 - **Production support is unchanged.** A regime is the hash of (stack_hash, policy, scale) at session start
-  (`regime_of`, `stack_limits.py:2477`), so a rescan moves no row into the current regime. The window's
-  current-regime agent rows stay 11, and production-supported variables stay 0 in every family. Any-regime
-  supported variables go from 21 to 23 for soft.agent and hard.agent.
-- **The hybrid copy feeds only the any-regime backtest:** the rehearsal (5d) and calibration diagnostics.
-- **The binding production verdict (5f) needs post-install sessions.** These are sessions started after an
-  installed collector that contains 3975e35a and 210eaeca, scored as their own current-regime stratum. That
-  install is work-order step 11. The installed manifest (`~/.claude/.stack-manifest.json`, `commit`) read
-  b4bed8b8 from 2026-10-09 22:59; 5f re-checks the `commit` field before it counts sessions.
-- 5f needs ≥ 3 eligible folds whose test sessions are current-regime, and I1–I3 on the production stratum. Of the 20
-  newest live sessions on 2026-10-09, 16 carried 0–2 agent rows each, so no session count is promised. The verdict stays `informative: false`
-  until I1–I3 hold.
+  (`regime_of`, `stack_limits.py:2477`), so a rescan moves no row between regimes. Any-regime supported variables
+  go from 21 to 23 for soft.agent and hard.agent.
+- **The hybrid copy is a rehearsal for both strata (5d).** Its production stratum is not binding, because its end
+  cells are backfilled.
+- **The binding production verdict (5f) needs post-install sessions,** collected by an installed collector that
+  contains 3975e35a and 210eaeca. Sessions started after the first install containing both commits qualify
+  (manifest commit b4bed8b8, read 2026-10-09 22:59). 5f re-checks the `commit` field before it counts sessions.
+- 5f needs ≥ 3 eligible folds with production-supported test rows, I1–I3 on that stratum, and power ≥
+  `B1_MIN_POWER`. Of the 20 newest live sessions on 2026-10-09, 16 carried 0–2 agent rows each, so no session count
+  is promised. The verdict stays `informative: false` (or REJECT `folds`) until these hold.
 
-*Open user decision: A.3 row 5, the main-window join.* After the fix, row 5 is the dominant censor.
+*A.3 row 5, the main-window join: decided 2026-10-09, option (c).* After the fix, row 5 is the dominant censor.
 - It censors 302 of the 451 turns-censored rows. All 302 have their own hit_* measured 0. By `status_code`: 182
   clean finishes (0), 106 partial (1), 13 blocked (2) and 1 empty.
 - They come from 27 main prompt windows that hit soft (22) or soft and hard.prompt (5). Those windows hold 371
@@ -893,7 +970,7 @@ The options:
   lower bounds, which biases the fit in three ways:
   - The likelihood factor S(y), unlike f(y), increases with the location, so the type locations and T drift up
     (fewer hits than r, slack at the 9 : 1 cost).
-  - The randomized PIT U(F(y), 1) of such a row has mean (1 + F(y))/2 instead of F(y): PITs read high, and the
+  - The randomized PIT U(F(y−), 1) of such a row has mean (1 + F(y−))/2 instead of about F(y): PITs read high, and the
     drift check (§A.12) can breach on this artifact alone. T4a's PIT means 0.655 and 0.741 are consistent with that
     effect but do not prove it.
   - The heavy windows' rows also weigh on the session effects (2a661af3: 109 rows; whether this inflates WP2's
@@ -911,10 +988,12 @@ Neither option makes the WP2 window informative: with 269 or 451 of 975 rows cen
 0.10, so 5d is expected to read `informative: false` either way (an estimate; T-dependent, computed in 5d). The
 choice matters for bias, for the drift check and for post-install data.
 
-**Recommendation: (c).** It needs the user's decision because it changes `censor_flags` (`stack_limits.py`, read by
-the live proposer and by the fitter) and B1-T6/B1-T19. The join must still censor rows with status 1, 2 or empty, so
-the mutant "main-window join dropped" stays killed. Until the user decides, the code keeps (a). 5b gives the
-backtest a sensitivity switch, and 5d reports both (a) and (c), non-binding.
+**Decision: (c)** (recommended here, chosen by the user on 2026-10-09). It changes `censor_flags` (`stack_limits.py`,
+read by the live proposer and by the fitter) and tests B1-T6 and B1-T19 (§A.3, §A.9). 5b implements it; no collector
+column is added. The join still censors rows with status 1, 2 or empty, so the mutant "main-window join dropped"
+stays killed. On the hybrid copy, turns-censored rows go from 451 to 269 (the ctx count is recounted in 5b/5d).
+Until that code lands on main, the code still censors every row 5 row, and 5b and 5d report both rules,
+(a) and (c), as non-binding results.
 
 **A.11.6 Limits of WP5.** WP5 never edits `BAYES_LIVE` or `BAYES_GRID_LIVE` (§3.2) and spends no API money. A
 production ACCEPT is evidence for promotion item 2 only. The flip stays a WP6 reviewed commit with the user's yes
@@ -924,7 +1003,9 @@ per family.
 
 - **When and where.** Every `stack_bayes.py fit`, after the models are fitted, replacing `"drift": {}`
   (`stack_bayes.py:909` at b4bed8b8). It runs on the same rows the fit read: the proposer window (`read_rows`
-  filters, ≤ 20 sessions), agent scope, A.3 censoring with the limits in force.
+  filters, ≤ 20 sessions), agent scope, A.3 censoring with the limits in force. The last 5 sessions are inside the
+  fit that defines F, so this is a posterior predictive check. That makes it conservative for drift confined to
+  those sessions. 5c's synthetic-drift tests measure its power with the drifted sessions in the fit.
 - **Families.**
   - turns: model `turns-nb2s-h4`, quantity api_calls.
   - soft.agent and hard.agent: model `ctx-ln-h4`, quantity ctx. One PIT set; both entries carry the same `ks_p` and
@@ -933,23 +1014,26 @@ per family.
     keys only.
 - **Rows.** The family's rows (quantity > 0) in the **last 5 sessions** of the window, in session order (first row),
   counting only sessions with ≥ 1 row of the family.
-- **Minimum.** ≥ 20 rows, ≥ 10 of them uncensored, from ≥ 3 sessions. Below it the family gets **no entry**: no drift
-  verdict, never a breach, and the fit does not count toward promotion item 5. At the minimum only gross drift is
-  detectable: the iid KS critical value at α 0.01 and n 20 is about 1.63/√20 = 0.36, and the clustered null widens
+- **Minimum.** ≥ 20 rows, ≥ 10 of them uncensored, from ≥ 3 sessions. Below it the check does not run, and the fit
+  does not count toward promotion item 5. The family gets **no entry**, unless a previous breach is carried forward
+  (see "Breach semantics" below): an under-minimum fit never creates a breach and never clears one. At the minimum
+  only gross drift is detectable: the iid KS critical value at α 0.01 and n 20 is about 1.63/√20 = 0.36, and the clustered null widens
   it. The detectable drift at this minimum is unmeasured; 5c's synthetic-drift tests measure it.
 - **PIT per row.** F is the posterior predictive of a new run of the row's type in a *new* session, the session
   effect integrated (w ~ N(0, tau_new), as for T, §1.2). It uses the row's own resume offset (rho when seg > 0) and
   is averaged over the posterior draws (a thinned subset of ≥ 400 draws is enough for a CDF):
   - uncensored log-normal row: F(y);
   - uncensored NB row: U(F(y − 1), F(y));
-  - censored row (A.3): **randomized** U(F(y), 1).
+  - censored row (A.3): **randomized** U(F(y−), 1), F(y−) = P(Y < y): F(y) for the log-normal, F(y − 1) for the
+    NB. The fitter's censored term is log P(Y ≥ y) (`stack_bayes.py:518-521`: the logcdf of X = Y − 1 at y − 2), so
+    U(F(y), 1) would drop the atom P(Y = y) and every censored turns PIT would read high.
 
   The RNG is seeded from the sampler seed (20261003), so a fit's drift entry is reproducible.
 - **Statistic and p-value.** D is the two-sided KS distance of the PITs from U(0, 1). The p-value is a
   **session-clustered Monte Carlo** with B = 999 replicates. Each replicate:
   - draws one w per session, shared by its rows;
   - draws y* for every row from its type's predictive given w;
-  - keeps each censored row's censoring point c (y* ≥ c gives a row censored at c, PIT U(F(c), 1); else exact) and
+  - keeps each censored row's censoring point c (y* ≥ c gives a row censored at c, PIT U(F(c−), 1); else exact) and
     every uncensored row exact;
   - recomputes D*.
 
@@ -960,8 +1044,15 @@ per family.
 - **Entry.** `{"ks_p": p, "sessions": s, "breach": p < 0.01}`, exactly these keys (§2.1 rule 4 checks them); the
   statistic, n and n_cens go to the fit's log and `usage/bayes.json.rec`, not to bayes.json.
 - **Breach semantics.**
-  - Each fit recomputes the entry. A breach is not sticky: the next fit whose check passes clears it, and no
-    hysteresis is added.
+  - **Sticky breach** (user decision 2026-10-09).
+    - A fit whose check runs writes the entry it computes. Only such a fit, with `ks_p ≥ 0.01`, clears a breach.
+    - A fit below the minimum carries forward the previous file's `drift.<family>` unchanged when that entry has
+      `breach: true`. The previous file is the `limits/bayes.json` on disk at fit start, if it passes §2.1 rules 1,
+      3 and 4. Otherwise the family gets no entry.
+    - "Previous file", not "previous gated file": every fit, gated or not, carries the breach forward, so the
+      on-disk file is enough to keep the chain. A model-gate failure says nothing about drift.
+    - Deleting bayes.json (§3.4) ends the chain.
+  - No hysteresis is added beyond this.
   - On `breach: true`, `load_bayes` drops every nuts block of the family (`stack_limits.py:1568`).
   - `load_hyper` lists the family in `breach` (`:1583`), so no grid block is built for it (`:1716`) or chosen
     (`:1784`).
@@ -978,10 +1069,18 @@ per family.
   - drifted synthetic sessions give `breach: true`;
   - stationary ones give `false`;
   - fewer rows than the minimum give no entry;
+  - an under-minimum fit after a breached fit carries the breach forward;
+  - a passing fit clears it;
   - the existing reader drops a breached family's blocks.
 
-  Each of these mutants must fail a test: breach never set, KS direction flipped, window = all sessions, censored
-  PIT not randomized, and the iid KS p used in place of the clustered one.
+  Each of these mutants must fail a test:
+  - breach never set;
+  - KS direction flipped;
+  - window = all sessions;
+  - censored PIT not randomized;
+  - censored NB PIT at U(F(y), 1);
+  - the iid KS p used in place of the clustered one;
+  - a breach cleared by an under-minimum fit.
 
 ---
 
@@ -1188,10 +1287,11 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
 - `drift` is written as `{}`: the rolling-PIT drift check (§2.1 rule 7) is not implemented; nothing is dropped
   for drift until it is. Its specification is §A.12 (producer: WP5 step 5c).
 - B1-T14 power at its minimum (§A.11.1): 3 folds of 40 rows detect a 2.5× hit rate with power 0.53 under the
-  priors, 0.32 under WP2's heterogeneity. Whether post-install sessions reach I1–I3 in the production stratum, and
-  how soon, is unknown.
-- A.3 row 5 (main-window join) over-censors clean finishes. Option (c) is recommended and awaits the user's
-  decision (§A.11.5).
+  priors (exact 0.50 at v2). Under WP2's tau_new, soft.agent cannot pass I3 below 6 folds × 100 rows (q05 = 0). It
+  is unknown whether post-install sessions reach I1–I3, the fold count and `B1_MIN_POWER` in the production
+  stratum, and how soon.
+- A.3 row 5 (main-window join): the user chose option (c) on 2026-10-09, which exempts clean finishes (§A.11.5).
+  The code (`censor_flags`, B1-T6, B1-T19) is WP5 5b and has not landed yet.
 - `<state>/accel.lock` (§2.8): the Bayes fit is its only holder. No other stack job (an MLX or GPU run) takes it
   yet. The tests prove the holder with a fake fitter, under `tmp` state (2026-10-09); a live install's
   collector holding it is unverified.
