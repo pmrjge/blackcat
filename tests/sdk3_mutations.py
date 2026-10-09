@@ -7,8 +7,8 @@ means `agent_guard.py --self-test` must exit non-zero. Before any mutant runs, t
 named test.
 
 Copies, never the tracked files:
-- the guard and the collector run from a scratch copy of hooks/ (the rest of dot-claude/ linked), via GUARD=
-  and USAGE_PY=;
+- the guard and the collector run from a scratch copy of hooks/ (the rest of dot-config/dot-claude/
+  linked), via GUARD= and USAGE_PY=;
 - doctor.sh runs from a scratch copy, via SDK_DOCTOR=.
 install.sh mutants need the checkout itself, because the install test snapshots the git tree. They run only with
 --in-place: the file is restored byte for byte afterwards, and the run fails if the restore does not match.
@@ -131,7 +131,8 @@ MUTANTS = [  # (id, mutant, file key, named test, anchor, replacement)
      '*) warn "$got — rerun install.sh" ;;', '*) ok "$got — rerun install.sh" ;;'),
     # ---- review round 1
     ("U10", "set-aside strays are never merged back", "usage",
-     SU + "test_an_older_collector_of_another_session_hides_no_rows", "    strays = _strays(cur)\n", "    strays = []\n"),
+     SU + "test_an_older_collector_of_another_session_hides_no_rows",
+     "    strays = _strays(cur)\n", "    strays = []\n"),
     ("U11", "a stray of an unknown header is merged and deleted", "usage",
      SU + "test_a_stray_of_an_unknown_header_is_never_merged_or_deleted",
      'glob.escape(base) + "*.csv") if _header_ok(p))', 'glob.escape(base) + "*.csv"))'),
@@ -150,7 +151,8 @@ MUTANTS = [  # (id, mutant, file key, named test, anchor, replacement)
      '"plugins/cache/*/*/*/skills/%s/SKILL.md", ', ""),
     ("G15", "a skill name with a path is read", "guard", PG + "test_plugin_and_user_skill_definitions_are_read",
      'SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\\Z")', 'SKILL_NAME_RE = re.compile(r".+\\Z")'),
-    ("G16", "no child-side backstop", "guard", PG + "test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing",
+    ("G16", "no child-side backstop", "guard",
+     PG + "test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing",
      "why = generic_agent_reason(ev) or plan_child_reason(ev)", "why = generic_agent_reason(ev)"),
     ("G17", "no marker for a plan-mode spawn", "guard",
      PG + "test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing",
