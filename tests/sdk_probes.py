@@ -95,7 +95,10 @@ PROMPTS = {
             "options red and blue. Then reply with only the chosen colour. Do not plan or delegate."),
     "plan": ("Plan, then have one builder create the file hello.txt in the current directory "
              "containing the single word hi. Keep the plan to one step."),
-    "stop": ("Dispatch exactly one coder subagent whose only task is to run the Bash command `true` "
+    # `uv --version`: in no CLI auto-approval list (2.1.287 approves read-only commands such as `true`
+    # or `sleep`, and in acceptEdits, the coder's mode, mkdir/touch/rm/rmdir/mv/cp/sed, without asking
+    # can_use_tool); HoldHost denies it, so it never runs
+    "stop": ("Dispatch exactly one coder subagent whose only task is to run the Bash command `uv --version` "
              "once and reply done. Then wait for it."),
     "count": "Count from 1 to 400, one number per line, with no other text.",
     "bg": ("Dispatch exactly one coder subagent in the background whose only task is to run the Bash "
@@ -304,11 +307,23 @@ class HoldHost:
             return PermissionResultAllow()      # HoldHost: dispatching only
         agent = getattr(context, "agent_id", None)
         if tool == "Bash" and agent and not self.pending:
-            self.pending, self.pending_agent, self.released_by = True, agent, "cancelled"
-            with anyio.move_on_after(self.hold_s) as scope:
-                await self.release.wait()
+            # released_by: parked while held; cancelled when the CLI withdraws the request (a
+            # control_cancel_request once the child's abort signal fires); timeout; event (release)
+            self.pending, self.pending_agent, self.released_by = True, agent, "parked"
+            try:
+                with anyio.move_on_after(self.hold_s) as scope:
+                    await self.release.wait()
+            except anyio.get_cancelled_exc_class():
+                self.released_by = "cancelled"
+                raise
             self.released_by = "timeout" if scope.cancelled_caught else "event"
         return PermissionResultDeny(message="denied by the probe host")
+
+    @property
+    def holding(self) -> bool:
+        """The child's request is parked or was withdrawn by the CLI: not timed out, not released,
+        so the child cannot have finished on its own."""
+        return self.released_by in ("parked", "cancelled")
 
 
 def observer(log: list[tuple[bool, Any]]) -> dict[str, list[Any]]:
@@ -592,7 +607,9 @@ async def pr5(c: Ctx) -> Outcome:
     import anyio.lowlevel
     host, wait = HoldHost(c.cfg.hold_s), c.cfg.wait_s
     o = c.options(permission_mode="default", can_use_tool=host, include_hook_events=True, max_turns=6)
-    f: dict[str, Any] = {"child_started": False, "child_pending": False, "child_live_at_stop": False}
+    f: dict[str, Any] = {"child_started": False, "child_pending": False, "child_live_at_stop": False,
+                         "stop_ended_held_child": False}
+    n_stop = 0
     async with c.client(o) as s, anyio.create_task_group() as tg:
         tg.start_soon(s.drain)
 
@@ -607,17 +624,21 @@ async def pr5(c: Ctx) -> Outcome:
             def own(paths: list[str]) -> bool:
                 return any(tuid and tuid in os.path.basename(p) for p in paths)
             r0, before = c.registry(sid, tuid), c.leases(sid)
-            live = host.pending and r0 is not None and not r0.get("stopped")
+            live = host.holding and r0 is not None and not r0.get("stopped")     # holding: pending, not ended
             f.update(child_started=True, child_live_at_stop=live, registry_before=r0 is not None,
                      registry_bg_before=bool(r0 and r0.get("bg")), registry_stopped_before=bool(r0 and r0.get("stopped")),
                      registry_is_held_agent=bool(r0 and host.pending_agent and r0.get("id") == host.pending_agent),
                      leases_before=len(before), child_lease_before=own(before))
-            n = len(s.msgs)
+            n = n_stop = len(s.msgs)
             await s.c.stop_task(t.task_id)
 
             def status() -> Any:
                 return task_states(s.msgs).get(t.task_id, {}).get("status")
-            await poll(lambda: status() in TERMINAL, wait)
+            ended = await poll(lambda: status() in TERMINAL, wait)
+            # the stop ended it only if the task went terminal while its request was still held: a
+            # hold that timed out first lets the child finish on its own (and its own SubagentStop
+            # stamps the record), which is no evidence about stop_task
+            f.update(status_at_stop=status(), stop_ended_held_child=ended and host.holding)
             host.release.set()
             await anyio.sleep(c.cfg.settle_s)
             r1, after = c.registry(sid, tuid), c.leases(sid)
@@ -629,15 +650,21 @@ async def pr5(c: Ctx) -> Outcome:
                      locks_after=len(glob.glob(os.path.join(c.guard_dir(sid), "**", "*.lock"), recursive=True)))
         host.release.set()
         await anyio.lowlevel.checkpoint()               # the parked callback records how it ended
-        if not any(map(is_result, s.msgs)):             # the turn is still open: end it
-            n = len(s.msgs)
+        # BlackCat's dispatch runs in the background, so its first turn may end before the stop and
+        # the child's end wake it for another: only a result after the stop closes the session's
+        # spend; without one the session counts at its whole cap
+        if not any(map(is_result, s.msgs[n_stop:])):
+            m = len(s.msgs)
             await s.c.interrupt()
-            await poll(lambda: any(map(is_result, s.msgs[n:])), wait)
+            if not await poll(lambda: any(map(is_result, s.msgs[m:])), wait):
+                c.reported.discard(s.key)
+                c.costs[s.key] = max(c.costs.get(s.key, 0.0), float(o.max_budget_usd))
         f["hold_released_by"] = host.released_by
+        f["callback_tools"] = sorted(set(host.seen))
         tg.cancel_scope.cancel()
     if not f["child_live_at_stop"]:
         return Outcome("unknown", f)                    # no live child at the stop: nothing measured
-    return Outcome(yn(f["child_status_after_stop"] in TERMINAL and f["registry_stopped_after"]), f)
+    return Outcome(yn(f["stop_ended_held_child"] and f["registry_stopped_after"]), f)
 
 
 def guard_snapshot(c: Ctx, sid: str | None) -> dict[str, Any]:
@@ -711,11 +738,16 @@ async def pr7(c: Ctx) -> Outcome:
          "first_result_s": None if t_res is None else round(t_res - t0, 1),
          "child_end_s": None if t_child is None else round(t_child - t0, 1),
          "wait_after_first_result_s": None if t_res is None else round(t_end - t_res, 1)}
+    # at the ceiling the CLI's print wind-down kills the child or marks it stopped ("killing background
+    # ... task ... at the wait ceiling"): a killed or stopped end after the first result is the cut
+    ended_by_cli = (bool(tasks) and tasks[0][1]["status"] in ("killed", "stopped") and t_child is not None
+                    and t_res is not None and t_child >= t_res)
+    f["child_ended_by_cli"] = ended_by_cli
     if not tasks or t_res is None:
         return Outcome("unknown", f)
-    if t_child is not None and t_child <= t_res + ceiling:
+    if t_child is not None and not ended_by_cli and t_child <= t_res + ceiling:
         return Outcome("unknown", f)                    # the child ended before the ceiling could act
-    cut = t_child is None and t_end - t_res <= ceiling + 60
+    cut = (t_child is None or ended_by_cli) and t_end - t_res <= ceiling + 60
     return Outcome(yn(cut), f)
 
 
