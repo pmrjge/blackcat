@@ -3,11 +3,16 @@
 
 Run only by stack_usage.bayes_fit() when a session's collector exits (after propose(), before the scheduler
 refresh): the tools venv's interpreter with its opt-in Bayes lock (pymc, pytensor, nutpie, arviz, scipy,
-numpy), niced, under usage/bayes.lock, with a 900 s timeout, at most once per evidence id and once per 6 h:
+numpy), niced, under usage/bayes.lock and <state>/accel.lock, with a 900 s timeout, at most once per evidence
+id and once per 6 h:
 
   <config>/venvs/tools/bin/python -I stack_bayes.py fit [--out FILE] [--chains N] [--draws N] [--tune N]
-                                                        [--seed N] [--no-sched]
+                                                        [--seed N] [--no-sched] [--timeout S]
   <config>/venvs/tools/bin/python -I stack_bayes.py check        exit 0 when the Bayes stack imports, else 3
+
+`fit` ends itself after --timeout seconds (FIT_TIMEOUT_S: the collector's 900 s plus 30 s): SIGALRM with its
+default action, which the kernel carries out whatever the sampler's threads are doing, so a fit orphaned by a
+SIGKILLed collector releases the inherited locks by then (docs/BAYES.md 2.8).
 
 It reads what the proposer reads (stack_limits.read_rows over usage/runs*.csv, so the same evidence id; the
 seed; the session snapshots for the censoring proxy; proposals.json for support and the current regime),
@@ -40,6 +45,7 @@ import importlib.util
 import json
 import math
 import os
+import signal
 import sys
 import time
 
@@ -66,6 +72,9 @@ RETIRE_EPS = 1e-12                  # a draw whose CDF is within this of 1 leave
 CODE = "stack_bayes/1"
 DEPS = ("numpy", "scipy", "pymc", "pytensor", "nutpie", "arviz")
 EXIT_OK, EXIT_FAIL, EXIT_NO_PYMC, EXIT_NO_ROWS = 0, 1, 3, 4
+FIT_TIMEOUT_S = 930                 # the fit's own cap: stack_usage.BAYES_TIMEOUT_S (900) + 30, so while the
+                                    # collector lives its kill (failed:timeout) comes first; this one ends an orphan
+TIMEOUT_MAX_S = 86400
 MODEL_ID = {"turns": "turns-nb2s-h4", "ctx": "ctx-ln-h4", "spc": "spc-ln-h4", "static_cc": "static_cc-ln-h2",
             "ctx_ab": "ctx_ab-kq-h2", "resume_ctx": "resume_ctx-t-1"}
 ZERO_AVOID = ("tau_t", "tau_s", "tau_ts")
@@ -88,6 +97,26 @@ def cache_env(root=None):
     NUMBA backend. stack_usage.bayes_env() sets the same values for the child."""
     pyt, nb = cache_dirs(root)
     return {"PYTENSOR_FLAGS": "base_compiledir=%s,cxx=,mode=NUMBA" % pyt, "NUMBA_CACHE_DIR": nb}
+
+
+def arm_deadline(secs):
+    """The fit's own wall-clock cap: SIGALRM after `secs` with its default action (terminate). No Python
+    handler: one would wait for the main thread to leave a long C call (NUTS, a numba compile), the default
+    action does not. Returns the previous SIGALRM disposition for disarm_deadline; None off the main thread
+    (no cap here then; the collector's timeout still holds while it lives)."""
+    try:
+        prev = signal.signal(signal.SIGALRM, signal.SIG_DFL)
+    except ValueError:
+        return None
+    signal.alarm(int(secs))
+    return prev
+
+
+def disarm_deadline(prev):
+    if prev is None:
+        return
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, prev)
 
 
 def missing_deps():
@@ -1094,7 +1123,21 @@ def main(argv=None):
     ap.add_argument("--tune", type=int, default=TUNE)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--no-sched", action="store_true")
+    ap.add_argument("--timeout", type=int, default=FIT_TIMEOUT_S)
     a = ap.parse_args(argv)
+    if a.cmd != "fit":
+        return _main(a)
+    if not 1 <= a.timeout <= TIMEOUT_MAX_S:
+        print("bayes: failed: timeout out of range", flush=True)
+        return EXIT_FAIL
+    prev = arm_deadline(a.timeout)
+    try:
+        return _main(a)
+    finally:
+        disarm_deadline(prev)
+
+
+def _main(a):
     os.environ.update(cache_env())                 # before pytensor or numba is imported
     miss = missing_deps()
     if miss:
