@@ -40,7 +40,13 @@ T_TRUST = "test_e1b_reads_the_trust_warning_and_the_trusted_leg_reads_its_own_co
 T_E3P = "test_e3p_answers_from_an_agent_childs_resume_and_its_first_tool_call"
 T_GOOD = "test_every_part_answers_in_the_good_world_within_its_caps"
 VALID = "    out[\"valid\"] = out[\"agent_setting\"] == E1_AGENT and out[\"bash_tool\"] and out[\"model\"] is not None\n"
-GATE = "    if prior[\"used\"] + cap > TOTAL_CAP_USD + 1e-9:\n        ap.error(\"refused: the prior"
+GATE = "        if prior[\"used\"] + cap > TOTAL_CAP_USD + 1e-9:\n            ap.error(\"refused: the prior"
+T_GUARD = "test_e1s_command_passes_the_guards_read_only_rule_for_the_verifier"
+T_CUT = "test_a_bash_call_cut_before_its_tool_result_is_not_a_denial"
+T_OPEN = "test_a_run_in_progress_counts_at_its_cap"
+PREVIEW = ("            s.overlay = overlay\n            opts = s.preview()          # the options it would connect with: "
+           "a refusal may come here too\n        except ValueError as e:         # e.g. a helper that refuses "
+           "CLAUDE_CODE_SANDBOXED (sdk/env-channel)\n            raise HelperRefused(type(e).__name__) from e\n")
 
 MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("G1", "a paid run without the consent env", T_ENV,
@@ -50,7 +56,7 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("G3", "paid is the default (dry run only on --dry-run)", "test_dry_run_is_the_default_and_spends_nothing",
      [("    if not a.paid:\n        try:\n", "    if a.dry_run:\n        try:\n")]),
     ("G4", "the ledger does not open with the envelope", "test_a_paid_run_logs_the_envelope_first_and_reports",
-     [("    ledger.write(envelope_event(probes, today, prior))\n", "    ledger.write({\"ev\": \"start\"})\n")]),
+     [("        ledger.write(envelope_event(probes, today, prior))", "        ledger.write({\"ev\": \"start\"})")]),
     # no C1 ("a probe cap above its envelope accepted": `0 < b <= env` -> `0 < b`): an equivalent mutant, since one
     # probe above its group's envelope is always a group sum above it (C3's check)
     ("C1", "a probe cap of 0, NaN or a string accepted", T_REG,
@@ -167,13 +173,13 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      [("    dirs = [os.path.dirname(base.default_out(today + \"-e\"))] + ([os.path.dirname(out)] if out else [])\n",
        "    dirs = [os.path.dirname(out)] if out else []\n")]),
     ("X8", "an unreadable ledger lets the paid run start at $0 prior", "test_an_unreadable_ledger_refuses_the_paid_run",
-     [("        ap.error(\"refused: a ledger in the report directory cannot be replayed, so the prior spend is "
-       "unknown: %s\" % e)\n",
-       "        prior = {\"ledgers\": 0, \"reported\": 0.0, \"unreported\": 0.0, \"used\": 0.0, \"left\": 2.0, \"e\": str(e)}\n")]),
+     [("            ap.error(\"refused: a ledger in the report directory cannot be replayed, so the prior spend is "
+       "unknown: \"\n                     \"%s\" % e)\n",
+       "            prior = {\"ledgers\": 0, \"reported\": 0.0, \"unreported\": 0.0, \"used\": 0.0, \"left\": 2.0, \"e\": str(e)}\n")]),
     ("X9", "a cost_unknown booking lowered by a later result", T_REPLAY,
      [("            sticky.add(key)\n", "            pass\n")]),
     ("X10", "the replay's total may fall below the run's own probe_end and end totals", T_REPLAY,
-     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd)}", "\"used\": rep + unrep}")]),
+     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}", "\"used\": rep + unrep}")]),
     # E1': the verifier main thread, the validity gate, the trust split
     ("V1", "an invalid leg read as a measurement", "test_a_blackcat_main_thread_makes_every_e1_leg_invalid",
      [("    if not leg.get(\"valid\"):\n        return \"invalid\"\n",
@@ -231,6 +237,36 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("M2", "the sessions' init models not recorded", T_GOOD,
      [("            if getattr(m, \"subtype\", \"\") == \"init\" and isinstance(model, str) and IDENT_RX.fullmatch(model):\n",
        "            if False:\n")]),
+    # sdk/probes-e2 review, round 1: each fix's mutant puts the reviewed behaviour back
+    ("Q1", "E1's script and marker outside scratch (the guard refuses the verifier's call)", T_GUARD,
+     [("    work = os.path.join(cwd, \".claude-work\")\n", "    work = cwd\n")]),
+    ("Q2", "E1's script outside scratch: every leg hook_decided under the real read-only guard", T_GOOD,
+     [("    work = os.path.join(cwd, \".claude-work\")\n", "    work = cwd\n")]),
+    ("Q3", "E1c's stack leg run although the guard can only decide it", T_GOOD,
+     [("            if rule == \"stack\" and E1C_NOT_RUN:", "            if False:")]),
+    ("Q4", "a call cut before its tool result read as a denial", T_CUT,
+     [("    if not leg.get(\"decided\"):\n        return \"undecided\"\n", "    if False:\n        return \"undecided\"\n")]),
+    ("Q5", "every attempted call counted as decided", T_CUT,
+     [("            \"decided\": any(i in errs or i in den for i in ids),\n", "            \"decided\": bool(ids),\n")]),
+    ("Q6", "a run without its end counts only what it booked so far", T_OPEN,
+     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}",
+       "\"used\": max(rep + unrep, sum(ends.values()), end_usd)}")]),
+    ("Q7", "a finished run still counts at its whole cap", T_OPEN,
+     [("            end_usd, open_cap = float(usd), 0.0\n", "            end_usd = float(usd)\n")]),
+    ("Q8", "a run in progress invisible to a second start", "test_a_second_run_started_while_one_runs_counts_it_at_its_cap",
+     [("            open_cap = float(cap) if valid_cost(cap) else 0.0\n", "            open_cap = 0.0\n")]),
+    ("Q9", "no lock around the gate and the envelope", "test_two_starts_are_serialised_by_the_lock",
+     [("        fcntl.flock(lock_fd, fcntl.LOCK_EX)\n", "        pass\n")]),
+    ("Q10", "the ledger beside an --out report, not in the default directory",
+     "test_the_ledger_goes_to_the_default_directory_whatever_out_says",
+     [("            ledger = Ledger(os.path.join(ldir, os.path.basename(out).removesuffix(\".md\") + \".ledger.jsonl\"))\n",
+       "            ledger = Ledger(out.removesuffix(\".md\") + \".ledger.jsonl\")\n")]),
+    ("Q11", "E3c2a's resume proven by a growing transcript alone (no SendMessage call)", "test_e3c2a_needs_a_sendmessage_call",
+     [("    resumed = sends > 0 and lines0 is not None", "    resumed = lines0 is not None")]),
+    ("Q12", "a helper refusing the trust env in preview() crashes E1",
+     "test_a_helper_whose_preview_refuses_the_trust_env_skips_only_the_trusted_legs",
+     [(PREVIEW, ("        except ValueError as e:\n            raise HelperRefused(type(e).__name__) from e\n"
+                 "        s.overlay = overlay\n        opts = s.preview()\n"))]),
 ]
 
 

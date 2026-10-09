@@ -10,21 +10,24 @@ the SDK-3 plan-gate assumptions). They make real, billed API calls, so the user 
 test_ prefix), never an agent. Hash-locked by tests/sdk_probes_e.py.lock (`uv lock --script tests/sdk_probes_e.py`).
 
     uv run --locked --script tests/sdk_probes_e.py --only E1,E3P          # dry run, the default: the plan, $0
-    SDK_PROBES_E_CONSENT=0.55 uv run --locked --script tests/sdk_probes_e.py --paid --only E1,E3P [--cli PATH]
+    SDK_PROBES_E_CONSENT=0.50 uv run --locked --script tests/sdk_probes_e.py --paid --only E1,E3P [--cli PATH]
 
 Consent (the user's decision, 2026-10-09): at most $2.00 in all, ACROSS RUNS, E1+E2 at most $1.50 and E3+E3P at
 most $0.50 within a run. A paid run needs --paid and SDK_PROBES_E_CONSENT equal to the run's own cap: the sum
-of the selected probes' caps as %.2f (E1+E3P: 0.55); a run with all of E1, E2 and E3 selected keeps the first
+of the selected probes' caps as %.2f (E1+E3P: 0.50); a run with all of E1, E2 and E3 selected keeps the first
 run's value, 2.00, and the $2.00 as its own cap. Without --paid it is a dry run; --paid alone is a usage error.
 Before the ledger opens, every <name>.ledger.jsonl in the report's directory (and in the default one,
 <main checkout>/.claude-work/sdk/probes/) is replayed: a session counts at its last reported cost, or at its
 whole cap where its last event is a reservation (never reported, an open turn, closed with an agent running);
-an unreadable ledger refuses the run. The run is refused when that prior spend plus its own cap exceeds $2.00;
-the dry run and the paid run print what is left (2.00 - prior). The first paid runs (2026-10-09: -e, -e-2, -e-3)
-used $1.4041 at worst, so $0.5959 is left. E1 needs the v2 stack_sdk.py installed (Session, StackNotLoaded,
-config_root, wire: checked before the ledger opens); E2, E3 and E3P need only options().
+a run without its "end" event (running, or killed) counts at its whole run cap; an unreadable ledger refuses
+the run. The run is refused when that prior spend plus its own cap exceeds $2.00; the check and the new
+ledger's envelope happen under an exclusive lock (<default dir>/.sdk_probes_e.lock), so two starts cannot both
+pass on the same prior spend. The dry run and the paid run print what is left (2.00 - prior). The first paid
+runs (2026-10-09: -e, -e-2, -e-3) used $1.4041 at worst, so $0.5959 is left. E1 needs the v2 stack_sdk.py
+installed (Session, StackNotLoaded, config_root, wire: checked before the ledger opens); E2, E3 and E3P need
+only options().
 
-Caps: E1 $0.45 (seven Sonnet sessions, each at most $0.08), E2 $0.60, E3 $0.40, E3P $0.10 (one session at most
+Caps: E1 $0.40 (six Sonnet sessions, each at most $0.08), E2 $0.60, E3 $0.40, E3P $0.10 (one session at most
 $0.08). The margins cover the CLI checking max_budget_usd only after a turn (a session may overshoot its cap by
 one turn). Every session gets at most what its probe, its envelope group and the run's cap have left by the
 reported costs, and none starts below $0.02. A session counts at its whole cap until a ResultMessage reports
@@ -41,6 +44,12 @@ the init tool list and the init frame names a model. E1b is split: untrusted (th
 the SDK's stderr callback for the trust warning only, answers "dropped (untrusted)") and trusted
 (CLAUDE_CODE_SANDBOXED=1 in that leg's env, against its own no-rule control under the same env). No temp
 CLAUDE_CONFIG_DIR (the login's keychain entry is named after it) and no edit of ~/.claude.json.
+The verifier is one of agent_guard's READONLY_TYPES: its Bash may run scripts and write only in scratch, and a
+temp project is the project (only its ./.claude-work is scratch), so E1's script and markers live in
+<temp cwd>/.claude-work/. The stack's own exact rule (E1c) names `just`, which is not on the guard's read-only
+list: that leg could only read hook_decided, so it is not run (E1C_NOT_RUN; E1c answers unknown, $0).
+A Bash call that got neither a tool result nor a denial (the session cut by its deadline, the CLI's exit or
+its budget stop) is "undecided", never a denial.
 E3P (the analysis's E3'): a foreground Agent child, then a SendMessage resume (E3c2a: does its meta.json
 toolUseId survive?) and the hook logger's meta.json check at each child's first tool call (E3e). E3d now reads
 a refused resume (SendMessage: "was stopped by the user and was not resumed") as "terminal". E2 is not re-run
@@ -62,8 +71,9 @@ The report (default <main checkout>/.claude-work/sdk/probes/<date>-e.md, never o
 the question, the observable, the reading and the answer (yes / no / unknown: the observable is missing /
 invalid / dropped (untrusted) / terminal / error / skipped / refused), and per probe the cost, cap, session
 ids, models, transcript paths and measured facts (numbers, booleans, identifiers). No prompt, reply, tool
-input, stderr or error text is written. The ledger (<report>.ledger.jsonl, 0600, appended as the run goes)
-holds the envelope (with the prior spend), every reservation and every reported cost.
+input, stderr or error text is written. The ledger (<report name>.ledger.jsonl, 0600, appended as the run
+goes, always in the default directory, also when --out puts the report elsewhere, so every later run reads it)
+holds the envelope (with the prior spend and the run's cap), every reservation and every reported cost.
 """
 from __future__ import annotations
 
@@ -72,6 +82,7 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime
+import fcntl
 import glob
 import importlib.util
 import json
@@ -111,7 +122,7 @@ ENVELOPE = {"E1E2": 1.50, "E3": 0.50}                # within one run
 CONSENT_ENV, CONSENT_VALUE = "SDK_PROBES_E_CONSENT", "%.2f" % TOTAL_CAP_USD   # CONSENT_VALUE: FULL_SET runs only
 FULL_SET = frozenset({"E1", "E2", "E3"})            # a run with all three keeps the first run's 2.00 consent
 CONSENT_TEXT = ("the user's decision of 2026-10-09: at most $2.00 in all, across runs (every ledger in the "
-                "report directory counts), E1+E2 at most $1.50 plus E3+E3P at most $0.50 per run; user-run only "
+                "default and the report directory counts), E1+E2 at most $1.50 plus E3+E3P at most $0.50 per run; user-run only "
                 "(--paid and %s=<the run's cap>)" % CONSENT_ENV)
 MIN_SESSION_USD = 0.02
 MODEL = "haiku"
@@ -128,6 +139,10 @@ CEILING_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"
 SANDBOX_OVERLAY = base.SETTINGS_OVERLAY             # sandbox.autoAllowBashIfSandboxed false
 STACK_RULE_CMD = "just -f tools/instructor/justfile --list"
 STACK_RULE = "Bash(%s)" % STACK_RULE_CMD           # an exact Bash allow rule of the stack's settings.json
+# why E1c's leg is not run: agent_guard (READONLY_TYPES) refuses the verifier's `just` before any rule is read,
+# so the leg could only read hook_decided (proof: the guard test in test_sdk_probes_e_fake.py); None runs it
+E1C_NOT_RUN: str | None = "agent_guard holds the verifier to read-only Bash and `just` is not on its list"
+LOCK_NAME = ".sdk_probes_e.lock"                    # in the default ledger dir: the gate and the envelope, serialised
 # what E1 needs of the INSTALLED <config>/bin/stack_sdk.py (the v2 helper, SDK-2); E2 and E3 need only options(),
 # which the v1 helper has too, so `--only E2,E3` runs on an older install
 E1_NEEDS = ("Session", "StackNotLoaded", "config_root", "wire")
@@ -140,6 +155,10 @@ UNVERIFIED = (
     "whether the CLI prints the trust warning to stderr under the SDK at all (E1b untrusted reads no without it)",
     "what CLAUDE_CODE_SANDBOXED=1 changes besides trust (E1b trusted has its own control under the same env)",
     "that the transcript's agent-setting row names the main thread's agent (E1's validity check)",
+    "that no agent_guard rule besides its read-only check decides the verifier's `sh <cwd>/.claude-work/e1.sh` "
+    "(the fake runs only readonly_violation; a leg reading hook_decided says so)",
+    "whether the verifier's frontmatter (mcpServers, effort) applies to an --agent main thread under "
+    "--strict-mcp-config (no API spend either way; effort raises a session's cost)",
 )
 ANSWERS = ("yes", "no", "unknown", "invalid", "dropped (untrusted)", "terminal")
 DECISIONS = ("allow", "deny", "ask", "defer")
@@ -174,7 +193,7 @@ FORK_BODY = "Write the file {marker} containing the single word ok with the Writ
 HOLDER_BODY = ("Do exactly what you are asked, in order: write the file with the Write tool, then run the Bash "
                "command once, then reply: done.")
 ECHO_BODY = "Do exactly what you are asked: read the file with the Read tool, then reply: done."
-E1_SCRIPT = "touch {marker}\n"                       # E1's <cwd>/e1.sh: the marker write, behind `sh <script>`
+E1_SCRIPT = "touch {marker}\n"           # E1's <cwd>/.claude-work/e1.sh: the marker write, behind `sh <script>`
 # the throwaway PreToolUse command hook (E3, E3P): logs identifiers and booleans only, decides nothing. For a
 # child's row (E3e) it also logs whether the child's meta.json exists now and holds a toolUseId, looked up
 # where agent_guard's spawn_meta looks (meta_folders: agent_transcript_path's folder, then
@@ -432,10 +451,10 @@ class Ctx(base.Ctx):
                 bg_wait_s=self.cfg.wait_s, env=dict(env or {}, XDG_STATE_HOME=self.state), cwd=cwd,
                 max_turns=self.probe.max_turns, strict_mcp_config=True,
                 disallowed_tools=[*base.DISALLOWED, *base.allowed_mcp(self.cfg.config_dir)], **kw)
+            s.overlay = overlay
+            opts = s.preview()          # the options it would connect with: a refusal may come here too
         except ValueError as e:         # e.g. a helper that refuses CLAUDE_CODE_SANDBOXED (sdk/env-channel)
             raise HelperRefused(type(e).__name__) from e
-        s.overlay = overlay
-        opts = s.preview()
         self.reserve(key, opts)
         try:
             async with s:
@@ -706,14 +725,17 @@ def bash_leg(helper: Any, msgs: list[Any], denials: Any, command: str, marker: s
     ids = [i for i, inp, _ in calls(msgs, "Bash") if argv(inp.get("command")) == want]
     errs, den, hooks = tool_errors(msgs), denied_ids(denials), hook_decisions(helper, msgs)
     return {**validity, "attempted": bool(ids), "calls": len(ids), "denied": any(i in den for i in ids),
+            "decided": any(i in errs or i in den for i in ids),
             "tool_error": any(errs.get(i) for i in ids), "marker": None if marker is None else os.path.exists(marker),
             "hook_decisions": dict(hooks), "mode": init_data(msgs).get("permissionMode")}
 
 
 def bash_verdict(leg: dict[str, Any]) -> str:
-    """invalid / not_plan / hook_decided / not_attempted / ran / denied. Invalid first: a leg whose main
-    thread was not the verifier with Bash and a recorded model measured nothing. With a marker it decides;
-    without one the call's denial does (permission_denials)."""
+    """invalid / not_plan / hook_decided / not_attempted / ran / undecided / denied. Invalid first: a leg whose
+    main thread was not the verifier with Bash and a recorded model measured nothing. A marker proves the run;
+    a call with neither a tool result nor a denial was never decided (the session ended first: its deadline,
+    the CLI's exit, its budget stop), which is no denial; else the marker's absence, or without a marker the
+    call's denial (permission_denials), decides."""
     if not leg.get("valid"):
         return "invalid"
     if leg["mode"] not in (None, "plan"):
@@ -722,19 +744,27 @@ def bash_verdict(leg: dict[str, Any]) -> str:
         return "hook_decided"
     if not leg["attempted"]:
         return "not_attempted"
+    if leg["marker"]:
+        return "ran"
+    if not leg.get("decided"):
+        return "undecided"
     if leg["marker"] is not None:
-        return "ran" if leg["marker"] else "denied"
+        return "denied"
     return "denied" if leg["denied"] else "ran"
 
 
-def e1_command(cwd: str, marker: str) -> str:
-    """`sh <cwd>/e1.sh`, the script touching the marker: the call does not look like a write (analysis §2).
-    The rule names the command verbatim, so the path must be one plain shell word."""
-    script = os.path.join(cwd, "e1.sh")
+def e1_command(cwd: str, name: str) -> tuple[str, str]:
+    """(`sh <cwd>/.claude-work/e1.sh`, its marker <cwd>/.claude-work/e1-<name>.marker); the script touches the
+    marker, so the call does not look like a write (analysis §2). The verifier is a READONLY_TYPES agent:
+    agent_guard lets its Bash run scripts and write only in scratch, and a temp project is the project (only
+    its ./.claude-work is scratch), so both live there. The rule names the command verbatim, so each path must
+    be one plain shell word."""
+    work = os.path.join(cwd, ".claude-work")
+    script, marker = os.path.join(work, "e1.sh"), os.path.join(work, "e1-%s.marker" % name)
     if not re.fullmatch(r"[\w./@+:-]+", script) or not re.fullmatch(r"[\w./@+:-]+", marker):
         raise RuntimeError("E1's temp path is not a plain shell word")
     write_text(script, E1_SCRIPT.format(marker=marker))
-    return "sh " + script
+    return "sh " + script, marker
 
 
 # (leg, rule, overlay, trusted): untrusted legs first (control first: the rule legs read against it), then the
@@ -760,9 +790,11 @@ async def e1(c: Ctx) -> None:
             if rule == "stack" and not f["stack_rule_installed"]:
                 v[name] = "skipped"
                 continue
+            if rule == "stack" and E1C_NOT_RUN:             # it could only read hook_decided: not run, $0
+                v[name] = f[name + "_verdict"] = "not_run"
+                continue
             cwd = c.mkdir("e1", name)
-            marker = None if rule == "stack" else os.path.join(cwd, "e1-%s.marker" % name)
-            command = STACK_RULE_CMD if marker is None else e1_command(cwd, marker)
+            command, marker = (STACK_RULE_CMD, None) if rule == "stack" else e1_command(cwd, name)
             kw: dict[str, Any] = {}
             if rule == "session":
                 kw["allowed_tools"] = ["Bash(%s)" % command]
@@ -801,7 +833,8 @@ def e1_answers(c: Ctx, v: dict[str, str]) -> None:
     """Per part: invalid if its leg or its control is invalid; unknown unless its control was denied (PR5b's
     lesson: a rule leg means something only if the same call without a rule was denied); E1c (no marker) also
     needs the control's denial to show in permission_denials (calibrated); a denied repo rule with the trust
-    warning on stderr is "dropped (untrusted)". A leg that never ran leaves its part to the run (skipped)."""
+    warning on stderr is "dropped (untrusted)"; an undecided call or a leg not run (E1C_NOT_RUN) reads unknown.
+    A leg that never started leaves its part to the run (skipped)."""
     f, ans = c.facts, {"ran": "yes", "denied": "no"}
     f["denials_calibrated"] = calibrated = v.get("control") == "denied" and f.get("control_denied") is True
     for part, (leg, control) in E1_READ.items():
@@ -1095,6 +1128,7 @@ async def e3p(c: Ctx) -> None:
     write_project(p, agents=(("e3-echo", ECHO_BODY, None, "Read"),), hook=hook_command(logger, log))
     host, f, cfg = base.Host(p, ("Agent", "Task", "SendMessage", "Read")), c.facts, c.cfg
     aid = meta0 = meta1 = lines0 = lines1 = refused = None
+    sends = 0                                           # main-thread SendMessage calls in the resume turn
     async with c.client(c.options(p, usd=E3P_SESSION_USD, permission_mode="default", can_use_tool=host)) as s:
         await s.turn(PROMPTS["e3_fg"].format(agent="e3-echo", path=target), cfg.turn_s)
         await s.until_idle(cfg.turn_s)
@@ -1113,6 +1147,7 @@ async def e3p(c: Ctx) -> None:
             await anyio.sleep(cfg.settle_s)
             lines1, meta1 = transcript_lines(cfg.config_dir, sid, aid), read_meta(cfg.config_dir, sid, aid)
             refused = resume_refused(s.msgs[n:])
+            sends = len([i for i, _, parent in calls(s.msgs[n:], "SendMessage") if parent is None])
     rows = hook_rows(log)
     first: dict[str, dict[str, Any]] = {}
     for r in rows:
@@ -1120,14 +1155,17 @@ async def e3p(c: Ctx) -> None:
             first.setdefault(r["agent_id"], r)
     at_first = [r.get("meta_json") for r in first.values()]
     tid0, tid1 = (meta0 or {}).get("toolUseId"), (meta1 or {}).get("toolUseId")
-    resumed = lines0 is not None and lines1 is not None and lines1 > lines0
+    # a resume is proven only by a SendMessage call of the resume turn AND the child's transcript growing: a
+    # transcript that grew without one (a late write of the first run) proves nothing
+    resumed = sends > 0 and lines0 is not None and lines1 is not None and lines1 > lines0
     f.update(e3p_main_mode=init_data(s.msgs).get("permissionMode"), e3p_spawn_calls=len(spawn),
              e3p_spawn_tool_use_id=spawn[0] if spawn else None, e3p_child_found=aid is not None,
              e3p_meta_tid_is_spawn=tid0 == spawn[0] if spawn and isinstance(tid0, str) else None,
              **{"e3p_meta_%s" % k: v for k, v in meta_facts(meta0).items()},
              **{"e3p_meta_after_%s" % k: v for k, v in meta_facts(meta1).items()},
              e3p_child_lines_before=lines0, e3p_child_lines_after=lines1, e3p_resumed=resumed,
-             e3p_resume_refused=refused, e3p_send_calls=len(calls(s.msgs, "SendMessage")), e3p_hook_rows=len(rows),
+             e3p_resume_refused=refused, e3p_send_calls=len(calls(s.msgs, "SendMessage")),
+             e3p_resume_send_calls=sends, e3p_hook_rows=len(rows),
              e3e_children=len(first), e3e_meta_at_first_call=at_first,
              e3e_tid_at_first_call=[r.get("meta_tool_use_id") for r in first.values()])
     c.answers["E3c2a"] = yn(tid1 == tid0 and meta1 is not None) if resumed and not refused and isinstance(tid0, str) \
@@ -1178,19 +1216,20 @@ def resume_refused(msgs: list[Any]) -> bool | None:
 
 
 # ---------------------------------------------------------------- the registry
-OBS_TOUCH = ("the marker that `sh <temp cwd>/e1.sh` (it touches the marker; Bash, main thread the verifier) "
+OBS_TOUCH = ("the marker that `sh <temp cwd>/.claude-work/e1.sh` (it touches the marker; Bash, main thread the "
+             "verifier; ./.claude-work: the only scratch agent_guard gives a read-only agent in a project) "
              "creates; sandbox auto-allow off by a settings overlay; the leg's validity: the transcript's agent "
              "setting, Bash in the init tools, the init model")
 READ_VALID = "invalid: the leg's (or its control's) main thread was not the verifier with Bash and a recorded model; "
-READ_RULE = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, a "
-             "PreToolUse hook decided it, the session was not in plan, or the control (the same call, no rule) was "
-             "not denied")
+READ_RULE = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, the "
+             "call was never decided (no tool result), a PreToolUse hook decided it, the session was not in plan, or "
+             "the control (the same call, no rule) was not denied")
 READ_REPO = (READ_RULE + "; dropped (untrusted): no, and the CLI's stderr had the warning \"%s\"" % TRUST_WARNING)
-READ_INSTALLED = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, a "
-                  "PreToolUse hook decided it, or the session was not in plan (fact control_verdict: the same call, "
-                  "overlay on)")
+READ_INSTALLED = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, "
+                  "the call was never decided (no tool result), a PreToolUse hook decided it, or the session was not "
+                  "in plan (fact control_verdict: the same call, overlay on)")
 PROBES = [
-    Probe("E1", "E1E2", 0.45, 1200, 3, (
+    Probe("E1", "E1E2", 0.40, 1200, 3, (
         Part("E1a", "Host none + plan + --permission-prompts none (stack_sdk.Session(\"verifier\"), installed stack): "
                     "does a Session allowed_tools Bash(...) allow rule run its command?", OBS_TOUCH, READ_RULE),
         Part("E1bu", "Same, with the Bash(...) allow rule in the repository's .claude/settings.json, the temp "
@@ -1200,10 +1239,12 @@ PROBES = [
              OBS_TOUCH + "; its control: the same call, no rule, the same env", READ_REPO),
         Part("E1c", "Same, with the stack's own exact rule %s (user settings)?" % STACK_RULE,
              "the call's tool_use_id in the result's permission_denials (the command writes nothing)",
-             READ_VALID + "yes: called, not denied; no: denied; unknown: no such call, a hook decided it, the rule "
-             "is not installed, or the control's denial did not show in permission_denials (uncalibrated)"),
+             "unknown, NOT RUN while E1C_NOT_RUN holds (%s: the leg could only read hook_decided, so it costs $0 "
+             "and answers unknown); when run: " % E1C_NOT_RUN + READ_VALID + "yes: called, not denied; no: denied; "
+             "unknown: no such call, the call was never decided, a hook decided it, the rule is not installed, or the "
+             "control's denial did not show in permission_denials (uncalibrated)"),
         Part("E1d", "Same with no rule at all and the sandbox settings as installed (no overlay): does the command run?",
-             "the touch marker, no overlay", READ_INSTALLED)), e1, est_usd=(0.39, 0.56)),
+             "the touch marker, no overlay", READ_INSTALLED)), e1, est_usd=(0.33, 0.48)),
     Probe("E2", "E1E2", 0.60, 900, 4, (
         Part("E2a", "CLAUDE_CODE_SESSION_KIND=bg with CLAUDE_BG_SESSION_PERMISSION_RULES {allow, deny, addDirs} in "
                     "options.env: do the rules take effect in an SDK session?",
@@ -1249,9 +1290,10 @@ PROBES = [
     Probe("E3P", "E3", 0.10, 600, 6, (
         Part("E3c2a", "Does an Agent-spawned child's meta.json toolUseId survive a SendMessage resume (a foreground "
                       "child that finished, then resumed)?",
-             "the child's meta.json before and after the resume; the resume proven by its transcript growing",
-             "yes: unchanged; no: changed or gone; unknown: no resume proven, the resume refused, or no toolUseId "
-             "before the resume"),
+             "the child's meta.json before and after the resume; the resume proven by a main-thread SendMessage "
+             "call in the resume turn and the child's transcript growing",
+             "yes: unchanged; no: changed or gone; unknown: no resume proven (no SendMessage call, or the transcript "
+             "did not grow), the resume refused, or no toolUseId before the resume"),
         Part("E3e", "Does a child's meta.json exist at its first tool call (agent_guard's plan backstop fails open "
                     "without it)?",
              "the throwaway PreToolUse logger at each child row: meta.json where agent_guard's spawn_meta looks "
@@ -1443,12 +1485,13 @@ def ledger_spend(path: str) -> dict[str, float]:
     the booking: an open turn, an unproven or closed session), the first cost after a reservation replaces it
     (the ledger's cost already holds the floor of earlier turns), a later cost never lowers it, a cost_unknown
     books its booked_usd for good. reported: the sessions whose last word is a cost; unreported: those still at a
-    reservation; used: their sum, never below the run's own probe_end or end totals."""
+    reservation; used: their sum, never below the run's own probe_end or end totals, nor, while the run has no
+    "end" event (running, or killed), below its envelope's run_cap_usd: a run in progress counts at its cap."""
     book: dict[tuple[str, str], float] = {}
     reported: dict[tuple[str, str], bool] = {}
     sticky: set[tuple[str, str]] = set()
     ends: dict[str, float] = {}
-    end_usd, name = 0.0, os.path.basename(path)
+    end_usd, open_cap, name = 0.0, 0.0, os.path.basename(path)
     try:
         with open(path, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -1465,7 +1508,11 @@ def ledger_spend(path: str) -> dict[str, float]:
         if what not in LEDGER_EVENTS:
             raise LedgerUnreadable("%s:%d: an event this replay does not know" % (name, n))
         usd = ev.get("booked_usd" if what == "cost_unknown" else "usd")
-        if what in ("envelope", "probe"):
+        if what == "envelope":                      # until its "end": the run's whole cap (running or killed)
+            cap = ev.get("run_cap_usd")
+            open_cap = float(cap) if valid_cost(cap) else 0.0
+            continue
+        if what == "probe":
             continue
         if not valid_cost(usd):
             raise LedgerUnreadable("%s:%d: %s without a valid amount" % (name, n, what))
@@ -1473,7 +1520,7 @@ def ledger_spend(path: str) -> dict[str, float]:
             ends[str(ev.get("probe"))] = float(usd)
             continue
         if what == "end":
-            end_usd = float(usd)
+            end_usd, open_cap = float(usd), 0.0
             continue
         key = (str(ev.get("probe")), json.dumps(ev.get("session")))
         if what == "cost" and reported.get(key) is False and key not in sticky:
@@ -1485,7 +1532,7 @@ def ledger_spend(path: str) -> dict[str, float]:
         reported[key] = what == "cost" and key not in sticky
     rep = sum(v for k, v in book.items() if reported.get(k))
     unrep = sum(v for k, v in book.items() if not reported.get(k))
-    return {"reported": rep, "unreported": unrep, "used": max(rep + unrep, sum(ends.values()), end_usd)}
+    return {"reported": rep, "unreported": unrep, "used": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}
 
 
 def ledger_dirs(out: str | None, today: str) -> list[str]:
@@ -1571,8 +1618,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Agent SDK probes E1-E3 and E3P (billed; run by the user).",
         epilog="Consent: %s must equal the run's own cap, the sum of the selected probes' caps as %%.2f (E1,E3P: "
-               "0.55); only a run with all of E1, E2 and E3 selected keeps the first run's value %s. A paid run is "
-               "refused when the ledgers already in the report directory (replayed at worst) plus its cap exceed "
+               "0.50); only a run with all of E1, E2 and E3 selected keeps the first run's value %s. A paid run is "
+               "refused when the ledgers already in the default and the report directory (replayed at worst, a run "
+               "without its end at its cap) plus its cap exceed "
                "$%.2f." % (CONSENT_ENV, CONSENT_VALUE, TOTAL_CAP_USD))
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="print the plan, spend nothing (the default)")
@@ -1582,7 +1630,8 @@ def main(argv: list[str] | None = None) -> int:
     # no --config: the CLI's own (CLAUDE_CONFIG_DIR, else ~/.claude); exporting another would also rename the
     # keychain entry the CLI looks the login up in
     ap.add_argument("--cli", default=shutil.which("claude"), help="the installed claude (default: PATH)")
-    ap.add_argument("--out", help="report path (default <main checkout>/.claude-work/sdk/probes/<date>-e.md)")
+    ap.add_argument("--out", help="report path (default <main checkout>/.claude-work/sdk/probes/<date>-e.md); the "
+                    "ledger stays in that default directory")
     a = ap.parse_args(argv)
     only = {x.strip().upper() for x in a.only.split(",") if x.strip()}
     if only - {p.pid for p in PROBES}:
@@ -1612,22 +1661,35 @@ def main(argv: list[str] | None = None) -> int:
     if missing := [n for n in need_names if not hasattr(helper, n)]:
         ap.error("the installed %s/bin/stack_sdk.py lacks %s: reinstall the stack (./install.sh) or run "
                  "--only E2,E3,E3P (they need only options())" % (config, ", ".join(missing)))
-    try:                                       # the cross-run check: before the ledger, before any billed call
-        prior = prior_spend(ledger_dirs(out, today))
-    except LedgerUnreadable as e:
-        ap.error("refused: a ledger in the report directory cannot be replayed, so the prior spend is unknown: %s" % e)
-    print(prior_line(prior))
-    if prior["used"] + cap > TOTAL_CAP_USD + 1e-9:
-        ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f exceeds the USD %.2f consent "
-                 "(left: USD %.4f)" % (prior["used"], cap, TOTAL_CAP_USD, prior["left"]))
-    try:                                       # before any billed call, not after
-        os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
-        if not os.access(os.path.dirname(out), os.W_OK):
-            raise PermissionError("not writable")
-        ledger = Ledger(out[:-3] + ".ledger.jsonl" if out.endswith(".md") else out + ".ledger.jsonl")
+    # every run's ledger goes to the default directory, wherever --out puts the report, so every later run reads
+    # it; the check and the envelope that books this run's cap happen under one exclusive lock there
+    ldir = ledger_dirs(out, today)[0]
+    try:
+        os.makedirs(ldir, mode=0o700, exist_ok=True)
+        lock_fd = os.open(os.path.join(ldir, LOCK_NAME), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     except OSError as e:
-        ap.error("cannot write the report or its ledger beside %s: %s" % (out, e.strerror or e))
-    ledger.write(envelope_event(probes, today, prior))
+        ap.error("cannot open the ledger directory %s: %s" % (ldir, e.strerror or e))
+    try:                                       # closing it releases the lock (also on ap.error's SystemExit)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:                                   # the cross-run check: before the ledger, before any billed call
+            prior = prior_spend(ledger_dirs(out, today))
+        except LedgerUnreadable as e:
+            ap.error("refused: a ledger in the report directory cannot be replayed, so the prior spend is unknown: "
+                     "%s" % e)
+        print(prior_line(prior))
+        if prior["used"] + cap > TOTAL_CAP_USD + 1e-9:
+            ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f exceeds the USD %.2f consent "
+                     "(left: USD %.4f)" % (prior["used"], cap, TOTAL_CAP_USD, prior["left"]))
+        try:                                   # before any billed call, not after
+            os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
+            if not os.access(os.path.dirname(out), os.W_OK):
+                raise PermissionError("not writable")
+            ledger = Ledger(os.path.join(ldir, os.path.basename(out).removesuffix(".md") + ".ledger.jsonl"))
+        except OSError as e:
+            ap.error("cannot write the report beside %s or its ledger in %s: %s" % (out, ldir, e.strerror or e))
+        ledger.write(envelope_event(probes, today, prior))     # from here on, other runs count this one at its cap
+    finally:
+        os.close(lock_fd)
     print("Consent envelope: %s. This run's cap: USD %.2f. Ledger: %s" % (CONSENT_TEXT, cap, ledger.path))
     cfg = Config(config_dir=config, cli_path=a.cli)
     rows: list[Row] = []
