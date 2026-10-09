@@ -456,9 +456,9 @@ backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 2. B1-T14 (§A.9) gives ACCEPT on a rolling origin with ≥ 3 folds that train on ≥ 2 sessions and have test rows in
    the **production** supported stratum (support at the test session's own regime, as apply computed it at that
    session's start, §A.11.2). The run also needs `informative: true`, fold-specific hyperparameters from the
-   shipped fitter, each fold's model gate passing, and its own simulated power ≥ `B1_MIN_POWER` = 0.5 against a
-   2.5 r hit rate (§A.11.1). An ACCEPT on the any-regime stratum, on the frozen fixture or on the WP5 hybrid copy is
-   a rehearsal, never this item;
+   shipped fitter, each fold's model gate passing, and its own simulated one-sided (too-many side) power
+   `power_2.5r` ≥ `B1_MIN_POWER` = 0.5 against a 2.5 r hit rate (§A.11.1). An ACCEPT on the any-regime
+   stratum, on the frozen fixture or on the WP5 hybrid copy is a rehearsal, never this item;
 3. ≥ 5 new sessions in shadow, with the would-vs-§4 report (WP6);
 4. the user's approval, recorded in CONFIG.md §9;
 5. the drift check (§2.1 rule 7, §A.12) is implemented and installed, and the last gated fit wrote
@@ -673,7 +673,7 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 | B1-T11 | determinism of the fitter: same data and seed → identical bayes.json except `generated` for spc, static_cc, ctx_ab; turns/ctx within a tolerance set empirically (v2: not bit-reproducible across processes); the gate never relies on bit reproducibility |
 | B1-T12 | latency: apply_and_snapshot p95 ≤ 300 ms with 176 blocks |
 | B1-T13 | refresh: with a valid sched block `stack_sched_refresh` writes a model `stack_sched.load_model` accepts, method `bayes`; without it, output byte-equal to today's (WP4) |
-| B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y−), 1), F(y−) = P(Y < y): F(y) for the log-normal, F(y − 1) for the NB (WP5 5b changes `pit()`, `b1_backtest.py:161-164`, which uses F(y)); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current). **WP5 (§A.11):** the gating stratum is production support (at the test session's own regime); any-regime is reported beside it. The verdict is REJECT (`folds`) unless ≥ 3 eligible folds have test rows in the family's production stratum. It is `informative: false` = REJECT (exit 1) unless the stratum has ≥ 40 scorable test rows (uncensored, or censored above T), (hi − lo)/n ≤ 0.10 and, for soft families, hi − lo < q05, the empirical 5 % quantile of the run's clustered null K. Hyperparameters come from one shipped-fitter fit per fold at the test session's regime; a fold whose model gate fails makes the family `blocked:gate` (exit 1). The run reports its simulated power against a 2.5 r hit rate; an ACCEPT counts for §3.3 item 2 only at power ≥ `B1_MIN_POWER` (0.5) |
+| B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y−), 1), F(y−) = P(Y < y): F(y) for the log-normal, F(y − 1) for the NB (WP5 5b changes `pit()`, `b1_backtest.py:161-164`, which uses F(y)); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current). **WP5 (§A.11):** the gating stratum is production support (at the test session's own regime); any-regime is reported beside it. The verdict is REJECT (`folds`) unless ≥ 3 eligible folds have test rows in the family's production stratum. It is `informative: false` = REJECT (exit 1) unless the stratum has ≥ 40 scorable test rows (uncensored, or censored above T), (hi − lo)/n ≤ 0.10 and, for soft families, hi − lo < q05, the empirical 5 % quantile of the run's clustered null K. Hyperparameters come from one shipped-fitter fit per fold at the test session's regime; a fold whose model gate fails makes the family `blocked:gate` (exit 1). The run reports `power_2.5r`, its simulated one-sided (too-many side, P0(K ≥ lo_sim) < 0.05) power against a 2.5 r hit rate; an ACCEPT counts for §3.3 item 2 only when `power_2.5r` ≥ `B1_MIN_POWER` (0.5) |
 | B1-T15 | 10k random blocks: `decide_bayes`'s state for a sparse soft type has value ≥ c (asserted before `enforce_invariants`) (kills "no hold:sparse") |
 | B1-T16 | proposals with `bayes_hyper_source: "stdlib-moments"`, absent, or another seed_sha → no grid block used, method `empirical`; `load_hyper` without a gated bayes.json returns (None, None) and `propose()` writes no grid block (kills "moment hyperparameters accepted"); bayes.json deleted after propose → grid block unused, method `empirical`; `drift.soft.agent.breach = true` → same; an AST check that no `eb_hyper_*` is defined in, or referenced from, stack_bayes_grid.py or stack_limits.py |
 | B1-T17 | a fake posterior with one constant-per-chain parameter not in `CONSTANT_BY_CONSTRUCTION` (NaN R-hat) → model gate false → `empirical`; the same with `z_s` constant → gate unaffected (kills "NaN-skipping R-hat") |
@@ -741,8 +741,9 @@ Any condition failing gives `informative: false`, and the family's verdict is RE
 summary names the failed conditions and prints n, m, u and q05.
 
 **Minimum power, `B1_MIN_POWER = 0.5`** (user decision 2026-10-09).
-- **What the run reports.** `power_2.5r`, its own simulated power against a true hit rate of 2.5 r on the
-  gating stratum. It also reports `power_r/5` (T too high), which is never gated.
+- **What the run reports.** `power_2.5r`, its own simulated one-sided power (the too-many side) against a true hit
+  rate of 2.5 r on the gating stratum. It also reports `power_r/5` (T too high, the too-few side), which is never
+  gated.
 - **When it gates.** An ACCEPT counts toward §3.3 item 2 only when `power_2.5r ≥ B1_MIN_POWER`. Below it the
   verdict stays ACCEPT with `power_ok: false`, and promotion item 2 is not met.
 - **How 5b computes it.** It uses the per-fold predictives the clustered check already builds, and S = `--sims`
@@ -754,18 +755,21 @@ summary names the failed conditions and prints n, m, u and q05.
     stay clustered by session;
   - counts the hits only on the rows that were scorable in the data. The rows that were unknown keep their status:
     they add 1 each to hi_sim = lo_sim + u and never to lo_sim;
-  - applies the run's own check: reject when P0(K ≥ lo_sim) < 0.05 or P0(K ≤ hi_sim) < 0.05, with P0 from the
-    null draws.
+  - applies the run's own too-many side: reject when P0(K ≥ lo_sim) < 0.05, with P0 from the null draws. A
+    rejection on the too-few side (P0(K ≤ hi_sim) < 0.05) is not counted: under a 2.5 r alternative it rejects for
+    the wrong reason.
 
-  `power_2.5r` is the share of replicates that reject.
+  `power_2.5r` is the share of replicates that reject. `power_r/5` is the same with T_alt = `pred.quantile(1 − r/5)`
+  and the too-few side, P0(K ≤ hi_sim) < 0.05. These are power.py's `rej_too_many` and `rej_too_few`, the fields the
+  table below reports.
 - **Recommended: per run.** The simulation adapts to the run's actual folds, rows, unknowns and fitted
   heterogeneity, and it costs as much as the null draws. The fallback is the pre-registered design power of the
   nearest cell of the table below, which ignores the run's u and fitted tau_new. Use it only if 5b shows the per-run
   simulation to be infeasible.
 - **Where 0.5 sits.** At the minimum (3 folds, 40 rows, w = 0) the design power is 0.53 under the priors and 0.50
   exact at v2 (0.496). The bound therefore asks for more than the minimum folds or rows in practice (A.11.1 table).
-  Under WP2's tau_new it is met only at 6 folds × 200 rows with w = 0 (0.508). With w ≥ 0.05 it is met in no
-  simulated cell; the highest is 0.437, at 6 folds × 100 rows, w = 0.05.
+  Under WP2's tau_new it is met only at 6 folds × 200 rows with w = 0 (0.508). With w ≥ 0.05 it is met in no WP2
+  cell; the highest is 0.437, at 6 folds × 100 rows, w = 0.05.
 
 Where 0.10 comes from (prior-predictive power, soft.agent, r = 0.10; scripts, JSON and logs in the work-order
 checkout's `.claude-work/bayes-wp5/power/`). Model: log Y = m + tau_new·w_s + sigma·e, one w_s ~ N(0, 1) per test
@@ -894,8 +898,8 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
 3. a failed fold gate gives `blocked:gate`;
 4. `informative: false` gives REJECT (`informative`);
 5. a failed check gives REJECT;
-6. otherwise ACCEPT. It carries `power_2.5r` and `power_ok` (power ≥ `B1_MIN_POWER`); only an ACCEPT with
-   `power_ok: true` counts toward §3.3 item 2.
+6. otherwise ACCEPT. It carries `power_2.5r` (one-sided, the too-many side, A.11.1) and `power_ok`
+   (`power_2.5r` ≥ `B1_MIN_POWER`); only an ACCEPT with `power_ok: true` counts toward §3.3 item 2.
 
 The exit code is 0 only when every family in `--families` is ACCEPT, and 1 otherwise; `blocked:gate` exits 1 with
 its own label. A low power does not change the exit code: it decides promotion, not calibration.
@@ -959,9 +963,9 @@ copy.
 - **The binding production verdict (5f) needs post-install sessions,** collected by an installed collector that
   contains 3975e35a and 210eaeca. Sessions started after the first install containing both commits qualify
   (manifest commit b4bed8b8, read 2026-10-09 22:59). 5f re-checks the `commit` field before it counts sessions.
-- 5f needs ≥ 3 eligible folds with production-supported test rows, I1–I3 on that stratum, and power ≥
-  `B1_MIN_POWER`. Of the 20 newest live sessions on 2026-10-09, 16 carried 0–2 agent rows each, so no session count
-  is promised. The verdict stays `informative: false` (or REJECT `folds`) until these hold.
+- 5f needs ≥ 3 eligible folds with production-supported test rows, I1–I3 on that stratum, and the one-sided
+  `power_2.5r` ≥ `B1_MIN_POWER`. Of the 20 newest live sessions on 2026-10-09, 16 carried 0–2 agent rows each,
+  so no session count is promised. The verdict stays `informative: false` (or REJECT `folds`) until these hold.
 
 *A.3 row 5, the main-window join: decided 2026-10-09, option (c).* After the fix, row 5 is the dominant censor.
 - It censors 302 of the 451 turns-censored rows. All 302 have their own hit_* measured 0. By `status_code`: 182
