@@ -78,6 +78,20 @@ if mode == "ok":
     for line in ctl.get("lines", ["bayes: fit %s ok" % ("0123456789abcdef")]):
         print(line)
     sys.exit(0)
+if mode == "hang":                  # the real stack_bayes.main (its own deadline) around a fit that never ends
+    import importlib.util
+    sys.path.insert(0, os.path.dirname(sys.argv[3]))
+    spec = importlib.util.spec_from_file_location("stack_bayes", sys.argv[3])
+    B = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(B)
+    def fit(cfg, out, log=print):
+        with open(os.path.join(here, "pids.json"), "w") as f:
+            json.dump([os.getpid()], f)
+        time.sleep(ctl.get("secs", 60))
+        return 0, "bayes: woke"
+    B.missing_deps = lambda: []
+    B.fit = fit
+    sys.exit(B.main(sys.argv[4:] + ctl.get("args", [])))
 if mode.startswith("exit"):
     print("bayes: exit")
     sys.exit(int(mode[4:]))
@@ -427,6 +441,154 @@ def test_skipped_while_the_accelerator_lock_is_held(st, fake):
         assert U.bayes_fit("idle", now=1e9)["status"] == "skipped:accel-lock"
     assert not U.flock_held(str(lock))
     assert U.bayes_fit("idle", now=1e9)["status"] == "ok"
+
+
+# ---------------------------------------------------------------- the accel.lock holder (work order step 9)
+def test_accel_acquire_takes_a_private_regular_file_and_fails_closed(st, tmp_path, monkeypatch):
+    """Mutants "accel_acquire ignores a held lock" and "no regular-file check": a second taker gets None
+    while the first holds it, the fd again once it is closed; the file is 0600 and carries the holder's
+    record; a symlink, a hardlink to another file, a FIFO (without blocking, even where flock works on one) or
+    a directory at the path is never taken (mutant "no st_nlink check")."""
+    lock = Path(U.accel_lock_path())
+    fd = U.accel_acquire("job-a")
+    assert fd is not None and U.flock_held(str(lock))
+    try:
+        assert (lock.stat().st_mode & 0o777) == 0o600
+        rec = json.loads(lock.read_text())
+        assert rec["holder"] == "job-a" and rec["pid"] == os.getpid() and abs(rec["since"] - time.time()) < 60
+        assert U.accel_acquire("job-b") is None
+    finally:
+        os.close(fd)
+    assert not U.flock_held(str(lock))
+    fd = U.accel_acquire("job-b")
+    assert fd is not None
+    os.close(fd)
+    lock.unlink()
+    target = tmp_path / "elsewhere.lock"
+    target.write_text("")
+    lock.symlink_to(target)
+    assert U.accel_acquire("x") is None and target.read_text() == ""
+    lock.unlink()
+    os.mkfifo(str(lock))
+    t = time.monotonic()
+    assert U.accel_acquire("x") is None and time.monotonic() - t < 2
+    with monkeypatch.context() as m:            # macOS refuses flock on a FIFO; Linux allows it: the type check
+        m.setattr(U.fcntl, "flock", lambda *a: None)
+        assert U.accel_acquire("x") is None
+    lock.unlink()
+    lock.mkdir()
+    assert U.accel_acquire("x") is None
+    lock.rmdir()
+    victim = tmp_path / "victim.txt"            # CWE-62: a hardlink to another file is never truncated
+    victim.write_text("keep me\n")
+    os.link(str(victim), str(lock))
+    assert U.accel_acquire("x") is None and victim.read_text() == "keep me\n"
+
+
+def test_the_fit_holds_the_accel_lock_and_an_orphan_keeps_it(st, fake, tmp_path):
+    """Mutants "probe only" (the fit tests accel.lock but does not hold it), "accel fd not passed to the
+    child" and "no holder record": while a fit runs no other accelerator job can take the lock, which names
+    the fit; a SIGKILLed collector's orphaned fit keeps it; it is free once the fit is gone."""
+    fake.mode("sleep", secs=20)
+    script = tmp_path / "collector.py"
+    script.write_text(COLLECTOR)
+    col = subprocess.Popen([sys.executable, str(script), str(HOOKS / "stack_usage.py"), str(fake.py)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    lock, pids = Path(U.accel_lock_path()), []
+    try:
+        pids = _wait_pids(fake)
+        assert U.accel_acquire("other") is None
+        rec = json.loads(lock.read_text())
+        assert rec["holder"] == U.ACCEL_HOLDER == "bayes-fit" and rec["pid"] == col.pid
+        col.kill()
+        col.wait(10)
+        assert _gone(pids[0], 0.3) is False                           # the orphaned fit is still running
+        assert U.flock_held(str(lock)) and U.accel_acquire("other") is None
+        write_props(st, EID2)
+        assert U.bayes_fit("session end", now=1e9 + 1, force=True)["status"] == "skipped:locked"
+    finally:
+        col.kill()
+        _reap(pids)
+    assert _gone(pids[0])
+    fd = U.accel_acquire("other")
+    assert fd is not None
+    os.close(fd)
+
+
+def test_a_skip_after_the_accel_lock_was_taken_releases_it(st, fake, monkeypatch):
+    """Mutant "the collector's accel fd is never closed": a fit that does not start (no venv python, no
+    fitter) or that ends leaves accel.lock free."""
+    monkeypatch.setattr(U, "bayes_python", lambda: str(fake.bin / "absent"))
+    assert U.bayes_fit("idle", now=1e9)["status"] == "skipped:no-pymc"
+    assert not U.flock_held(U.accel_lock_path())
+    monkeypatch.setattr(U, "bayes_python", lambda: str(fake.py))
+    assert U.bayes_fit("idle", now=1e9)["status"] == "ok"
+    assert not U.flock_held(U.accel_lock_path())
+
+
+# ---------------------------------------------------------------- the fit's own deadline (work order step 10)
+def test_the_fits_own_cap_comes_30_s_after_the_collectors():
+    """Mutant "cap at or below the collector's": while the collector lives its kill (failed:timeout) must come
+    first; the fit's own cap is near it."""
+    assert B.FIT_TIMEOUT_S == U.BAYES_TIMEOUT_S + 30
+
+
+def test_main_arms_the_deadline_around_fit_only(st, monkeypatch, capsys):
+    """Mutants "deadline never armed", "a Python SIGALRM handler" and "alarm left armed": during fit() a real
+    timer runs with SIGALRM at its default action; afterwards the timer is off and the old disposition back;
+    `check` arms nothing; an out-of-range --timeout fails before the fit."""
+    seen = []
+
+    def fake_fit(cfg, out, log=print):
+        seen.append((signal.getitimer(signal.ITIMER_REAL)[0], signal.getsignal(signal.SIGALRM)))
+        return B.EXIT_OK, "bayes: fake"
+    monkeypatch.setattr(B, "missing_deps", lambda: [])
+    monkeypatch.setattr(B, "fit", fake_fit)
+    old = signal.signal(signal.SIGALRM, signal.SIG_IGN)
+    try:
+        assert B.main(["fit", "--out", str(st / "x.json"), "--timeout", "50"]) == B.EXIT_OK
+        assert B.main(["fit", "--out", str(st / "x.json")]) == B.EXIT_OK
+        assert signal.getitimer(signal.ITIMER_REAL)[0] == 0 and signal.getsignal(signal.SIGALRM) == signal.SIG_IGN
+        assert B.main(["check"]) == B.EXIT_OK and signal.getitimer(signal.ITIMER_REAL)[0] == 0
+        for bad in ("0", "86401"):
+            assert B.main(["fit", "--timeout", bad]) == B.EXIT_FAIL
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+    assert len(seen) == 2
+    assert 49 < seen[0][0] <= 50 and seen[0][1] == signal.SIG_DFL
+    assert B.FIT_TIMEOUT_S - 1 < seen[1][0] <= B.FIT_TIMEOUT_S and seen[1][1] == signal.SIG_DFL
+    assert "bayes: failed: timeout out of range" in capsys.readouterr().out
+
+
+def test_an_orphaned_fit_ends_itself_at_its_cap_and_frees_both_locks(st, fake, tmp_path):
+    """Work order step 10 (mutant "no cap in stack_bayes.py"): the real stack_bayes.main around a fit that never
+    ends, under a collector that is SIGKILLed; the orphan keeps usage/bayes.lock and accel.lock, then ends
+    itself (SIGALRM) at its --timeout, and both locks are free."""
+    cap = 5
+    fake.mode("hang", secs=120, args=["--timeout", str(cap)])
+    script = tmp_path / "collector.py"
+    script.write_text(COLLECTOR)
+    col = subprocess.Popen([sys.executable, str(script), str(HOOKS / "stack_usage.py"), str(fake.py)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pids = []
+    try:
+        pids = _wait_pids(fake)
+        t0 = time.monotonic()
+        col.kill()
+        col.wait(10)
+        assert _gone(pids[0], 0.3) is False
+        with U.Locked(str(st / "usage" / "bayes.lock"), nb=True) as lk:
+            assert not lk.ok
+        assert U.flock_held(U.accel_lock_path())
+        assert _gone(pids[0], cap + 10), "the orphaned fit outlived its own cap"
+        assert time.monotonic() - t0 < cap + 10
+    finally:
+        col.kill()
+        _reap(pids)
+    with U.Locked(str(st / "usage" / "bayes.lock"), nb=True) as lk:
+        assert lk.ok
+    assert not U.flock_held(U.accel_lock_path())
 
 
 def test_only_the_fitters_summary_line_is_kept(st, fake):
