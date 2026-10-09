@@ -362,11 +362,13 @@ def stack_agents(config):
 def project_agent_files(cwd, config, extra=()):
     """Every .claude/agents directory the CLI may read project agents from (2.1.287: recursively, dotfiles too):
     cwd up to the repository root (or /), a linked worktree's main checkout, and `extra` (add_dirs). Any one,
-    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1)."""
+    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1). Unverified against
+    the real CLI: a .claude/agents above the repository root's .git, and agents in subdirectories of an add_dir."""
     def text(p):
         with open(p, encoding="utf-8") as fh:
             return fh.read().strip()
-    d, roots, user = os.path.realpath(cwd or os.getcwd()), [*extra], os.path.realpath(os.path.join(config, "agents"))
+    d, user = os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(config, "agents"))
+    roots = [os.path.join(d, str(x)) for x in extra]    # N1: the CLI resolves --add-dir against its own cwd
     while True:
         roots.append(d)
         g = os.path.join(d, ".git")
@@ -573,7 +575,9 @@ class TtyHost:
                 ln = await self.line(f"\nstack_sdk: plan ({who}):\n{plan}\ntype {nonce} to approve; anything else denies:")
                 return PermissionResultAllow() if ln == nonce else deny
             shown = self.quote(json.dumps(inp, ensure_ascii=False, default=str), 2000)
-            ln = await self.line(f"\nstack_sdk: {who} wants {one_line(tool, 40)}:\n{shown}\nallow once? [y/N]:")
+            name, rows = one_line(tool, 40), shown.count("\n") + 1      # N4: what is approved, next to the answer
+            ln = await self.line(f"\nstack_sdk: {who} wants {name}:\n{shown}\nstack_sdk: ^ {who} wants {name} "
+                                 f"({rows} rows above)\nallow once? [y/N]:")
             return PermissionResultAllow() if (ln or "").lower() in ("y", "yes") else deny
 
     def close(self):
@@ -598,8 +602,8 @@ class Session:
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
                  deadline_s=None, cli=None, config_dir=None, forward_subagent_text=False, transport=None,
                  on_message=None, tty=None, load_timeout_s=LOAD_WAIT_S, row=True, **kw):
-        bad = [k for k in REFUSED_KW if k in kw] + [
-            k for k in (kw.get("extra_args") or {}) if k not in EXTRA_OK]
+        bad = [k for k in REFUSED_KW if k in kw] + [k for k, v in (kw.get("extra_args") or {}).items() if k not in EXTRA_OK
+                                                    or v is not None and (k == "verbose" or str(v).startswith("-"))]  # N3
         if bad or permission_mode == "bypassPermissions":
             raise ValueError("refused: %s (the host and the stack's files decide; bypassPermissions never)"
                              % (", ".join(map(str, bad)) or "bypassPermissions"))
@@ -785,6 +789,9 @@ class Session:
         import anyio
         if not self.loaded:
             raise StackNotLoaded("not connected, or the load check did not pass")
+        if self.host == "none" and (self.permission_mode or "plan") == "plan" and (     # N2: before every prompt
+                odd := project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())):
+            raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: " + ", ".join(odd[:10]))
         r = Reducer()
         for m in self.early:
             r.feed(wire(m))

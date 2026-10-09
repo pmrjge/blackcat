@@ -238,6 +238,11 @@ async def one(w, prompt="go", **kw):
         return await s.ask(prompt)
 
 
+async def connect_only(w, **kw):
+    async with w.session(**kw):
+        pass
+
+
 # ---------------------------------------------------------------- D2 load check
 def test_load_fails_closed(tmp_path):
     """M1 M24 M25 M32 M33: every leg below raises StackNotLoaded with no prompt sent; the good world passes."""
@@ -812,7 +817,7 @@ def test_project_agents_do_not_pass_the_plan_gate(tmp_path):
     (repo / ".claude" / "agents" / "explore.md").write_text("---\nname: explore\npermissionMode: acceptEdits\n---\nx\n")
     w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
     with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
-        run(one(w, cwd=str(repo / "sub" if (repo / "sub").mkdir() is None else repo)))   # shadowing, from below
+        run(connect_only(w, cwd=str(repo / "sub" if (repo / "sub").mkdir() is None else repo)))  # at connect()
     assert "prompt" not in w.log
     w2 = World(tmp_path / "w2", script=script("stream_plan.jsonl"), server_agents=[*AGENTS, "repo-builder"])
     with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
@@ -1117,7 +1122,7 @@ def test_tty_rows_never_start_with_model_text():
     rows = [ln[i:i + 80] for ln in t.shown().expandtabs(8).splitlines() for i in range(0, len(ln) or 1, 80)]
     own = re.compile(r"(  .*|stack_sdk: (question|plan) \(main thread\):|stack_sdk: main thread wants Bash:|"
                      r"answer \(number or text, empty denies\):|type \d{4} to approve; anything else denies:|"
-                     r"allow once\? \[y/N\]:|)")
+                     r"stack_sdk: \^ main thread wants Bash \(\d+ rows above\)|allow once\? \[y/N\]:|)")
     assert not [r for r in rows if not own.fullmatch(r)], rows            # every other row starts '  '
     assert not [r for r in rows if r.startswith("stack_sdk: main thread wants Read")], rows
 
@@ -1218,3 +1223,87 @@ def test_no_state_frames_agent_in_flight_keeps_reading(tmp_path):
     w = World(tmp_path, script=frames)
     out = run(one(w, bg_wait_s=5))
     assert (len(out["results"]), out["ended_by"], out["outcome"], w.interrupts) == (2, "result", "done", 0)
+
+
+# ---------------------------------------------------------------- SDK-2r round 4 (sec-r10; each proof failed on 0eecc14a)
+def test_relative_add_dirs_resolve_against_the_session_cwd(tmp_path, monkeypatch):
+    """N1: the CLI resolves --add-dir against its own cwd (GRn: path.resolve), not the app's cwd."""
+    repo, team, app = tmp_path / "repo", tmp_path / "team", tmp_path / "app" / "x"
+    (repo / ".git").mkdir(parents=True)
+    (team / ".claude" / "agents").mkdir(parents=True)
+    app.mkdir(parents=True)
+    monkeypatch.chdir(app)                               # ../team from the app's cwd does not exist
+    w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, cwd=str(repo), add_dirs=["../team"]))
+    assert "prompt" not in w.log
+
+
+def test_project_agents_appearing_after_connect_fail_the_ask(tmp_path):
+    """N2: the gate is re-checked when a prompt is sent, not only at connect."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
+
+    async def go():
+        async with w.session(cwd=str(repo)) as s:
+            (repo / ".claude" / "agents").mkdir(parents=True)     # after the connect-time check
+            return await s.ask("go")
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(go())
+    assert "prompt" not in w.log
+
+
+def test_extra_args_values_cannot_carry_flags(tmp_path):
+    """N3: SDK < 0.2.124 passes ['--debug', '--agents=...'] as two tokens; commander binds no value to an
+    optional-value or boolean flag when the next token starts with '-'."""
+    w = World(tmp_path)
+    for kv in ({"debug": "--agents={}"}, {"verbose": "--settings={}"}, {"verbose": "x"}):
+        with pytest.raises(ValueError, match="refused"):
+            w.session(extra_args=kv)
+
+
+def test_tty_answer_line_names_the_tool():
+    """N4: a 2000-char input fills more than a 24-row screen; the y/N row must still say what is approved."""
+    t = Term()
+
+    async def go():
+        task = asyncio.ensure_future(t.host("Bash", {"command": "rm -rf ~/backup; " + " " * 1900 + "# list"}, Ctx()))
+        await t.answer_when(r"\[y/N\]:", "n")
+        return await task
+    run(go())
+    rows = t.shown().splitlines()
+    host_rows = [r for r in rows[-24:] if not r.startswith("  | ")]
+    assert len(rows) > 24 and any("Bash" in r for r in host_rows), host_rows
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink", "dangling"])
+def test_agents_path_of_any_kind_fails_closed(tmp_path, kind):
+    """OWN1: .claude/agents as a file, a symlink to a directory, or a dangling symlink fails the gate (lexists)."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".claude").mkdir()
+    a = repo / ".claude" / "agents"
+    if kind == "file":
+        a.write_text("x")
+    else:
+        (tmp_path / "real").mkdir()
+        a.symlink_to(tmp_path / ("real" if kind == "symlink" else "missing"))
+    w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, cwd=str(repo)))
+    assert "prompt" not in w.log
+
+
+def test_agents_found_up_the_parent_chain(tmp_path):
+    """OWN2: the walk goes from cwd up through every parent to the repository root."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".claude" / "agents").mkdir(parents=True)
+    deep = repo / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, cwd=str(deep)))
+    assert "prompt" not in w.log
+    assert sdk.project_agent_files(str(deep), str(w.config)) == [str(repo.resolve() / ".claude" / "agents")]

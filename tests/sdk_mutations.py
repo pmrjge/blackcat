@@ -2,13 +2,14 @@
 SDK-2r review findings S*, C*, R*, V*). The human-readable index with the kill evidence is
 H/.claude-work/sdk/sdk2-mutants.md; this file is the replayable source.
 
-Each mutant is one text substitution in a scratch copy of stack_sdk.py under $TMPDIR (the checkout is never written);
+Each mutant is one text substitution in a scratch copy of stack_sdk.py under $TMPDIR (stack_sdk.py itself is never written);
 its NAMED test in tests/test_sdk_session.py runs against that copy (SDK_HELPER, as the test file reads it) and must
 FAIL (its id in pytest's FAILED/ERROR lines, or the run times out). Each anchor must match exactly once. The
 unmutated copy must pass every named test first. Exit 0 iff the clean copy passes and every mutant is killed.
 
   uv run --no-project --python 3.13 --with pytest --with claude-agent-sdk==0.2.163 python tests/sdk_mutations.py
-      [--list] [-k ID_OR_TEXT[,..]] [-j N (default 4)] [--out PATH (default tests/sdk_mutations.out; "-": stdout)]
+      [--list] [-k ID_OR_TEXT[,..]] [-j N (default 4)] [--out PATH (default "-": stdout only; the tracked record
+      is refreshed with --out tests/sdk_mutations.out)]
 """
 from __future__ import annotations
 
@@ -79,7 +80,7 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('M33', 'include_hook_events omitted', 'test_load_fails_closed', 'include_hook_events=True, forward_subagent_text', 'forward_subagent_text'),
     ('S1', 'repository .claude/agents ignored', 'test_project_agents_do_not_pass_the_plan_gate', 'odd += project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())', 'odd += []'),
     ('S1', 'unknown server_info agents ignored', 'test_project_agents_do_not_pass_the_plan_gate', 'odd = sorted(h for h in have - set(self.agents) if ":" not in h)', 'odd = []'),
-    ('S2', 'extra_args back to an exact-spelling denylist', 'test_refusals_hold_for_every_spelling', 'k for k in (kw.get("extra_args") or {}) if k not in EXTRA_OK]', 'k for k in (kw.get("extra_args") or {}) if str(k).lstrip("-") in ("permission-mode", "settings", "sandbox")]'),
+    ('S2', 'extra_args back to an exact-spelling denylist', 'test_refusals_hold_for_every_spelling', '(kw.get("extra_args") or {}).items() if k not in EXTRA_OK', '(kw.get("extra_args") or {}).items() if str(k).lstrip("-") in ("permission-mode", "settings", "sandbox")'),
     ('S2', 'settings allowed in extra_args', 'test_refusals_hold_for_every_spelling', 'EXTRA_OK = ("debug", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")', 'EXTRA_OK = ("debug", "settings", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")'),
     ('S2', 'sandbox accepted (keyword and overlay)', 'test_refusals_hold_for_every_spelling', 'POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")', 'POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode")'),
     ('S2', 'server bypassPermissions accepted', 'test_refusals_hold_for_every_spelling', 'if actual == "bypassPermissions":', 'if False:'),
@@ -103,7 +104,7 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('C9', 'M17: gate plan regardless of host', 'test_plan_gate_unattended', 'gate = "ask" if ask else ("plan" if host == "none" and mode == "plan"', 'gate = "ask" if ask else ("plan" if mode == "plan"'),
     ('R1', 'project agents: only top-level *.md files count', 'test_project_agents_any_layout_fail_closed', 'if os.path.lexists(a) and os.path.realpath(a) != user]', 'if glob.glob(os.path.join(glob.escape(a), "*.md")) and os.path.realpath(a) != user]'),
     ('R1', "a linked worktree's main checkout not read", 'test_project_agents_any_layout_fail_closed', 'if os.path.isfile(g):                            # gitdir', 'if False:                            # gitdir'),
-    ('R1', 'add_dirs not checked', 'test_project_agents_any_layout_fail_closed', 'self.config, self.kw.get("add_dirs") or ())', 'self.config, ())'),
+    ('R1', 'add_dirs not checked', 'test_project_agents_any_layout_fail_closed', 'roots = [os.path.join(d, str(x)) for x in extra]', 'roots = []'),
     ('R2', 'inherit-permission-mode allowed', 'test_extra_args_allowlist', 'EXTRA_OK = ("debug", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")', 'EXTRA_OK = ("debug", "inherit-permission-mode", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")'),
     ('R2', 'sandbox allowed in extra_args', 'test_extra_args_allowlist', 'EXTRA_OK = ("debug", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")', 'EXTRA_OK = ("debug", "sandbox", "debug-file", "verbose", "model", "fallback-model", "effort", "betas", "name")'),
     ('R3', 'no hard wrap', 'test_tty_rows_never_start_with_model_text', 'for i in range(0, len(ln) or 1, w))', 'for i in [0] if (w := 10**6))'),
@@ -119,6 +120,13 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('V1', 'TCIFLUSH before the gap', 'test_tty_flushes_after_the_gap', '        self.seq += 1                                    # a gap', '        termios.tcflush(self.rfd, termios.TCIFLUSH)\n        self.seq += 1                                    # a gap'),
     ('V2', 'grace without state frames despite an agent in flight', 'test_no_state_frames_agent_in_flight_keeps_reading', 'if r.state is None and not r.inflight():', 'if r.state is None:'),
     ('V2', 'grace once no agent is in flight, state frames or not', 'test_no_state_frames_agent_in_flight_keeps_reading', 'if r.state is None and not r.inflight():', 'if not r.inflight() or r.state is None:'),
+    ('N1', 'relative add_dirs resolved against the app cwd', 'test_relative_add_dirs_resolve_against_the_session_cwd', 'roots = [os.path.join(d, str(x)) for x in extra]', 'roots = [*extra]'),
+    ('N2', 'no plan-gate re-check before a prompt', 'test_project_agents_appearing_after_connect_fail_the_ask', 'if self.host == "none" and (self.permission_mode or "plan") == "plan" and (     # N2', 'if False and (     # N2'),
+    ('N3', 'extra_args values unchecked', 'test_extra_args_values_cannot_carry_flags', 'or v is not None and (k == "verbose" or str(v).startswith("-"))]', 'or False]'),
+    ('N3', 'a value for verbose accepted', 'test_extra_args_values_cannot_carry_flags', '(k == "verbose" or str(v).startswith("-"))]', '(str(v).startswith("-"))]'),
+    ('N4', 'no host row naming the tool next to the answer', 'test_tty_answer_line_names_the_tool', 'stack_sdk: ^ {who} wants {name} "', '"'),
+    ('OWN1', 'only directories count as agent paths (isdir)', 'test_agents_path_of_any_kind_fails_closed', 'if os.path.lexists(a) and os.path.realpath(a) != user]', 'if os.path.isdir(a) and os.path.realpath(a) != user]'),
+    ('OWN2', 'the walk skips the parents of cwd', 'test_agents_found_up_the_parent_chain', '        d = os.path.dirname(d)\n', '        d = "/"\n'),
 ]
 
 
@@ -138,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("-k", default="")
     ap.add_argument("-j", type=int, default=4)
-    ap.add_argument("--out", default=str(REPO / "tests" / "sdk_mutations.out"))
+    ap.add_argument("--out", default="-")      # tests/sdk_mutations.out is written only when named explicitly
     a = ap.parse_args(argv)
     keys = [k for k in a.k.split(",") if k]
     todo = [m for m in MUTANTS if not keys or any(k in m[0] or k in m[1] for k in keys)]
