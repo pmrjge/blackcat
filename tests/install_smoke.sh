@@ -259,6 +259,8 @@ grep -q "Read(/$T1/stack.env)" "$T1/settings.json" 2>/dev/null && pass "deny rul
 for f in doctor.sh with-stack-env mcp-headers magg-private statusline.py claude-ultracode stack_sdk.py; do
   [ -x "$T1/bin/$f" ] && pass "bin/$f installed and executable" || failed "bin/$f missing or not executable"
 done
+cmp -s "$T1/bin/stack_sdk.py.lock" "$SRC_REPO/dot-config/dot-claude/bin/stack_sdk.py.lock" \
+  && pass "bin/stack_sdk.py.lock installed beside the helper" || failed "bin/stack_sdk.py.lock missing or not the repo's"
 python3 - "$T1" <<'PY' && pass "skills are dynamic: no agent preloads one, every agent has Skill, one Skill allow rule" || failed "skills still tied to agents (see above)"
 import glob, json, os, re, sys
 t = sys.argv[1]

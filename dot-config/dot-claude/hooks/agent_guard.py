@@ -19,6 +19,14 @@ Reads the hook JSON on stdin.
                                     spawn every stack agent as a main thread, nothing as a
                                     subagent; BlackCat has its own row); missing,
                                     generic, built-in and unknown types are refused
+  PreToolUse  Agent, Workflow, SendMessage  the plan gate (plan_gate_violation): a caller whose
+                                    permission_mode is "plan" dispatches only PLAN_SAFE_TYPES (no
+                                    frontmatter mode: they inherit plan; builders run in their own
+                                    acceptEdits), runs no Workflow and resumes no finished builder;
+                                    a project .claude/agents folder closes it; every caller and
+                                    entrypoint. Agent and SendMessage first release the background
+                                    children an Agent SDK host stopped (stop_task: no hook fires;
+                                    meta.json stoppedByUser, reap_host_stopped)
   PreToolUse  Workflow (RunWorkflow)  every agent() call of the script names a stack agentType
                                     the caller may spawn, as a string literal, no model and no
                                     effort above the agent's own; every source (scriptPath,
@@ -186,7 +194,8 @@ or state that can't be read warns on stderr and allows the call. The escape hatc
 Citations `hooks.md:N` / `sub-agents.md:N` are line numbers in code.claude.com/docs/en/hooks.md and
 sub-agents.md as fetched on 2026-09-28 (Claude Code 2.1.283).
 
-Liveness: an agent counts as gone on SubagentStop, PostToolUse(TaskStop) or StopFailure; while it
+Liveness: an agent counts as gone on SubagentStop, PostToolUse(TaskStop), StopFailure or a host stop
+(reap_host_stopped: an Agent SDK stop_task, which fires no hook); while it
 waits for background children its own transcript is quiet, so idle rules look at the whole live
 subtree (the agent's transcript and every live descendant's).
 
@@ -583,6 +592,79 @@ def generic_agent_reason(ev):
             "scout or researcher) and end your turn." % raw.strip()[:80])
 
 
+# ---------------------------------------------------------------- the plan gate (SDK-3, decision (c))
+# Sessions start in plan mode (settings.json defaultMode), and a subagent runs in its own frontmatter
+# permissionMode (47 of 58 agents: acceptEdits). So while the CALLER is in plan mode, before the user
+# approves the plan (ExitPlanMode), it dispatches only PLAN_SAFE_TYPES; a builder, any Workflow (its
+# stages are agents) and the SendMessage resume of a finished builder are refused. Every caller, every
+# entrypoint (terminal, `claude -p`, every Agent SDK host). A project's .claude/agents may redefine a
+# safe name with another mode (project agents take precedence), so with one present nothing is
+# dispatched in plan mode. STACK_POLICY=off lifts it with the other policy gates.
+PLAN_APPROVE = "Approve the plan first (ExitPlanMode on the main thread), then dispatch it."
+
+
+def in_plan_mode(ev):
+    """The calling thread's mode, from the event's permission_mode: only "plan" counts (an event
+    without one is never refused on a guess)."""
+    return str(ev.get("permission_mode") or "").strip() == "plan"
+
+
+def project_agent_dirs(cwd, conf=None):
+    """Every .claude/agents directory Claude Code may read project agents from: `cwd` up to the
+    repository root (or /), plus a linked worktree's main checkout; never the config dir's own
+    agents/. The walk of bin/stack_sdk.py project_agent_files (tests/test_plan_gate.py pins them)."""
+    def text(p):
+        with open(p, encoding="utf-8") as fh:
+            return fh.read().strip()
+    conf = conf or os.path.dirname(_HOOKS_DIR)
+    d, user = os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(conf, "agents"))
+    roots = []
+    while True:
+        roots.append(d)
+        g = os.path.join(d, ".git")
+        if os.path.isfile(g):                    # gitdir: <main>/.git/worktrees/<n>; commondir ../..
+            try:
+                gd = os.path.join(d, text(g).split("gitdir:", 1)[1].strip())
+                roots.append(os.path.dirname(os.path.realpath(
+                    os.path.join(gd, text(os.path.join(gd, "commondir"))))))
+            except (OSError, IndexError, UnicodeDecodeError):
+                pass
+        if os.path.lexists(g) or os.path.dirname(d) == d:
+            return [a for r in roots for a in [os.path.join(r, ".claude", "agents")]
+                    if os.path.lexists(a) and os.path.realpath(a) != user]
+        d = os.path.dirname(d)
+
+
+def plan_unsafe(ev, child, conf=None):
+    """Why `child` may not be dispatched by this caller now: None when the caller is not in plan
+    mode or the child is a safe type no project agent can redefine."""
+    if not in_plan_mode(ev):
+        return None
+    if child not in PLAN_SAFE_TYPES:
+        return "it runs in its own permission mode and can edit files"
+    dirs = project_agent_dirs(ev.get("cwd"), conf)
+    if dirs:
+        return "a project agents folder (%s) can redefine it with another permission mode" % dirs[0][-120:]
+    return None
+
+
+def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
+    """PreToolUse Agent/Workflow: the denial reason under the plan gate, else None. Pure but for the
+    project-agents walk; the self-test runs it."""
+    if tool == "Workflow":
+        if in_plan_mode(ev):
+            return ("Plan mode: a workflow's agents run in their own permission modes, so no workflow "
+                    "runs while planning. " + PLAN_APPROVE)
+        return None
+    why = plan_unsafe(ev, child, conf)
+    if why is None:
+        return None
+    safe_now = [] if child in PLAN_SAFE_TYPES else \
+        [t for t in (row if row is not None else sorted(PLAN_SAFE_TYPES)) if t in PLAN_SAFE_TYPES]
+    return ("Plan mode: '%s' is not dispatched while planning: %s. %s While planning you may dispatch: "
+            "%s." % (child, why, PLAN_APPROVE, ", ".join(safe_now) or "none"))
+
+
 def canonical_tool(name):
     name = str(name or "")
     return TOOL_ALIASES.get(name, name)
@@ -823,6 +905,13 @@ def _blackcat_segments(text):
 # read-only commands only (READONLY_REASON, _ReadOnly). STACK_POLICY=off lifts it with the other policy gates.
 READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
                   "proof-checker"}
+# The plan gate (plan_gate_violation): what a caller in plan mode may dispatch. A subagent runs in its
+# own frontmatter permissionMode, not its caller's (probe PR3, 2026-10-09: a coder dispatched by a
+# plan-mode BlackCat ran in acceptEdits and wrote a file), so only the agents whose frontmatter names
+# no mode (they inherit plan) are safe before the plan is approved. The self-test checks this set
+# against agents/*.md: a new agent is a builder until it is listed here.
+PLAN_SAFE_TYPES = frozenset({"claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer",
+                             "planner", "proof-checker", "scout", "security-auditor", "verifier"})
 # Agents that ingest web pages never write the shared memory (a page could plant "decisions" other
 # agents recall later): their nmem_remember calls are refused (on_memory_write).
 WEB_INGESTING_TYPES = {"researcher", "scout", "browser-operator"}
@@ -1786,6 +1875,9 @@ def on_agent(ev, d):
                                         ti.get("subagent_type"))
         if type_why:
             deny(type_why)
+        why = plan_gate_violation(ev, "Agent", child, spawn_row(parent, caller_is_main(ev, parent)))
+        if why:
+            deny(why)
         # the equilibrium rules (their writes wait for step 3)
         eqd = eq_hook("agent_pre", ev, d, ti) if eq_maybe(ev, d) else None
         why = name_takeover(d, ti)
@@ -3157,6 +3249,9 @@ def saved_workflow(name, cwd):
 def on_workflow(ev, d):
     if not policy_on():
         return
+    why = plan_gate_violation(ev, "Workflow")
+    if why:
+        deny(why)
     ti = tool_input(ev)
     parent = norm(ev.get("agent_type"))
     row = spawn_row(parent, caller_is_main(ev, parent))
@@ -3212,6 +3307,23 @@ def send_policy_violation(d, ev, target_id, ttype):
     return ("SendMessage policy: '%s' may not resume '%s', a finished %s: only its own parent "
             "resumes it. Return STATUS: partial with NEXT naming that agent, so your parent can "
             "resume it." % (caller_type, target_id, ttype))
+
+
+def plan_resume_violation(d, ev, target_id, ttype):
+    """The plan gate for SendMessage: resuming a FINISHED agent restarts it in its own permission
+    mode, as a spawn would, so a caller in plan mode resumes only what it could dispatch. A message
+    to a running agent (coordination) and a target the registry doesn't know pass."""
+    if not target_id or not in_plan_mode(ev):
+        return None
+    rec = reg_get(d, target_id) or {}
+    if not rec.get("stopped"):
+        return None
+    t = norm(rec.get("type")) or norm(ttype)
+    why = plan_unsafe(ev, t)
+    if why is None:
+        return None
+    return ("Plan mode: resuming '%s', a finished %s, restarts it while planning: %s. %s"
+            % (target_id, t or "agent", why, PLAN_APPROVE))
 
 
 def routing_violation(d, ev, to, target_id, by_id=True):
@@ -3373,7 +3485,8 @@ def on_send(ev, d):
     eqs = eq_hook("send_pre", ev, d, ti, target_id) if eq_maybe(ev, d) else None    # equilibrium
     why = user_relay_violation(d, ev, ti, target_id, by_id) \
         or routing_violation(d, ev, to, target_id, by_id) \
-        or send_policy_violation(d, ev, target_id, ttype)
+        or send_policy_violation(d, ev, target_id, ttype) \
+        or plan_resume_violation(d, ev, target_id, ttype)
     if why:
         deny(why)
     why, reserved = resume_reserve(d, ev, target_id, ttype)
@@ -4422,6 +4535,61 @@ def on_task_stop(ev, d):
         mark_stopped(d, aid, atype, ev=ev)
     if eq_maybe(ev, d):
         eq_hook("task_stop_post", ev, d)
+
+
+# An Agent SDK host's ClaudeSDKClient.stop_task() ends a background child with no hook event at all:
+# no SubagentStop, no PostToolUse(TaskStop) (probe PR5b, 2026-10-09, CLI 2.1.287: the registry record
+# stayed live, 0 SubagentStop events), so it would keep a fan-out slot until STACK_FANOUT_IDLE_S. What
+# Claude Code does write is "stoppedByUser": true in the child's agent-<id>.meta.json (that probe's
+# session folder). The guard releases such a child itself, as PostToolUse(TaskStop) would
+# (mark_stopped), before an Agent or SendMessage call counts running children: a live background
+# record whose meta says stoppedByUser, written at or after the record's latest start, with no
+# transcript line written more than REAP_SLACK_S after it. A child resumed since (SubagentStart moves
+# `started` past the meta) or still writing stays; without a readable meta or transcript nothing is
+# released (the idle rule stays the backstop).
+REAP_SLACK_S = 2.0
+
+
+def host_stopped(rec, meta_path, transcript):
+    """Whether a registry record's child was stopped by its host (stop_task), per the rule above."""
+    if not rec.get("bg") or rec.get("stopped") or not transcript:
+        return False
+    meta = read_json(meta_path)
+    if not isinstance(meta, dict) or meta.get("stoppedByUser") is not True:
+        return False
+    try:
+        t_meta, t_tr = os.path.getmtime(meta_path), os.path.getmtime(transcript)
+    except OSError:
+        return False
+    start = 0.0
+    for key in ("spawned", "started", "resumed"):
+        try:
+            start = max(start, float(rec.get(key) or 0))
+        except (TypeError, ValueError):
+            pass
+    return t_meta >= start and t_tr <= t_meta + REAP_SLACK_S
+
+
+def reap_host_stopped(d, ev):
+    """mark_stopped for every child host_stopped() finds; the number released. Bookkeeping: an error
+    warns and releases nothing (never a decision)."""
+    try:
+        files = transcript_files(ev)
+        if not files:
+            return 0
+        n = 0
+        for aid, rec in load_registry(d).items():
+            aid = ident(aid)
+            if not aid or not rec.get("bg") or rec.get("stopped"):
+                continue
+            tr = os.path.expanduser(rec["transcript"]) if rec.get("transcript") else subagent_file(files, aid)
+            if host_stopped(rec, os.path.join(files[1], "agent-%s.meta.json" % safe(aid)), tr):
+                mark_stopped(d, aid, norm(rec.get("type")) or None)
+                n += 1
+        return n
+    except Exception as exc:  # noqa: BLE001 - the idle rule stays the backstop
+        warn_once("host-stop release: %s" % type(exc).__name__)
+        return 0
 
 
 def on_stop_failure(ev, d):
@@ -12318,6 +12486,7 @@ def self_test():
         if unread:
             problems.append("MCP call cap: no maxTurns read from %s" % " ".join(unread))
     problems += generic_agent_self_test(conf)
+    problems += plan_gate_self_test(agents_dir if os.path.isdir(agents_dir) else None)
     problems += limits_self_test(agents_dir if os.path.isdir(agents_dir) else None)
     problems += budget_self_test()
     problems += ledger_self_test()
@@ -12390,6 +12559,51 @@ def toolsmith_self_test():
                       ("git log -- %s" % w, False), ("python3 dot-config/dot-claude/bin/stack-install help", False)):
         if wrapper_invoked(cmd) != want:
             problems.append("stack-install caller check misjudges %r" % cmd[:60])
+    return problems
+
+
+PERMISSION_MODE_RE = re.compile(r"^permissionMode:[ \t]*['\"]?([A-Za-z]*)['\"]?[ \t]*(?:#.*)?$", re.M)
+
+
+def plan_gate_self_test(agents_dir):
+    """The plan gate: PLAN_SAFE_TYPES are exactly the subagents whose frontmatter names no mode (or
+    plan or default); a caller in plan mode dispatches only those, runs no workflow, and every other
+    mode (or none reported) dispatches as before."""
+    import shutil
+    import tempfile
+    problems = []
+    if not PLAN_SAFE_TYPES <= SPAWNABLE:
+        problems.append("plan gate: PLAN_SAFE_TYPES names a non-stack type: %s"
+                        % sorted(PLAN_SAFE_TYPES - SPAWNABLE))
+    if agents_dir:
+        want = set()
+        for a in SPAWNABLE:
+            fm = agent_frontmatter(a, agents_dir)
+            m = PERMISSION_MODE_RE.search(fm) if fm is not None else None
+            if fm is not None and (m is None or m.group(1) in ("plan", "default")):
+                want.add(a)
+        if want != set(PLAN_SAFE_TYPES):
+            problems.append("plan gate: PLAN_SAFE_TYPES != the agents that inherit plan (%s)"
+                            % sorted(want ^ set(PLAN_SAFE_TYPES)))
+    cwd = tempfile.mkdtemp(prefix="agent-guard-plan-")
+    os.mkdir(os.path.join(cwd, ".git"))                     # a repository with no project agents
+    try:
+        plan = {"permission_mode": "plan", "cwd": cwd}
+        for t in sorted(SPAWNABLE):
+            refused = plan_gate_violation(plan, "Agent", t) is not None
+            if refused == (t in PLAN_SAFE_TYPES):
+                problems.append("plan gate: %s %s in plan mode" % (t, "refused" if refused else "allowed"))
+        for ev in ({"cwd": cwd}, {"permission_mode": "default", "cwd": cwd},
+                   {"permission_mode": "acceptEdits", "cwd": cwd}):
+            if plan_gate_violation(ev, "Agent", "coder") or plan_gate_violation(ev, "Workflow"):
+                problems.append("plan gate: refuses outside plan mode (%r)" % ev.get("permission_mode"))
+        if plan_gate_violation(plan, "Workflow") is None:
+            problems.append("plan gate: a workflow runs in plan mode")
+        os.makedirs(os.path.join(cwd, ".claude", "agents"))
+        if plan_gate_violation(plan, "Agent", "explore") is None:
+            problems.append("plan gate: a project agents folder does not close it")
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
     return problems
 
 
@@ -12979,6 +13193,7 @@ def dispatch(ev):
         except Exception as exc:  # noqa: BLE001
             warn("token budget: %s: %s" % (type(exc).__name__, exc))
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
+        reap_host_stopped(d, ev)        # children an SDK host stopped, before anything counts them
         # the credential scrub runs after the handler has decided: a refusal goes out at once and
         # never waits for it; any other output is held (emit) and written once the scrub is done
         _HELD["on"], _HELD["obj"] = True, None
