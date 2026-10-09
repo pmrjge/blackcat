@@ -6476,7 +6476,7 @@ GIT_CONFIG_NOSET = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--g
 GIT_CONFIG_VALUE_OPTS = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
 ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
 ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
-# git configuration from the environment (read like `git -c`), as in codex_guard.py
+# git configuration from the environment (read like `git -c`)
 GIT_ENV_CONFIG_RE = re.compile(r"(?:GIT_CONFIG_KEY_\d+|GIT_CONFIG_PARAMETERS)\+?=")
 GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
 # ext:: URLs run a command as the transport (git-remote-ext); git refuses them unless one of these
@@ -6667,8 +6667,7 @@ class _TooComplex(Exception):
 
 
 # git options whose value git hands to the shell as a command, per subcommand: (short options,
-# long options); long names match by any unique prefix (git's parse-options). Ported from
-# codex_guard.py GIT_COMMAND_OPTS.
+# long options); long names match by any unique prefix (git's parse-options).
 GIT_COMMAND_OPTS = {
     "fetch": ("", ("--upload-pack",)), "pull": ("", ("--upload-pack",)),
     "clone": ("u", ("--upload-pack",)), "ls-remote": ("u", ("--upload-pack", "--exec")),
@@ -8385,11 +8384,18 @@ class _Scan(object):
                 # options and -S included: S and the rest are rescanned after an `env`, so a -S
                 # that was another option's value (`env -u -iS -S '...'`) or one inside S
                 # (`env -S '-i git push'`, `env -iS -S '...'`) is read at the next level
+                # main's own rescan first, as main read it (it may note a cd or a for); the
+                # rescan after an `env` only adds hits: its notes are undone
+                text = _main_env_split(words, i + 1, end)
+                found = self.scan(restore(text), depth + 1) if text is not None else None
                 k = next((k for k in range(i + 1, end) if _env_split_value(words[k]) is not None),
                          None)
-                if k is not None:
+                if not found and k is not None:
+                    saved = _state_of(self)
                     found = self.scan(restore(" ".join(
                         ["env", _env_split_value(words[k])] + words[k + 1:end])), depth + 1)
+                    if not found:
+                        _restore_state(self, saved)
             if not found and lbase in ("start-process", "saps"):    # PowerShell
                 args = [restore(x) for x in words[i + 1:end]
                         if not x.lower().startswith(("-argumentlist", "-filepath", "-wait",
@@ -8419,10 +8425,17 @@ class _Scan(object):
                     if len(starts) > MAX_RUNNER_STARTS:    # watch -n 5 -n 5 ...: fail closed
                         return self.overflow("%s with too many arguments to check" % lbase)
                     for j in starts if rest else []:
+                        if found:
+                            break
                         self.budget -= 1       # each start is a scan, bounded like one
                         if self.budget < 0 or time.monotonic() > self.deadline:
                             return self.overflow("a command too large to check in time")
-                        found = found or self.scan(" ".join(rest[j:]), depth + 1)
+                        # start 0 is main's rescan; the later ones only add hits (a `cd` or
+                        # `for` read there moves nothing: its notes are undone)
+                        saved = _state_of(self) if j else None
+                        found = self.scan(" ".join(rest[j:]), depth + 1)
+                        if saved is not None and not found:
+                            _restore_state(self, saved)
                 elif base == "alias":
                     for x in rest:
                         found = found or self.scan(x.partition("=")[2], depth + 1)
@@ -11883,6 +11896,19 @@ def _wrapper_cmd_starts(wrap, args):
             break
         k += 1
     return list(dict.fromkeys(starts))
+
+
+def _main_env_split(words, a, b):
+    """The text main rescanned for env's -S among words[a:b]: at its first -S, -SV, --split-string
+    or --split-string=V word, V (or the next words) and the words after it (V alone for
+    --split-string=V); None without one."""
+    for k in range(a, b):
+        x = words[k]
+        if x in ("-S", "--split-string") or x.startswith("--split-string="):
+            return x.split("=", 1)[1] if "=" in x else " ".join(words[k + 1:b])
+        if x.startswith("-S") and len(x) > 2:
+            return x[2:] + " " + " ".join(words[k + 1:b])
+    return None
 
 
 def _env_split_value(opt):

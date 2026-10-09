@@ -538,9 +538,31 @@ def test_runner_start_scans_charge_the_budget(installed, monkeypatch):
 
 
 def test_option_words_in_runner_value_slots_are_no_starts(installed):
-    """`watch -n -d -n -d ... CMD`: an option in a value slot is no command; 40 of them stay under
-    the start limit, so a harmless command passes."""
+    """`watch -n -d -n -d ... CMD`: an option in a value slot is no command start. 31 of them
+    (63 wrapper words, under MAX_WRAPPER_ARGS) would be 33 starts, past MAX_RUNNER_STARTS: read as
+    starts they fail closed; as options a harmless command passes, quickly."""
+    import time
     g, _, proj = installed
-    line = "watch" + " -n -d" * 20 + " echo git"
+    line = "watch" + " -n -d" * 31 + " echo git"
+    t0 = time.monotonic()
     assert not g.protected_write_in(line, {"cwd": str(proj)})
     assert not g.git_push_in(line)
+    assert time.monotonic() - t0 < 2
+
+
+# the rescans main never made (env -S text after an `env`, watch/flock past their first start)
+# only add hits: a cd, pushd, for or select read there must not move $PWD or rebind a variable
+# that main's own reading keeps suspect (lines from the differential fuzz)
+@pytest.mark.parametrize("line", [
+    'env -S-S \'cd /tmp; rm -rf "$PWD/../claude/hooks"\'',
+    'read V < f; env env --s -S-i doas select V in x; rm -rf "$V/hooks"',
+    'env watch -s --split-string -n -CS cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'flock /tmp/l pushd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'true && watch watch -n KILL cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'env -P -S-i cd /tmp; rm -rf "$PWD/../claude/hooks"',
+    'read V < f; $(which env) X=1 -P % --split-string --s \'for V in x; rm -rf "$V/hooks"\'',
+])
+def test_rescans_main_never_made_bind_nothing(installed, line):
+    g, _, proj = installed
+    got = g.protected_write_in(line, {"cwd": str(proj)})
+    assert got and got[0] == "protect", line
