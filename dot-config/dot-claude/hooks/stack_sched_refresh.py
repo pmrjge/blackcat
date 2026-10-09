@@ -223,6 +223,8 @@ def _halfwidth(q, side):
 # by a reviewed promotion commit with the user's yes (BAYES.md 3.3, plan WP6); any failure is today's path.
 SCHED_BAYES_LIVE = False
 SCHED_GATES = ("turns", "spc", "ctx_ab", "static_cc")
+# each gate's source model (BAYES.md 1.3); its gate is recomputed from models.<id>.diag (2.1 rule 6)
+SCHED_MODEL = {"turns": "turns-nb2s-h4", "spc": "spc-ln-h4", "ctx_ab": "ctx_ab-kq-h2", "static_cc": "static_cc-ln-h2"}
 SCHED_QTY = {"turns": ("S", "M", "L"), "sec_per_call": ("p50", "p90"), "ctx": ("a", "b")}
 SCHED_COUNTS = ("n_seg", "n_agents", "n_first")
 SCHED_KEYS = tuple(SCHED_QTY) + ("static_cc", "band") + SCHED_COUNTS
@@ -300,6 +302,10 @@ def _sched_checked(doc, evidence_id, seed_sha, seed):
           and set(sc) <= {"model_gate", "types", "pools", "resume_ctx", "fixer"}, "sched: keys")
     _exact(sc["model_gate"], SCHED_GATES, "model_gate")
     _need(all(sc["model_gate"][g] is True for g in SCHED_GATES), "model_gate")
+    models = doc.get("models")
+    _need(isinstance(models, dict) and all(isinstance(models.get(SCHED_MODEL[g]), dict)
+                                           and L.model_gate(models[SCHED_MODEL[g]]) for g in SCHED_GATES),
+          "model_gate: recomputed from models.<id>.diag")
     out = {"fit_id": fid}
     for group, known in (("types", set(L._types(seed))), ("pools", set(seed["pools"]))):
         G = sc[group]
@@ -321,7 +327,8 @@ def load_bayes_sched(path, evidence_id, seed_sha, seed=None, doc=_UNSET):
     """The validated `sched` block of bayes.json at `path` (docs/BAYES.md 2.2, B): {"fit_id", "types",
     "pools"[, "resume_ctx", "fixer"]}, or None when the file or the block is absent, for other evidence
     (the proposals' evidence_id) or another seed, or invalid anywhere (whole block: finite positive
-    numbers, S <= M <= L, lo <= med <= hi, seed types and pools only, no fixed-guard name). Parsing is
+    numbers, S <= M <= L, lo <= med <= hi, seed types and pools only, no fixed-guard name; each source
+    model's gate recomputed from its models.<id>.diag by stack_limits.model_gate). Parsing is
     stack_limits' (size cap, NaN/Infinity tokens refused). `seed`: the loaded seed (default: load_seed());
     `doc`: an already parsed document. Never raises."""
     try:

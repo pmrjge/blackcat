@@ -84,6 +84,13 @@ def st(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- inputs
+# the source model of each sched gate (docs/BAYES.md 1.3 table: turns-nb2s-h4, spc-ln-h4, ctx_ab-kq-h2,
+# static_cc-ln-h2); pinning them to stack_bayes.MODEL_ID belongs with the fitter's tests (bayes/3b-r)
+MODEL_IDS = {"turns": "turns-nb2s-h4", "spc": "spc-ln-h4", "ctx_ab": "ctx_ab-kq-h2", "static_cc": "static_cc-ln-h2"}
+GOOD = {"gate": True, "diag": {"rhat_max": 1.003, "ess_bulk_min": 1841, "ess_tail_min": 1680, "divergences": 0,
+                               "ebfmi_min": 0.76, "constant": [], "nan": []}}
+
+
 def entry(m, typed=True):
     """A valid sched-block entry (docs/BAYES.md 2.2) around turns median m."""
     e = {"turns": {"S": 0.6 * m, "M": m, "L": 3.0 * m}, "sec_per_call": {"p50": 12.0, "p90": 30.0},
@@ -99,7 +106,8 @@ def entry(m, typed=True):
 def bayes_doc(seed):
     """A bayes.json whose sched block is valid for `seed` and EID."""
     return {"schema_version": 1, "code": "stack_bayes/1", "generated": NOW, "evidence_id": EID,
-            "seed_sha": seed["sha"], "fit_id": FIT, "models": {}, "vars": {},
+            "seed_sha": seed["sha"], "fit_id": FIT, "models": {m: copy.deepcopy(GOOD) for m in MODEL_IDS.values()},
+            "vars": {},
             "sched": {"model_gate": {g: True for g in R.SCHED_GATES},
                       "types": {"scout": entry(7.0), "coder": entry(30.0), "rigger-animator": entry(25.0)},
                       "pools": {"lookup": entry(7.0, typed=False)},
@@ -228,7 +236,27 @@ HOSTILE = {
     "schema_version": _set(("schema_version",), 2),
     "code": _set(("code",), "other/1"),
     "fit_id": _set(("fit_id",), "XYZ"),
+    # the model gate recomputed from models.<id>.diag (BAYES.md 2.1 rule 6, B), not sched.model_gate alone
+    "diag_divergent": _set(("models", "spc-ln-h4", "diag", "divergences"), 2),
+    "diag_rhat": _set(("models", "turns-nb2s-h4", "diag", "rhat_max"), 1.02),
+    "diag_nan_param": _set(("models", "ctx_ab-kq-h2", "diag", "nan"), ["k_t"]),
+    "gate_flag_false": _set(("models", "static_cc-ln-h2", "gate"), False),
+    "model_missing": _del(("models", "static_cc-ln-h2")),
+    "models_absent": _set(("models",), {}),
+    "models_not_object": _set(("models",), []),
 }
+
+
+def test_sched_gate_recomputed_from_diag():
+    """sched.model_gate true is not enough: each gate's source model must pass stack_limits.model_gate on its
+    diag (kills M5: the recomputation removed)."""
+    seed = L.load_seed()
+    doc = bayes_doc(seed)
+    assert R.SCHED_MODEL == MODEL_IDS
+    assert R.load_bayes_sched("/nonexistent", EID, seed["sha"], seed=seed, doc=doc) is not None
+    doc["models"] = {}
+    assert all(v is True for v in doc["sched"]["model_gate"].values())
+    assert R.load_bayes_sched("/nonexistent", EID, seed["sha"], seed=seed, doc=doc) is None
 
 
 def test_valid_block_is_accepted():
@@ -368,7 +396,7 @@ def test_B1_T13_valid_block_model_accepted_method_bayes(M, st, monkeypatch):
 
 
 @pytest.mark.parametrize("case", ["nan_token", "lo_gt_med", "S_gt_L", "unknown_type", "fixed_guard_type",
-                                  "fixed_guard_seed_type", "other_evidence"])
+                                  "fixed_guard_seed_type", "other_evidence", "diag_divergent"])
 def test_B1_T20_hostile_refresh_byte_equal_to_main(case, M, st, monkeypatch, tmp_path):
     """B1-T20 through refresh() with the gate open: a hostile file -> main's bytes."""
     write_inputs(st)
