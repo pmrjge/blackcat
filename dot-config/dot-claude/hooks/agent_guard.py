@@ -22,8 +22,8 @@ Reads the hook JSON on stdin.
   PreToolUse  Agent, Workflow, SendMessage, Skill  the plan gate (plan_gate_violation): a caller
                                     whose permission_mode is "plan" dispatches only PLAN_SAFE_TYPES (no
                                     frontmatter mode: they inherit plan; builders run in their own
-                                    acceptEdits), runs no Workflow, no skill that forks into another
-                                    agent (on_skill) and resumes no finished builder; a project
+                                    acceptEdits), runs no Workflow, no skill that forks into a
+                                    plan-unsafe agent (on_skill) and resumes no finished builder; a project
                                     .claude/agents folder closes it; every caller and entrypoint. Its
                                     child-side backstop (budget mode, plan_child_reason): a child
                                     it let through that runs in a writing mode runs no tool.
@@ -673,29 +673,44 @@ def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
 # A `context: fork` skill runs as its `agent:` (general-purpose without one), in that agent's own mode: the
 # Skill tool is a dispatch too. Every definition the name may resolve to is read (user, project, plugin):
 # one that forks into a plan-unsafe agent closes the call in plan mode (on_skill).
-FORK_RE = re.compile(r"^context:[ \t]*['\"]?fork['\"]?[ \t]*(?:#.*)?$", re.M)
-SKILL_AGENT_RE = re.compile(r"^agent:[ \t]*['\"]?([^'\"#\s]+)", re.M)
+FORK_RE = re.compile(r"^context:[ \t]*['\"]?fork['\"]?[ \t]*(?:#[^\r\n]*)?\r?$", re.M)   # LF or CRLF
+SKILL_AGENT_RE = re.compile(r"^agent:[ \t]*['\"]?([^'\"#\s]+)", re.M)          # \s stops at a CR too
+SKILL_HEAD = 65536        # bytes of a skill file read for its frontmatter
 SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
 def skill_files(name, cwd, conf=None):
-    """The files the skill (or command) `name` ("skill" or "plugin:skill") may be defined in: the config dir's
-    skills/<s>/SKILL.md and commands/<s>.md, the project's .claude/skills and .claude/commands (the agents
-    walk), and every installed plugin's skills/<s>/SKILL.md (any plugin: an over-approximation). Existing files
-    only; a name that is not a plain token gives none."""
+    """The files the skill or command `name` may be defined in. `name` is ":"-separated plain tokens: "ship",
+    "plugin:ship", "ops:ship" (commands/ops/ship.md). Read: skills/<s>/SKILL.md and commands/<s>.md, with the
+    prefix also as subdirectories (commands/ops/ship.md), in the config dir and in the project's .claude/skills
+    and .claude/commands (the agents walk); every installed plugin's skills/<s>/SKILL.md and commands/<s>.md (any
+    plugin: an over-approximation). Existing files only, each lexically inside its folder; a name with any
+    token that is not plain gives none (a nested <subdir>/.claude/skills or an --add-dir one is never read:
+    the child-side backstop covers them)."""
     import glob
     conf = conf or os.path.dirname(_HOOKS_DIR)
-    plugin, _, sk = str(name or "").strip().lstrip("/").rpartition(":")
-    if not SKILL_NAME_RE.match(sk) or (plugin and not SKILL_NAME_RE.match(plugin)):
+    parts = str(name or "").strip().lstrip("/").split(":")
+    if not all(SKILL_NAME_RE.match(x) for x in parts):
         return []
-    out = [os.path.join(conf, "skills", sk, "SKILL.md"), os.path.join(conf, "commands", sk + ".md")]
-    out += [os.path.join(x, sk, "SKILL.md") for x in project_agent_dirs(cwd, conf, "skills")]
-    out += [os.path.join(x, sk + ".md") for x in project_agent_dirs(cwd, conf, "commands")]
-    e = glob.escape(sk)
+    sk, prefix = parts[-1], parts[:-1]
+    found = []
+    for base in [os.path.join(conf, "skills")] + project_agent_dirs(cwd, conf, "skills"):
+        found.append((base, os.path.join(base, sk, "SKILL.md")))
+    for base in [os.path.join(conf, "commands")] + project_agent_dirs(cwd, conf, "commands"):
+        found.append((base, os.path.join(base, sk + ".md")))
+        if prefix:
+            found.append((base, os.path.join(base, *prefix) + os.sep + sk + ".md"))
+    e, root = glob.escape(sk), glob.escape(conf)
     for pat in ("plugins/cache/*/*/*/skills/%s/SKILL.md", "plugins/marketplaces/*/skills/%s/SKILL.md",
-                "plugins/marketplaces/*/plugins/*/skills/%s/SKILL.md"):
-        out += sorted(glob.glob(os.path.join(glob.escape(conf), pat % e)))
-    return [p for p in out if os.path.isfile(p)]
+                "plugins/marketplaces/*/plugins/*/skills/%s/SKILL.md", "plugins/cache/*/*/*/commands/%s.md",
+                "plugins/marketplaces/*/plugins/*/commands/%s.md"):
+        found += [(os.path.join(conf, "plugins"), q) for q in sorted(glob.glob(os.path.join(root, pat % e)))]
+    out = []
+    # lexically inside its folder; a symlinked skill is read where it points, as the CLI does
+    for base, q in found:
+        if os.path.normpath(q).startswith(os.path.normpath(base) + os.sep) and os.path.isfile(q) and q not in out:
+            out.append(q)
+    return out
 
 
 def forked_skill_agents(name, cwd, conf=None):
@@ -705,7 +720,7 @@ def forked_skill_agents(name, cwd, conf=None):
     for p in skill_files(name, cwd, conf):
         try:
             with open(p, encoding="utf-8", errors="replace") as fh:
-                head = fh.read(8192)
+                head = fh.read(SKILL_HEAD)
         except OSError:
             continue
         parts = head.split("\n---", 1) if head.startswith("---") else None
@@ -773,6 +788,9 @@ def on_skill(ev, d):
         if why:
             deny("Plan mode: the skill '%s' forks into '%s' (context: fork) while planning: %s. %s"
                  % (name.strip()[:80], a[:80], why, PLAN_APPROVE))
+    # a definition the guard cannot read (an --add-dir or nested <subdir>/.claude/skills one) may still fork into
+    # a builder: the child-side backstop, assuming the fork's meta.json toolUseId is this call's (unverified)
+    mark_plan_spawn(d, ev.get("tool_use_id"))
 
 
 def canonical_tool(name):
@@ -5957,6 +5975,12 @@ def budget_main(raw):
     why = generic_agent_reason(ev) or plan_child_reason(ev)
     if why:
         deny(why)
+    mode = str(ev.get("permission_mode") or "").strip()
+    if not ev.get("agent_id") and mode and mode != "plan":
+        # the main thread left Plan (approved, Shift+Tab): the plan-spawn markers lapse, so a child dispatched
+        # while planning and resumed now in the mode the user picked is not refused
+        import shutil
+        shutil.rmtree(os.path.join(state_root(), safe(ev.get("session_id"), "nosession"), PLAN_DIR), ignore_errors=True)
     if eq_maybe(ev):            # the equilibrium tool allowlists and member paths: fail closed
         eq_hook("pre_tool", ev, sdir(ev.get("session_id")))
     if pre_handler(canonical_tool(ev.get("tool_name"))) is not None:

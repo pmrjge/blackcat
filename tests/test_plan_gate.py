@@ -308,6 +308,8 @@ def test_plugin_and_user_skill_definitions_are_read(tmp_path):
     assert g.forked_skill_agents("/notes", cwd, str(conf)) == ["scout"]
     (conf / "notes").mkdir()
     (conf / "notes" / "SKILL.md").write_text("---\ncontext: fork\nagent: coder\n---\n")   # reachable by ../
+    (conf / "skills" / "a" / "b").mkdir(parents=True)
+    (conf / "skills" / "a" / "b" / "SKILL.md").write_text("---\ncontext: fork\nagent: coder\n---\n")   # by a/b
     for bad in ("../notes", "tools:../../notes", "", "a/b", "skills/../../notes"):
         assert g.skill_files(bad, cwd, str(conf)) == []
 
@@ -346,3 +348,95 @@ def test_plan_markers_are_dropped_at_startup_and_named_safely():
     assert os.listdir(os.path.join(e.sdir(), "plan")) == ["toolu_______x"]
     e.run(e.base("SessionStart", source="resume"))
     assert not os.path.exists(os.path.join(e.sdir(), "plan"))
+
+
+# ---------------------------------------------------------------- review round 2
+def write_def(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="") as f:
+        f.write(text)
+
+
+def skill_call(e, name, mode="plan", tid="toolu_sk2"):
+    return e.run(e.base("PreToolUse", tool_name="Skill", agent_type="blackcat", permission_mode=mode,
+                        tool_use_id=tid, tool_input={"skill": name}))
+
+
+def test_a_forked_command_in_a_subdirectory_is_refused_in_plan_mode():
+    """Round 2 (MEDIUM): /ops:ship is .claude/commands/ops/ship.md."""
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "commands", "ops", "ship.md"),
+              "---\ndescription: d\ncontext: fork\nagent: orchestrator\n---\nShip it.\n")
+    r = skill_call(e, "ops:ship")
+    assert refused(r) and "'ops:ship' forks into 'orchestrator'" in r.reason, r
+    assert ok(skill_call(e, "ops:ship", mode="default"))
+
+
+def test_plugin_commands_and_nested_names_resolve(tmp_path):
+    g = load("agent_guard_cmds", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(conf / "plugins" / "cache" / "mkt" / "ops" / "9f" / "commands" / "release.md"),
+              "---\ncontext: fork\nagent: devops-engineer\n---\nx\n")
+    write_def(str(conf / "plugins" / "marketplaces" / "mkt" / "plugins" / "ops" / "commands" / "tag.md"),
+              "---\ncontext: fork\n---\nx\n")
+    write_def(str(conf / "commands" / "a" / "b" / "c.md"), "---\ncontext: fork\nagent: coder\n---\nx\n")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    cwd = str(tmp_path / "w")
+    assert g.forked_skill_agents("ops:release", cwd, str(conf)) == ["devops-engineer"]
+    assert g.forked_skill_agents("ops:tag", cwd, str(conf)) == ["general-purpose"]
+    assert g.forked_skill_agents("a:b:c", cwd, str(conf)) == ["coder"]
+    assert g.skill_files("a:..:c", cwd, str(conf)) == [] and g.skill_files("apps/web:deploy", cwd, str(conf)) == []
+
+
+def test_a_skill_allowed_in_plan_mode_leaves_the_backstop_marker():
+    """Round 2 (MEDIUM): a definition the guard cannot read (--add-dir, nested .claude/skills) may fork into a
+    builder; the allowed Skill call's tool_use_id marks its child."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skillplan"))
+    assert os.path.exists(os.path.join(e.sdir(), "plan", "toolu_skillplan"))
+    r = child_call(e, "F1", "toolu_skillplan", "acceptEdits", "orchestrator")
+    assert refused(r) and "runs in 'acceptEdits'" in r.reason, r
+
+
+def test_markers_lapse_once_the_main_thread_leaves_plan():
+    """Round 2 (accepted MEDIUM): a planner dispatched while planning, resumed after "auto-accept edits", is not
+    refused every tool call."""
+    e = env()
+    pre = dict(e.pre_agent("planner", agent_type="blackcat", tid="toolu_planner1"), permission_mode="plan")
+    assert ok(e.run(pre))
+    assert refused(child_call(e, "P9", "toolu_planner1", "acceptEdits", "planner"))
+    main = e.base("PreToolUse", tool_name="Read", agent_type="blackcat", permission_mode="acceptEdits",
+                  tool_use_id="toolu_r", tool_input={"file_path": "/x"})
+    assert ok(e.run(main, args=["budget"]))
+    assert ok(child_call(e, "P9", "toolu_planner1", "acceptEdits", "planner"))
+    main["permission_mode"] = "plan"                       # still planning: the markers stay
+    pre = dict(e.pre_agent("planner", agent_type="blackcat", tid="toolu_planner2"), permission_mode="plan")
+    assert ok(e.run(pre)) and ok(e.run(main, args=["budget"]))
+    assert refused(child_call(e, "P8", "toolu_planner2", "acceptEdits", "planner"))
+
+
+def test_a_crlf_frontmatter_is_read():
+    """Round 2 (LOW): CRLF line ends and a frontmatter past 8 KB still read as forked."""
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "crlf", "SKILL.md"),
+              "---\r\nname: crlf\r\ncontext: fork\r\nagent: coder\r\n---\r\nx\r\n")
+    r = skill_call(e, "crlf")
+    assert refused(r) and "forks into 'coder'" in r.reason, r
+
+
+def test_a_frontmatter_closed_after_8_kb_is_read():
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "long", "SKILL.md"),
+              "---\nname: long\ncontext: fork\nagent: coder\ndescription: " + "x" * 9000 + "\n---\nx\n")
+    assert refused(skill_call(e, "long"))
+
+
+def test_a_symlinked_skill_is_read_where_it_points(tmp_path):
+    """A per-skill symlink (dotfiles) is followed, as Claude Code follows it: the deny check never fails open on it."""
+    g = load("agent_guard_link", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(tmp_path / "dotfiles" / "ship" / "SKILL.md"), "---\ncontext: fork\nagent: coder\n---\nx\n")
+    (conf / "skills").mkdir(parents=True)
+    os.symlink(tmp_path / "dotfiles" / "ship", conf / "skills" / "ship")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    assert g.forked_skill_agents("ship", str(tmp_path / "w"), str(conf)) == ["coder"]

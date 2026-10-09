@@ -1988,3 +1988,29 @@ def test_a_stray_of_an_unknown_header_is_never_merged_or_deleted(st):
     (u / "runs3.old-schema-1.csv").write_text("schema_version,session,future_col\n3,x,y\n")
     U.append_rows([row3(id="a1")])
     assert (u / "runs3.old-schema-1.csv").read_text() == "schema_version,session,future_col\n3,x,y\n"
+
+
+def test_an_unreadable_stray_is_set_aside_once(st):
+    """Review round 2 (HIGH): a stray the strict reader refuses is renamed ...unreadable-<epoch>.csv; that name must
+    stop being a stray, or every append renames it again until the name is too long and appending fails."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerow(row3(id="s1"))
+    (u / "runs3.old-schema-123.csv").write_text(buf.getvalue() + "3,\x00bad,line\n")
+    for i in range(15):
+        U.append_rows([row3(id="r%d" % i)])
+    aside = [p.name for p in u.iterdir() if "old-schema" in p.name]
+    assert len(aside) == 1 and aside[0].count("unreadable") == 1, aside
+    r = U.read_rows()
+    assert all((SID, "r%d" % i, 0) in r for i in range(15))
+
+
+def test_a_rotation_that_fails_never_stops_the_append(st, monkeypatch):
+    def boom(cur, old):
+        raise OSError(36, "File name too long")
+    monkeypatch.setattr(U, "_rotate_if_needed", boom)
+    U.append_rows([row3(id="z1")])
+    assert (SID, "z1", 0) in U.read_rows()

@@ -1216,7 +1216,8 @@ def _rotate_if_needed(cur, old):
     rows = _read_strict(old) or {}
     merged = []
     for p in strays:
-        got = _read_strict(p)            # unreadable: set aside as such (no longer a stray), never deleted
+        got = _read_strict(p)            # unreadable: renamed <stray>.unreadable-<epoch>.csv, which STRAY_NAME_RE
+                                         # no longer matches (it is never read again), and never deleted
         if got is not None:
             _merge_newer(rows, got)
             merged.append(p)
@@ -1260,10 +1261,15 @@ def _rotate_if_needed(cur, old):
         os.unlink(p)
 
 
+STRAY_NAME_RE = re.compile(r"\.old-schema-\d+(?:-\d+)?\.csv\Z")   # _set_aside's names, nothing appended to them
+
+
 def _strays(cur):
-    """The runs3.old-schema-*.csv files beside runs3.csv whose header is one of HEADERS, oldest first."""
+    """The runs3.old-schema-<epoch>[-<n>].csv files beside runs3.csv whose header is one of HEADERS, oldest first
+    (a stray set aside again as unreadable is no longer one)."""
     base = os.path.splitext(cur)[0] + ".old-schema-"
-    return sorted((p for p in glob.glob(glob.escape(base) + "*.csv") if _header_ok(p)), key=_mtime)
+    return sorted((p for p in glob.glob(glob.escape(base) + "*.csv")
+                   if STRAY_NAME_RE.search(os.path.basename(p)) and _header_ok(p)), key=_mtime)
 
 
 def _mtime(p):
@@ -1328,7 +1334,10 @@ def append_rows(rows):
     with Locked(os.path.join(usage_dir(), APPEND_LOCK), wait=APPEND_LOCK_WAIT_S) as lk:
         if not lk.ok:            # scan_once reloads its state: the rows are derived again next tick
             raise TimeoutError(APPEND_LOCK + " busy")
-        _rotate_if_needed(cur, old)
+        try:
+            _rotate_if_needed(cur, old)
+        except OSError as exc:           # a rename or rewrite that fails never stops the recording
+            sys.stderr.write("stack_usage: rotation skipped (%s)\n" % type(exc).__name__)
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
         cols = COLUMNS if new else (_header_of(cur) or COLUMNS)    # a legacy file kept by cap <= 0 stays legacy
