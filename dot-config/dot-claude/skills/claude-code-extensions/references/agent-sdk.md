@@ -28,7 +28,9 @@ never through programmatic copies (`agents=`, inline `hooks=`).
   preset (claude-code-features).
 - Main-thread agent: TypeScript has `agent: "<name>"`; Python has no such field, so pass
   `extra_args={"agent": "<name>"}` (becomes `--agent <name>`). Without it the settings key
-  `"agent": "blackcat"` decides (unverified under the SDK; the Desktop and Conductor hosts honor it).
+  `"agent": "blackcat"` decides (verified under the SDK by probe E1, 2026-10-09: with no `--agent` the main
+  thread runs as blackcat, with its tools and its `model: sonnet`, which beats `model=`; the Desktop and
+  Conductor hosts honor it too).
 - The installer already covers what GUI-launched SDK apps need: absolute interpreter paths in every
   hook and MCP command (their PATH is minimal), `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` and
   `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` in settings `env`.
@@ -124,6 +126,9 @@ out["outcome"], out["gate"], out["needs_user"], out["report"]["status"], out["co
   repository's `.claude/agents` would add or shadow an agent), `"tty"` (the terminal; plan approval needs
   a printed nonce) or an app callable `can_use_tool` (only session addRules for the requested tool survive).
 - An explicit non-plan `permission_mode` is logged `gate_waived`; `bypassPermissions` is always refused.
+- `CLAUDE_BG_*`, `CLAUDE_CODE_SESSION_KIND` and `CLAUDE_CODE_SANDBOXED` (the CLI's env permission and trust
+  channel, probe E2a) are refused in `env` and, at connect, in `os.environ`; the CLI always gets
+  `CLAUDE_CODE_SESSION_KIND=""`. The legacy `run()` checks neither.
 - `run(prompt, options(...))` is the legacy one-shot (no load check); `parse_stream(lines)` gives the same
   dict from `claude -p --output-format stream-json --verbose`; each run appends a numbers-only row to
   `$XDG_STATE_HOME/claude-agent-stack/usage/sdk-runs.jsonl`.

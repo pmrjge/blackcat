@@ -48,6 +48,7 @@ REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name", 
               "max_budget_usd", "setting_sources")                        # budget_usd= and sources= own these
 POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")
 CEILING_ENV, STATE_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"
+ENV_REFUSED = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # E2a: rules, trust by env
 HOST_WAIT_S, LOAD_WAIT_S, INTERRUPT_S, GRACE_S, DEADLINE_NONE_S, GAP_S = 300.0, 20.0, 10.0, 2.0, 3600.0, 0.5
 RESULT_KEYS = ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "session_id",
                "total_cost_usd", "usage", "result", "permission_denials", "errors", "api_error_status",
@@ -362,8 +363,9 @@ def stack_agents(config):
 def project_agent_files(cwd, config, extra=()):
     """Every .claude/agents directory the CLI may read project agents from (2.1.287: recursively, dotfiles too):
     cwd up to the repository root (or /), a linked worktree's main checkout, and `extra` (add_dirs). Any one,
-    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1). Unverified against
-    the real CLI: a .claude/agents above the repository root's .git, and agents in subdirectories of an add_dir."""
+    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1). Measured (probe
+    E2c, 2.1.287, 2026-10-09, two runs): the CLI loads an add_dir's own .claude/agents, not one above the repository
+    root nor one in an add_dir's subdirectory."""
     def text(p):
         with open(p, encoding="utf-8") as fh:
             return fh.read().strip()
@@ -604,6 +606,7 @@ class Session:
                  on_message=None, tty=None, load_timeout_s=LOAD_WAIT_S, row=True, **kw):
         bad = [k for k in REFUSED_KW if k in kw] + [k for k, v in (kw.get("extra_args") or {}).items() if k not in EXTRA_OK
                                                     or v is not None and (k == "verbose" or str(v).startswith("-"))]  # N3
+        bad += [k for k in (kw.get("env") or {}) if ENV_REFUSED.fullmatch(str(k))]       # E2a: the CLI's env channel
         if bad or permission_mode == "bypassPermissions":
             raise ValueError("refused: %s (the host and the stack's files decide; bypassPermissions never)"
                              % (", ".join(map(str, bad)) or "bypassPermissions"))
@@ -618,7 +621,7 @@ class Session:
         if ceiling is not None and not (str(ceiling).strip().isdigit() and int(ceiling) > 0):
             raise ValueError(f"{CEILING_ENV} must be a positive number of ms (0 = never stop waiting)")
         self.env.setdefault(CEILING_ENV, "3000")      # the CLI exits inside the SDK's 5 s close window
-        self.env[STATE_ENV] = "1"
+        self.env[STATE_ENV], self.env["CLAUDE_CODE_SESSION_KIND"] = "1", ""     # E2a control: "" ignores CLAUDE_BG_*
         self.agent, self.host, self.budget_usd, self.permission_mode = agent, host, budget_usd, permission_mode
         self.bg_wait_s, self.cli_path, self.transport, self.on_message = bg_wait_s, resolve_cli(cli), transport, on_message
         ok = isinstance(deadline_s, (int, float)) and deadline_s > 0     # S8: <= 0 never unbounds host none
@@ -645,6 +648,8 @@ class Session:
         """Raise UsageError if this run may not start (D3 none: an unattended run needs a budget)."""
         if self.host == "none" and not (isinstance(self.budget_usd, (int, float)) and self.budget_usd > 0):
             raise UsageError("host none needs budget_usd > 0: an unattended run is bounded")
+        if bad := sorted(k for k in os.environ if ENV_REFUSED.fullmatch(k)):      # the CLI inherits os.environ
+            raise UsageError(f"refused: {', '.join(bad)} in os.environ (permission rules or trust by env, probe E2a)")
 
     def build(self, plan):
         """The options for this session: options() plus the host's keys, set last (D3, D5, D7, D12)."""
@@ -789,6 +794,7 @@ class Session:
         import anyio
         if not self.loaded:
             raise StackNotLoaded("not connected, or the load check did not pass")
+        # defence in depth: E2b measured no load 3 s after a late write; the CLI recomputes agent_listing_delta per turn
         if self.host == "none" and (self.permission_mode or "plan") == "plan" and (     # N2: before every prompt
                 odd := project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())):
             raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: " + ", ".join(odd[:10]))

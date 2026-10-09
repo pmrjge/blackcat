@@ -6955,7 +6955,8 @@ ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
 # fast path for the "secrets" scan kind (below): checked only when that kind is requested. Not
 # word-bounded (unlike TRIGGER_RE): over-matching only causes an extra full parse, never a miss.
 SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|install_state|doctor\.sh|credential|"
-                                r"security|CLAUDE_CODE_MCP_SERVER_NAME")
+                                r"security|CLAUDE_CODE_MCP_SERVER_NAME|"
+                                r"CLAUDE_BG_|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # + ENV_CHANNEL_RE
 SECRETS_PROGRAMS = {"mcp-headers", "with-stack-env"}
 INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 # fast path for the "protect" scan kind: a redirect character or one of the write-capable
@@ -7367,6 +7368,22 @@ INSTALL_REASON = ("Blocked by the stack's supply-chain rule (`%s`): install.sh i
                   "`--print-managed-settings`, `--diff` alone and a scratch install (HOME and CLAUDE_CONFIG_DIR "
                   "both under a temp dir) are fine.")
 MCP_NAME_VAR = "CLAUDE_CODE_MCP_SERVER_NAME"
+# The claude CLI's environment channel (probe E2a, CLI 2.1.287, 2026-10-09): CLAUDE_CODE_SESSION_KIND=bg with
+# CLAUDE_BG_SESSION_PERMISSION_RULES adds session allow rules that hold under --permission-prompts none (hooks
+# still run first); the CLI's text names CLAUDE_CODE_SANDBOXED and CLAUDE_BG_WORKSPACE_TRUSTED as trust switches
+# (unverified). "envchan" (in the secrets scan) denies a command that assigns or exports one: NAME=value at
+# command position (also after env, sudo, ...), NAME or NAME=value after export/declare/typeset/local/readonly/
+# read/mapfile/getopts, printf -v NAME, launchctl setenv NAME, and a value that is NAME (declare -n R=NAME, V=NAME
+# for a later "$V"). Text that only mentions NAME (echo, grep 'NAME=') passes. Literal names only: one built at
+# run time elsewhere, a sourced file or interpreter code is not seen.
+ENV_CHANNEL_RE = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")
+ENV_CHANNEL_BINDERS = {"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray",
+                       "getopts", "printf", "launchctl"}
+ENV_CHANNEL_REASON = ("Blocked by the stack's environment-channel rule: `%s` sets a variable from which the "
+                      "claude CLI takes permission rules or workspace trust (CLAUDE_CODE_SESSION_KIND, "
+                      "CLAUDE_BG_*, CLAUDE_CODE_SANDBOXED), also inside bash -c, eval or $(...). Permissions "
+                      "come from the settings files and the permission host only: if a session needs another "
+                      "rule, ask the user.")
 FORGE_HOSTS = ("github.com", "api.github.com", "uploads.github.com", "gitlab.com", "codeberg.org",
                "bitbucket.org", "api.bitbucket.org", "gitea.com")
 NET_CLIENTS = {"curl", "wget", "http", "https", "xh", "xhs"}
@@ -7877,6 +7894,8 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
         if "secrets" in want and name == MCP_NAME_VAR:
             return scan.hit("secrets", "%s=... (headersHelper mode prints the real header)"
                             % MCP_NAME_VAR)
+        if "envchan" in want and here_cmd and (ENV_CHANNEL_RE.fullmatch(name) or ENV_CHANNEL_RE.fullmatch(val)):
+            return scan.hit("envchan", restore(w))          # NAME=v cmd, env/sudo NAME=v cmd, V=NAME (a later "$V")
         if "install" in want:                  # in order, so `T=$(mktemp -d) HOME=$T ./install.sh`
             env = scan.__dict__.setdefault("_r2_env", {})
             env[name] = _r2_tmp_ok(val, env)
@@ -7934,7 +7953,20 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
             if is_shell:
                 st["_r2_run"] = st.get("_r2_run") or _r2_shell_runs(scan, base, args)
             found = _r2_data_and_run(scan, "install.sh used as data and run by a shell")
+    if not found and "envchan" in want and base in ENV_CHANNEL_BINDERS:
+        found = _env_channel(base, [restore(x) for x in words[i + 1:end]])
     return scan.hit(*found) if found else None
+
+
+def _env_channel(base, args):
+    """("envchan", what) when a binder's operand names a channel variable (ENV_CHANNEL_RE): NAME, NAME=value or
+    REF=NAME (declare -n REF=NAME; V=NAME for a later "$V"), else None."""
+    if base == "printf":                       # printf -v NAME, printf -vNAME; its other operands are text
+        args = [b for a, b in zip(args, args[1:]) if a == "-v"] + [a[2:] for a in args if a.startswith("-v")]
+    elif base == "launchctl":                  # launchctl setenv NAME VALUE: every later GUI app's env
+        args = args[1:2] if args[:1] == ["setenv"] else []
+    return next((("envchan", "%s %s" % (base, a)) for a in args
+                 if any(ENV_CHANNEL_RE.fullmatch(x) for x in a.split("=", 1))), None)
 
 
 def _shell_words(command):
@@ -12168,8 +12200,8 @@ def secrets_leak_in(command, ev=None):
     doctor.sh — else None. Shares the same shell lexer and shell/eval/here-doc unwrapping as
     remote_write_in, so `bash -c "mcp-headers exa --reveal"` etc. are caught the same way
     `git push` is. The redacted default forms (`mcp-headers exa`, `with-stack-env --print-env`)
-    pass."""
-    return _Scan(("secrets", "install"), ev=ev).scan(command)
+    pass. Kind "envchan": the command sets a variable of the CLI's environment channel (ENV_CHANNEL_RE)."""
+    return _Scan(("secrets", "install", "envchan"), ev=ev).scan(command)
 
 
 def forge_write_in(command):
@@ -12576,6 +12608,7 @@ def no_push_main(raw):
              OPAQUE_REASON % what if kind == "opaque" else
              INDEX_REASON % what if kind == "index" else
              SECRETS_REASON % what if kind == "secrets" else
+             ENV_CHANNEL_REASON % what if kind == "envchan" else
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     try:                                      # the installer rule: absolute, fail closed

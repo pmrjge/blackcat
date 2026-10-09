@@ -24,8 +24,10 @@
 #
 # The file is read the way a shell reads it: leading blanks, "export<blank>", "quoted" or
 # 'quoted' values and an unquoted " # comment" are handled; invalid names and values that still
-# contain "$" are skipped. stack.env is ../stack.env next to this script's install dir (works
-# under any CLAUDE_CONFIG_DIR); STACK_ENV_FILE overrides it.
+# contain "$" are skipped. CLAUDE_BG_*, CLAUDE_CODE_SESSION_KIND and CLAUDE_CODE_SANDBOXED are
+# skipped with a warning on stderr: the claude CLI takes permission rules and workspace trust from
+# them (probe E2a; CONFIG.md Known gaps). stack.env is ../stack.env next to this script's install
+# dir (works under any CLAUDE_CONFIG_DIR); STACK_ENV_FILE overrides it.
 # shellcheck disable=SC1007  # CDPATH= (empty) on purpose, so cd ignores the user's CDPATH
 f="${STACK_ENV_FILE:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/stack.env}"
 DEFAULT_EXPORT="HF_TOKEN WANDB_API_KEY MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN"
@@ -72,6 +74,10 @@ if [ -f "$f" ]; then
     k=${line%%=*}
     v=${line#*=}
     case "$k" in ''|[0-9]*|*[!A-Za-z0-9_]*|STACK_EXPORT) continue ;; esac
+    case "$k" in CLAUDE_BG_*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED)
+      echo "with-stack-env: $k in stack.env skipped (permission rules or trust by env: CONFIG.md Known gaps)" >&2
+      continue ;;
+    esac
     if [ -n "$only" ]; then case "$only" in *",$k,"*) ;; *) continue ;; esac; fi
     clean_value
     case "$v" in ''|*'$'*) continue ;; esac

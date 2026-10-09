@@ -691,7 +691,7 @@ def test_print_options_diff(tmp_path, monkeypatch, capsys):
     assert new["disallowed_tools"] == ["WebFetch", "ExitPlanMode", "Agent(coder)", "Agent(newbie)", "Workflow"]
     assert new["extra_args"] == {"permission-prompts": "none", "agent": "coder"} and new["include_hook_events"]
     assert new["env"] == {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "3000", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
-                          "STACK_REPORT_FORMAT": "json"}
+                          "STACK_REPORT_FORMAT": "json", "CLAUDE_CODE_SESSION_KIND": ""}     # E2a
 
 
 # ---------------------------------------------------------------- D3 tty
@@ -1307,3 +1307,39 @@ def test_agents_found_up_the_parent_chain(tmp_path):
         run(one(w, cwd=str(deep)))
     assert "prompt" not in w.log
     assert sdk.project_agent_files(str(deep), str(w.config)) == [str(repo.resolve() / ".claude" / "agents")]
+
+
+# ---------------------------------------------------------------- E2a: the CLI's env channel (probe E2a, 2026-10-09)
+CHANNEL = ["CLAUDE_CODE_SESSION_KIND", "CLAUDE_BG_SESSION_PERMISSION_RULES", "CLAUDE_BG_WORKSPACE_TRUSTED",
+           "CLAUDE_BG_", "CLAUDE_CODE_SANDBOXED"]
+NOT_CHANNEL = {"CLAUDE_CODE_SESSION_ID": "x", "CLAUDE_CODE_SESSION_KIND_X": "1", "MY_CLAUDE_BG_X": "1",
+               "CLAUDE_BGX": "1", "CLAUDE_CODE_SANDBOX": "1", "claude_bg_x": "1", "claude_code_session_kind": "bg"}
+
+
+@pytest.mark.parametrize("key", CHANNEL)
+def test_env_channel_refused_in_the_callers_env(tmp_path, key):
+    """E2a: env CLAUDE_CODE_SESSION_KIND=bg + CLAUDE_BG_SESSION_PERMISSION_RULES add allow rules under host none;
+    the key is refused by name, whatever its value (no silent drop)."""
+    for value in ("bg", ""):
+        with pytest.raises(ValueError, match=f"refused: {key}( |$)"):
+            World(tmp_path / value).session(env={key: value})
+
+
+@pytest.mark.parametrize("key", CHANNEL)
+def test_env_channel_refused_in_os_environ_at_connect(tmp_path, monkeypatch, key):
+    """E2a: the SDK passes os.environ to the CLI under options.env: a channel key there stops connect()."""
+    monkeypatch.setenv(key, "bg")
+    w = World(tmp_path, script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.UsageError, match=f"refused: {key} in os.environ"):
+        run(one(w))
+    assert not w.opened and "prompt" not in w.log
+
+
+def test_env_channel_forced_off_and_unrelated_keys_pass(tmp_path, monkeypatch):
+    """E2a control: CLAUDE_CODE_SESSION_KIND="" reaches the CLI; look-alike keys (env and os.environ) pass."""
+    for k, v in NOT_CHANNEL.items():
+        monkeypatch.setenv(k, v)
+    w = World(tmp_path, script=script("stream_plan.jsonl"))
+    run(one(w, env=NOT_CHANNEL))
+    env = w.opened[0].env
+    assert env["CLAUDE_CODE_SESSION_KIND"] == "" and {k: env[k] for k in NOT_CHANNEL} == NOT_CHANNEL

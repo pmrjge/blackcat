@@ -127,6 +127,27 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('N4', 'no host row naming the tool next to the answer', 'test_tty_answer_line_names_the_tool', 'stack_sdk: ^ {who} wants {name} "', '"'),
     ('OWN1', 'only directories count as agent paths (isdir)', 'test_agents_path_of_any_kind_fails_closed', 'if os.path.lexists(a) and os.path.realpath(a) != user]', 'if os.path.isdir(a) and os.path.realpath(a) != user]'),
     ('OWN2', 'the walk skips the parents of cwd', 'test_agents_found_up_the_parent_chain', '        d = os.path.dirname(d)\n', '        d = "/"\n'),
+    # E2a: the CLI's env permission and trust channel (probe E2a, 2026-10-09)
+    ('E2a', "the caller's env not checked", 'test_env_channel_refused_in_the_callers_env',
+     '        bad += [k for k in (kw.get("env") or {}) if ENV_REFUSED.fullmatch(str(k))]', '        bad += []'),
+    ('E2a', 'os.environ not checked at connect', 'test_env_channel_refused_in_os_environ_at_connect',
+     'if bad := sorted(k for k in os.environ if ENV_REFUSED.fullmatch(k)):', 'if bad := []:'),
+    ('E2a', 'CLAUDE_CODE_SESSION_KIND not forced empty', 'test_env_channel_forced_off_and_unrelated_keys_pass',
+     'self.env[STATE_ENV], self.env["CLAUDE_CODE_SESSION_KIND"] = "1", ""', 'self.env[STATE_ENV] = "1"'),
+    ('E2a', 'CLAUDE_BG_* not refused', 'test_env_channel_refused_in_the_callers_env',
+     're.compile(r"CLAUDE_BG_\\w*|CLAUDE_CODE_SESSION_KIND|', 're.compile(r"CLAUDE_CODE_SESSION_KIND|'),
+    ('E2a', 'CLAUDE_CODE_SESSION_KIND not refused', 'test_env_channel_refused_in_os_environ_at_connect',
+     '|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # E2a', '|CLAUDE_CODE_SANDBOXED")   # E2a'),
+    ('E2a', 'CLAUDE_CODE_SANDBOXED not refused', 'test_env_channel_refused_in_the_callers_env',
+     '|CLAUDE_CODE_SANDBOXED")   # E2a', '")   # E2a'),
+    ('E2a', 'env keys matched by prefix', 'test_env_channel_forced_off_and_unrelated_keys_pass',
+     'ENV_REFUSED.fullmatch(str(k))', 'ENV_REFUSED.match(str(k))'),
+    ('E2a', 'env keys matched anywhere', 'test_env_channel_forced_off_and_unrelated_keys_pass',
+     'ENV_REFUSED.fullmatch(str(k))', 'ENV_REFUSED.search(str(k))'),
+    ('E2a', 'os.environ keys matched by prefix', 'test_env_channel_forced_off_and_unrelated_keys_pass',
+     'ENV_REFUSED.fullmatch(k))', 'ENV_REFUSED.match(k))'),
+    ('E2a', 'keys matched case-insensitively', 'test_env_channel_forced_off_and_unrelated_keys_pass',
+     'CLAUDE_CODE_SANDBOXED")   # E2a', 'CLAUDE_CODE_SANDBOXED", re.I)   # E2a'),
 ]
 
 
