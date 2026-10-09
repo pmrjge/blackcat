@@ -748,9 +748,10 @@ summary names the failed conditions and prints n, m, u and q05.
 - **How 5b computes it.** It uses the per-fold predictives the clustered check already builds, and S = `--sims`
   replicates. Each replicate:
   - draws one session effect w per fold;
-  - draws y* for every test row of the stratum from its type's predictive given w;
-  - counts a hit when y* > T_alt, where T_alt is that predictive's (1 − 2.5 r) quantile, so the row's marginal hit
-    rate is 2.5 r;
+  - draws y* = `pred.draw(rnd, w)` for every test row of the stratum;
+  - counts a hit when y* > T_alt, with T_alt = `pred.quantile(1 − 2.5 r)`, the marginal (w-integrated) quantile,
+    computed as T = `pred.quantile(1 − r)` is at `b1_backtest.py:219`. The marginal hit rate is then 2.5 r, and hits
+    stay clustered by session;
   - counts the hits only on the rows that were scorable in the data. The rows that were unknown keep their status:
     they add 1 each to hi_sim = lo_sim + u and never to lo_sim;
   - applies the run's own check: reject when P0(K ≥ lo_sim) < 0.05 or P0(K ≤ hi_sim) < 0.05, with P0 from the
@@ -763,6 +764,8 @@ summary names the failed conditions and prints n, m, u and q05.
   simulation to be infeasible.
 - **Where 0.5 sits.** At the minimum (3 folds, 40 rows, w = 0) the design power is 0.53 under the priors and 0.50
   exact at v2 (0.496). The bound therefore asks for more than the minimum folds or rows in practice (A.11.1 table).
+  Under WP2's tau_new it is met only at 6 folds × 200 rows with w = 0 (0.508). With w ≥ 0.05 it is met in no
+  simulated cell; the highest is 0.437, at 6 folds × 100 rows, w = 0.05.
 
 Where 0.10 comes from (prior-predictive power, soft.agent, r = 0.10; scripts, JSON and logs in the work-order
 checkout's `.claude-work/bayes-wp5/power/`). Model: log Y = m + tau_new·w_s + sigma·e, one w_s ~ N(0, 1) per test
@@ -785,9 +788,12 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
 | WP2, 6, 200 | 0.51 (0.47) | 0.43 (0) | 0.43 (0) | 0.30 (0) | 0.04 (0) | 2 |
 
 - **The T-too-low side.** Over all 18 cells (3 sources × F ∈ {3, 6} × n ∈ {40, 100, 200}), w = 0.10 keeps at
-  least 0.785 of the w = 0 power. Two cells tie at that minimum on the unrounded power.json values: WP2, 3 folds,
-  n 200 (0.2647 / 0.3373 = 0.7846) and v2, 3 folds, n 40 (0.4180 / 0.5327 = 0.7847). w = 0.20 keeps as little as
-  0.56, and w = 0.50 as little as 0.06. Hence I2's 0.10.
+  least 0.78 of the w = 0 power.
+  - The minimum is WP2, 3 folds, n 200: 0.2647 / 0.3373 = 0.7846. Next is v2, 3 folds, n 40: 0.4180 / 0.5327 =
+    0.7847.
+  - All figures here are power.json's `too_low_p.25.rej_too_many`, the T-too-low side that the table reports. The
+    either-side `reject` of v2, 3, 40 at w = 0 is 0.534, a different quantity.
+  - w = 0.20 keeps as little as 0.56, and w = 0.50 as little as 0.06. Hence I2's 0.10.
 - **The T-too-high side** has power ≤ 0.016 at w = 0.10 and ≤ 0.131 at w = 0.05 in every cell. No width bound
   short of u ≈ 0 makes it testable, which is what I3 checks on the run itself.
   - The arithmetic: hi ≥ u, so with u ≥ q05 no lo can reject.
@@ -817,12 +823,13 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
   | WP2, 6, 200 | 0.505 / 0.461 | 0.508 / 0.471 |
 
   There are two gaps, both at v2, 3, 40, where P0(K = 0) = 0.0498 sits on the cut and 4000 null draws decide
-  either way: T-too-high 0.506 exact against 0.269 simulated, and T-too-low 0.496 against 0.533 (size 0.078
-  against 0.059).
-- **What the minimum buys.** Even at w = 0, 3 folds of 40 rows detect a 2.5× hit rate with power about 0.5.
-  Power 0.8 needs about 6 folds and n ≈ 100 (v2) to 200 (prior). WP2's tau_new never reaches it (0.51 at 6 folds,
-  n 200), and under it soft.agent cannot pass I3 below 6 folds × 100 rows: q05 = 0 at 3 folds for n 40, 100 and 200
-  (P0(K = 0) 0.227, 0.117, 0.067) and at 6 folds × 40 (0.130).
+  either way: T-too-high 0.506 exact against 0.269 simulated, and T-too-low 0.496 against 0.533 (one-sided,
+  `rej_too_many`; size 0.078 against 0.059).
+- **What the minimum buys.** Even at w = 0, 3 folds of 40 rows detect a 2.5× hit rate with power about 0.5
+  (prior 0.53; v2 0.53 simulated, 0.50 exact), and 0.32 under WP2's tau_new. Power 0.8 needs about 6 folds and
+  n ≈ 100 (v2) to 200 (prior). WP2's tau_new never reaches it (0.51 at 6 folds, n 200), and under it soft.agent
+  cannot pass I3 below 6 folds × 100 rows: q05 = 0 at 3 folds for n 40, 100 and 200 (P0(K = 0) 0.227, 0.117,
+  0.067) and at 6 folds × 40 (0.130).
 
 **A.11.2 Strata: production and any-regime.** Both are scored and printed.
 - *Production* is the support that apply computes. The training entry of a test type is built from the training
@@ -858,11 +865,16 @@ ctx fit (1.426, 1.150). Power against p1 = 0.25 (T too low), and in brackets aga
     (`stack_bayes.py:820-822`), which is the machine's hash today (checkout, sched model, `sched_policy()`,
     `STACK_SOFT_LIMIT_SCALE`; `stack_limits.py:2477-2485`). `hyper_of` folds that regime's offset into every
     `types.<t>.mu` and tau_g² into tau_new (`stack_bayes.py:624-636`, `:684-698`).
-  - The driver passes the regime explicitly through a `--regime <hex16>` option of `stack_bayes.py fit` (additive;
-    5b or 5c), used in place of the proposals / `current_regime` lookup. It never uses the live or checkout regime.
+  - The driver passes the regime explicitly through a `--regime <hex16>` option of `stack_bayes.py fit`, used in
+    place of the proposals / `current_regime` lookup. It never uses the live or checkout regime.
+  - Ownership: the option is additive and belongs to 5c, which owns `stack_bayes.py` on `bayes/5-drift`. 5b's driver
+    tests use the fake fitter and pass `--regime`. The real fold fits (5d) run after 5c merges.
   - `fold<k>_gate.json` records the regime and the fitter's note (`data.regime_current`: seen | new | only |
     new-prior).
-  - 5b proof: two fold states that differ only in `STACK_SOFT_LIMIT_SCALE` give the same `fold<k>_ctx.json`.
+  - 5b proof: two fold states that differ only in `STACK_SOFT_LIMIT_SCALE` must give `fold<k>_ctx.json` files
+    equal within B1-T11's tolerance, and `fold<k>_gate.json` files with the same regime and `data.regime_current`.
+  - A unit test checks that with `--regime R` the fit uses R, whatever `STACK_SOFT_LIMIT_SCALE` and
+    `proposals.regime` are.
 - It refuses a target that resolves into the live `<state>`. It takes `<state>/accel.lock`, or refuses without an
   explicit `--no-accel-lock`. The user runs the fits from a terminal after confirming no C10, eq run or other fit is
   active (user decision Q-D, 2026-10-09). Cost: about one 348 s fit per fold at 20 training sessions, less for
@@ -937,9 +949,11 @@ author's in-memory substitution (`.claude-work/bayes/turn-limited/a3_impact2.jso
 copy.
 
 *What the hybrid can and cannot feed.*
-- **Production support is unchanged.** A regime is the hash of (stack_hash, policy, scale) at session start
-  (`regime_of`, `stack_limits.py:2477`), so a rescan moves no row between regimes. Any-regime supported variables
-  go from 21 to 23 for soft.agent and hard.agent.
+- **Regimes are unchanged.** A regime is the hash of (stack_hash, policy, scale) at session start (`regime_of`,
+  `stack_limits.py:2477`), so a rescan moves no row between regimes. It can still change support within a regime:
+  `_entry` counts only rows with `status == complete`, and for ctx only rows with `turn_limited != 1`
+  (`stack_limits.py:973-976`). Both are end cells the rescan rewrites. Any-regime supported variables go from 21
+  to 23 for soft.agent and hard.agent. 5d prints production support per fold.
 - **The hybrid copy is a rehearsal for both strata (5d).** Its production stratum is not binding, because its end
   cells are backfilled.
 - **The binding production verdict (5f) needs post-install sessions,** collected by an installed collector that
@@ -1017,8 +1031,8 @@ per family.
 - **Minimum.** ≥ 20 rows, ≥ 10 of them uncensored, from ≥ 3 sessions. Below it the check does not run, and the fit
   does not count toward promotion item 5. The family gets **no entry**, unless a previous breach is carried forward
   (see "Breach semantics" below): an under-minimum fit never creates a breach and never clears one. At the minimum
-  only gross drift is detectable: the iid KS critical value at α 0.01 and n 20 is about 1.63/√20 = 0.36, and the clustered null widens
-  it. The detectable drift at this minimum is unmeasured; 5c's synthetic-drift tests measure it.
+  only gross drift is detectable: the iid KS critical value at α 0.01 and n 20 is about 1.63/√20 = 0.36, and the
+  clustered null widens it. The detectable drift at this minimum is unmeasured; 5c's synthetic-drift tests measure it.
 - **PIT per row.** F is the posterior predictive of a new run of the row's type in a *new* session, the session
   effect integrated (w ~ N(0, tau_new), as for T, §1.2). It uses the row's own resume offset (rho when seg > 0) and
   is averaged over the posterior draws (a thinned subset of ≥ 400 draws is enough for a CDF):
@@ -1045,12 +1059,18 @@ per family.
   statistic, n and n_cens go to the fit's log and `usage/bayes.json.rec`, not to bayes.json.
 - **Breach semantics.**
   - **Sticky breach** (user decision 2026-10-09).
-    - A fit whose check runs writes the entry it computes. Only such a fit, with `ks_p ≥ 0.01`, clears a breach.
+    - **Gate passes.** When the check runs and the model gate (§2.1 rule 6) of the family's model passes, the fit
+      writes the entry it computes. The family's model is `ctx-ln-h4` for soft.agent and hard.agent and
+      `turns-nb2s-h4` for turns. Only such a fit, with `ks_p ≥ 0.01`, clears a breach.
+    - **Gate fails.** The fit writes `breach: true` when its own check breaches. Otherwise it behaves like an
+      under-minimum fit: it carries a previous breach forward, or writes no entry when there is none. Its posterior
+      predictive F is not trusted to clear a breach.
     - A fit below the minimum carries forward the previous file's `drift.<family>` unchanged when that entry has
       `breach: true`. The previous file is the `limits/bayes.json` on disk at fit start, if it passes §2.1 rules 1,
       3 and 4. Otherwise the family gets no entry.
-    - "Previous file", not "previous gated file": every fit, gated or not, carries the breach forward, so the
-      on-disk file is enough to keep the chain. A model-gate failure says nothing about drift.
+    - "Previous file", not "previous gated file": every fit, gated or not, carries a breach forward, so the on-disk
+      file keeps the chain. A failed gate can set or carry a breach, never clear one. This is the reading of the
+      user's "sticky until a passing check"; the user may overrule it.
     - Deleting bayes.json (§3.4) ends the chain.
   - No hysteresis is added beyond this.
   - On `breach: true`, `load_bayes` drops every nuts block of the family (`stack_limits.py:1568`).
@@ -1070,7 +1090,8 @@ per family.
   - stationary ones give `false`;
   - fewer rows than the minimum give no entry;
   - an under-minimum fit after a breached fit carries the breach forward;
-  - a passing fit clears it;
+  - a gate-failing fit after a breached fit carries the breach;
+  - a gated, passing fit clears it;
   - the existing reader drops a breached family's blocks.
 
   Each of these mutants must fail a test:
@@ -1080,7 +1101,8 @@ per family.
   - censored PIT not randomized;
   - censored NB PIT at U(F(y), 1);
   - the iid KS p used in place of the clustered one;
-  - a breach cleared by an under-minimum fit.
+  - a breach cleared by an under-minimum fit;
+  - a breach cleared by a gate-failing fit.
 
 ---
 
