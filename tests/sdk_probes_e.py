@@ -22,7 +22,9 @@ whole cap where its last event is a reservation (never reported, an open turn, c
 a run without its "end" event (running, or killed) counts at its whole run cap; an unreadable ledger refuses
 the run. The run is refused when that prior spend plus its own cap exceeds $2.00; the check and the new
 ledger's envelope happen under an exclusive lock (<default dir>/.sdk_probes_e.lock), so two starts cannot both
-pass on the same prior spend. The dry run and the paid run print what is left (2.00 - prior). The first paid
+pass on the same prior spend. A run killed without its "end" event (SIGKILL, SIGHUP, SIGTERM) counts at
+its whole cap for good (fail safe); the only remedy is to append an "end" event (`{"ev": "end", "usd": <its
+spend>}`, the spend read from its own reservations and costs) to that ledger by hand. The dry run and the paid run print what is left (2.00 - prior). The first paid
 runs (2026-10-09: -e, -e-2, -e-3) used $1.4041 at worst, so $0.5959 is left. E1 needs the v2 stack_sdk.py
 installed (Session, StackNotLoaded, config_root, wire: checked before the ledger opens); E2, E3 and E3P need
 only options().
@@ -1147,7 +1149,9 @@ async def e3p(c: Ctx) -> None:
             await anyio.sleep(cfg.settle_s)
             lines1, meta1 = transcript_lines(cfg.config_dir, sid, aid), read_meta(cfg.config_dir, sid, aid)
             refused = resume_refused(s.msgs[n:])
-            sends = len([i for i, _, parent in calls(s.msgs[n:], "SendMessage") if parent is None])
+            errs = tool_errors(s.msgs[n:])          # a denied SendMessage (host, hook: is_error) resumes nothing
+            sends = len([i for i, _, parent in calls(s.msgs[n:], "SendMessage") if parent is None
+                         and errs.get(i) is False])
     rows = hook_rows(log)
     first: dict[str, dict[str, Any]] = {}
     for r in rows:
@@ -1155,7 +1159,7 @@ async def e3p(c: Ctx) -> None:
             first.setdefault(r["agent_id"], r)
     at_first = [r.get("meta_json") for r in first.values()]
     tid0, tid1 = (meta0 or {}).get("toolUseId"), (meta1 or {}).get("toolUseId")
-    # a resume is proven only by a SendMessage call of the resume turn AND the child's transcript growing: a
+    # a resume is proven only by a SendMessage call of the resume turn that succeeded (no error result) AND the child's transcript growing: a
     # transcript that grew without one (a late write of the first run) proves nothing
     resumed = sends > 0 and lines0 is not None and lines1 is not None and lines1 > lines0
     f.update(e3p_main_mode=init_data(s.msgs).get("permissionMode"), e3p_spawn_calls=len(spawn),
@@ -1411,7 +1415,7 @@ def render(rows: list[Row], meta: dict[str, Any]) -> str:
                                    or "-") for r in rows) or "-"
     out = ["# Agent SDK probes %s, %s" % (", ".join(r.probe.pid for r in rows) or "-", meta["date"]), "",
            "Consent envelope: %s." % CONSENT_TEXT, "",
-           "This run's cap (%s): USD %.2f. Prior spend (%s ledgers in the report directory, at worst): USD %s, so "
+           "This run's cap (%s): USD %.2f. Prior spend (%s ledgers in the default and the report directory, at worst): USD %s, so "
            "USD %s of the %.2f was left before this run." % (
                CONSENT_ENV, total, cell(prior.get("ledgers")), cell(prior.get("used")), cell(prior.get("left")),
                TOTAL_CAP_USD),
@@ -1473,7 +1477,7 @@ class Ledger:
 
 
 class LedgerUnreadable(BudgetError):
-    """A ledger in the report directory that cannot be replayed: the prior spend is unknown, so the run is
+    """A ledger in the default or the report directory that cannot be replayed: the prior spend is unknown, so the run is
     refused (fail closed)."""
 
 
@@ -1620,8 +1624,9 @@ def main(argv: list[str] | None = None) -> int:
         epilog="Consent: %s must equal the run's own cap, the sum of the selected probes' caps as %%.2f (E1,E3P: "
                "0.50); only a run with all of E1, E2 and E3 selected keeps the first run's value %s. A paid run is "
                "refused when the ledgers already in the default and the report directory (replayed at worst, a run "
-               "without its end at its cap) plus its cap exceed "
-               "$%.2f." % (CONSENT_ENV, CONSENT_VALUE, TOTAL_CAP_USD))
+               "without its end at its cap) plus its cap exceed $%.2f. A run killed without its end event (SIGKILL, "
+               "SIGHUP, SIGTERM) counts at its whole cap for good; the only remedy is appending an end event "
+               "to its ledger by hand." % (CONSENT_ENV, CONSENT_VALUE, TOTAL_CAP_USD))
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="print the plan, spend nothing (the default)")
     mode.add_argument("--paid", action="store_true", help="make the billed calls; needs %s=<the run's cap> too" %
@@ -1674,8 +1679,8 @@ def main(argv: list[str] | None = None) -> int:
         try:                                   # the cross-run check: before the ledger, before any billed call
             prior = prior_spend(ledger_dirs(out, today))
         except LedgerUnreadable as e:
-            ap.error("refused: a ledger in the report directory cannot be replayed, so the prior spend is unknown: "
-                     "%s" % e)
+            ap.error("refused: a ledger in the default or the report directory cannot be replayed, so the prior "
+                     "spend is unknown: %s" % e)
         print(prior_line(prior))
         if prior["used"] + cap > TOTAL_CAP_USD + 1e-9:
             ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f exceeds the USD %.2f consent "

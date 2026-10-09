@@ -173,8 +173,8 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      [("    dirs = [os.path.dirname(base.default_out(today + \"-e\"))] + ([os.path.dirname(out)] if out else [])\n",
        "    dirs = [os.path.dirname(out)] if out else []\n")]),
     ("X8", "an unreadable ledger lets the paid run start at $0 prior", "test_an_unreadable_ledger_refuses_the_paid_run",
-     [("            ap.error(\"refused: a ledger in the report directory cannot be replayed, so the prior spend is "
-       "unknown: \"\n                     \"%s\" % e)\n",
+     [("            ap.error(\"refused: a ledger in the default or the report directory cannot be replayed, so the "
+       "prior \"\n                     \"spend is unknown: %s\" % e)\n",
        "            prior = {\"ledgers\": 0, \"reported\": 0.0, \"unreported\": 0.0, \"used\": 0.0, \"left\": 2.0, \"e\": str(e)}\n")]),
     ("X9", "a cost_unknown booking lowered by a later result", T_REPLAY,
      [("            sticky.add(key)\n", "            pass\n")]),
@@ -263,6 +263,10 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
        "            ledger = Ledger(out.removesuffix(\".md\") + \".ledger.jsonl\")\n")]),
     ("Q11", "E3c2a's resume proven by a growing transcript alone (no SendMessage call)", "test_e3c2a_needs_a_sendmessage_call",
      [("    resumed = sends > 0 and lines0 is not None", "    resumed = lines0 is not None")]),
+    ("Q13", "a denied SendMessage (an error result) counted as a resume", "test_e3c2a_needs_a_sendmessage_call",
+     [("            sends = len([i for i, _, parent in calls(s.msgs[n:], \"SendMessage\") if parent is None\n"
+       "                         and errs.get(i) is False])\n",
+       "            sends = len([i for i, _, parent in calls(s.msgs[n:], \"SendMessage\") if parent is None])\n")]),
     ("Q12", "a helper refusing the trust env in preview() crashes E1",
      "test_a_helper_whose_preview_refuses_the_trust_env_skips_only_the_trusted_legs",
      [(PREVIEW, ("        except ValueError as e:\n            raise HelperRefused(type(e).__name__) from e\n"

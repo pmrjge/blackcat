@@ -90,6 +90,7 @@ SWITCHES = dict(
     guard_decides=False,    # E1: a PreToolUse hook (the guard) denies the Bash call
     ro_guard=True,          # E1: the repo's agent_guard read-only rule (READONLY_TYPES main thread) runs for real
     silent_send=False,      # E3c2a: the model makes no SendMessage call, yet the child's transcript grows
+    send_denied=False,      # E3c2a: the SendMessage call is denied (an is_error result), yet the transcript grows
     marker=True,            # E1: agent_guard writes its session-start marker (D17)
     bg_rules=True,          # E2a: the CLI reads CLAUDE_BG_SESSION_PERMISSION_RULES in a bg session
     late_agents=True,       # E2b: agent files are re-read for every turn
@@ -588,6 +589,12 @@ class FakeCLI(Base):
             return                                              # the resume turn is still running
         await self.hook("SendMessage", self.mode)
         p = self.subagents() / ("agent-%s.jsonl" % agent_id)
+        if self.w.send_denied:                                  # denied (host or hook); the transcript grows anyway
+            if p.exists():
+                p.write_text(p.read_text() + json.dumps({"m": 5}) + "\n")
+            self.tool_result(tu, True)
+            self.finish()
+            return
         mp = self.subagents() / ("agent-%s.meta.json" % agent_id)
         meta = json.loads(mp.read_text()) if mp.exists() else {}
         refuse = self.w.refuse_any or self.w.refuse_stopped and meta.get("stoppedByUser") is True
@@ -1655,11 +1662,17 @@ def test_the_ledger_goes_to_the_default_directory_whatever_out_says(pinned, monk
 
 
 def test_e3c2a_needs_a_sendmessage_call(sdk, tmp_path):
-    """A child transcript that grows without any SendMessage call in the resume turn proves no resume."""
+    """A child transcript that grows without a successful SendMessage call in the resume turn (none, or one
+    denied with an is_error result) proves no resume."""
     (row,) = run(World(tmp_path, silent_send=True), [P.PROBES[3]])
     f = row.facts
     assert f["e3p_child_lines_after"] > f["e3p_child_lines_before"] and f["e3p_resume_send_calls"] == 0, f
     assert f["e3p_resumed"] is False and row.answers["E3c2a"] == "unknown"
+    # a SendMessage call that was denied (an is_error result) resumes nothing either
+    (row,) = run(World(tmp_path / "denied", send_denied=True), [P.PROBES[3]])
+    f = row.facts
+    assert f["e3p_child_lines_after"] > f["e3p_child_lines_before"] and f["e3p_send_calls"] == 1, f
+    assert f["e3p_resume_send_calls"] == 0 and f["e3p_resumed"] is False and row.answers["E3c2a"] == "unknown"
 
 
 def test_a_helper_whose_preview_refuses_the_trust_env_skips_only_the_trusted_legs(sdk, tmp_path):
