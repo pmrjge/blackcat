@@ -378,8 +378,11 @@ discarded.
   collector's fits write `limits/bayes.json`, which feeds only `bayes-shadow` records.
   - A later run without `--with-bayes` syncs `tools.txt` (the same shared pins). It leaves the Bayes packages in
     place and says so.
-  - `STACK_BAYES=off` stops the fits. `uv pip uninstall --python <config>/venvs/tools/bin/python pymc pytensor
-    nutpie arviz` removes the packages.
+  - `STACK_BAYES=off` stops the fits. `uv pip sync --python <config>/venvs/tools/bin/python --require-hashes
+    --only-binary :all: requirements/tools.txt` returns the venv to the base lock exactly. Uninstalling only
+    pymc, pytensor, nutpie and arviz would leave the other 24 of the lock's 28 Bayes-only distributions
+    (2026-10-09), among them scipy, numba, llvmlite, xarray, zarr, pyarrow and setuptools; doctor would then
+    say `venv missing` and a plain install would name none of them.
   - Under `--no-deps` the flag does nothing, and the installer prints one line saying so.
 - **`doctor.sh`.** One line after the ML venv's. It reads distribution metadata only: importing pytensor
   would write a compile cache under `~`.

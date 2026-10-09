@@ -4,6 +4,7 @@ Nothing here installs a package or touches the stack's state: fake venvs and scr
 
 Run: ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_bayes_wiring.py
 """
+import ast
 import importlib.util
 import json
 import os
@@ -22,7 +23,7 @@ DOCTOR = ROOT / "dot-config" / "dot-claude" / "bin" / "doctor.sh"
 HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 PROTO_LOCK = ROOT / "docs" / "bayes" / "b1v2" / "fit_prototype.py.lock"
 HPY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
-FITTER = ("pymc", "pytensor", "nutpie", "arviz", "scipy", "numpy")      # stack_bayes.DEPS
+FITTER = ("pymc", "pytensor", "nutpie", "arviz", "scipy", "numpy")      # stack_bayes.DEPS (a test checks)
 # Pins that differ from the prototype's lock, with the reason (requirements/tools-bayes.in)
 PROTO_EXCEPTIONS = {"pytensor": "3.3.2"}     # 3.3.3 was published 2026-10-02T14:13Z, inside the cooldown
 HASHED = re.compile(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+) \\\n((?:\s+--hash=sha256:[0-9a-f]{64}.*\n)+)")
@@ -123,8 +124,22 @@ def test_install_reports_the_bayes_packages_it_finds(tmp_path):
 
 
 # ---------------------------------------------------------------- lock verification: tools-bayes.txt
-def _pins(text):
+def _pins(text, hashes=False):
+    """{name: version}, or {name: (version, sorted sha256s)} with hashes=True."""
+    if hashes:
+        return {norm(n): (v, sorted(re.findall(r"--hash=sha256:([0-9a-f]{64})", h))) for n, v, h in HASHED.findall(text)}
     return {norm(n): v for n, v, _h in HASHED.findall(text)}
+
+
+# The only lines a hash lock may hold besides comments and blanks: a pinned name and its sha256 lines. Anything
+# else (-i/--index-url, --extra-index-url, --trusted-host, -f/--find-links, --no-index, --no-binary, -e, -r/-c,
+# a URL, a VCS or path requirement, an environment marker) would change where or what pip/uv installs.
+LOCK_LINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*==[A-Za-z0-9.+!-]+ \\|    --hash=sha256:[0-9a-f]{64}( \\)?")
+
+
+def _foreign_lines(text):
+    return [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
+            and not LOCK_LINE.fullmatch(ln)]
 
 
 def test_bayes_lock_is_hashed_and_compiled_with_the_tools_command():
@@ -139,7 +154,19 @@ def test_bayes_lock_is_hashed_and_compiled_with_the_tools_command():
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT00:00:00Z", cut) and cut >= base, (cut, base)
     # every pin carries hashes (no unhashed line that --require-hashes would refuse at install)
     assert len(HASHED.findall(txt)) == len(re.findall(r"(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==", txt)) > 0
-    assert "--hash=sha256:" in txt and not re.search(r"(?m)^-e |^git\+|@ (?:https?|file):", txt)
+    assert "--hash=sha256:" in txt and _foreign_lines(txt) == []
+
+
+@pytest.mark.parametrize("line", ["--trusted-host evil.example", "-i https://evil.example/simple",
+                                  "--index-url https://evil.example/simple", "--extra-index-url https://x.example",
+                                  "--find-links /tmp/w", "-f /tmp/w", "--no-index", "--no-binary :all:",
+                                  "-e ./pkg", "-r other.txt", "pymc @ https://evil.example/pymc.whl",
+                                  "git+https://evil.example/pymc", "./pymc-6.3.2.whl",
+                                  'pymc==6.3.2 ; sys_platform == "linux" \\'])
+def test_lock_line_allowlist_refuses_install_source_changes(line):
+    txt = (REQ / "tools-bayes.txt").read_text()
+    assert _foreign_lines(txt) == []
+    assert _foreign_lines(txt.replace("\naiosqlite==", "\n" + line + "\naiosqlite==", 1)) == [line]
 
 
 def test_bayes_lock_keeps_the_base_pins_and_the_inputs_pins():
@@ -148,11 +175,19 @@ def test_bayes_lock_keeps_the_base_pins_and_the_inputs_pins():
     bayes = _pins((REQ / "tools-bayes.txt").read_text())
     base = _pins((REQ / "tools.txt").read_text())
     assert base and {k: (v, bayes.get(k)) for k, v in base.items() if bayes.get(k) != v} == {}
+    # and the same files: every shared package carries exactly tools.txt's sha256 set
+    bh, th = (_pins((REQ / f).read_text(), hashes=True) for f in ("tools-bayes.txt", "tools.txt"))
+    assert {k: v for k, v in th.items() if bh.get(k) != v} == {}
     tin = (REQ / "tools-bayes.in").read_text()
     want = {norm(n): v for n, v in re.findall(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+)", tin)}
     assert set(want) >= set(FITTER) - {"numpy"}
     assert {k: (v, bayes.get(k)) for k, v in want.items() if bayes.get(k) != v} == {}
     assert tin.count("\n-r tools.in\n") == 1
+
+
+def test_fitter_is_stack_bayes_deps():
+    m = re.search(r"(?m)^DEPS = (\(.*\))$", (HOOKS / "stack_bayes.py").read_text())
+    assert m and set(ast.literal_eval(m.group(1))) == set(FITTER)
 
 
 def test_bayes_lock_matches_the_prototype_lock_but_for_named_exceptions():
@@ -214,6 +249,12 @@ def test_doctor_bayes_line_reports_versions_mode_and_the_last_fit(tmp_path):
     rec.write_text(json.dumps({"status": "ok\x1b]0;pwned\x07"}) + "\n")
     assert _doctor(tmp_path, conf).endswith("last fit: unreadable)")
     rec.write_text("[1, 2]\n")
+    assert _doctor(tmp_path, conf).endswith("last fit: none yet)")
+    rec.unlink()
+    rec.mkdir()                                     # there but unreadable: not "none yet"
+    assert _doctor(tmp_path, conf).endswith("last fit: unreadable)")
+    rec.rmdir()
+    rec.write_text("[" * 200000 + "]" * 200000 + "\n")    # RecursionError: skipped, no traceback (stderr == "")
     assert _doctor(tmp_path, conf).endswith("last fit: none yet)")
 
 

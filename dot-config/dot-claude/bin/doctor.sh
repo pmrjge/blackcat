@@ -112,20 +112,23 @@ for d in ("pymc", "pytensor", "nutpie", "arviz", "scipy", "numpy"):
       ok "bayes: venv missing (optional: ./install.sh --with-bayes; until then the fits record skipped:no-pymc and the limits stay empirical)" ;;
     *" -"*) warn "bayes: venv incomplete ($(printf '%s' "$got" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — rerun ./install.sh --with-bayes" ;;
     *)
-      last="$(python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/usage/bayes.json.rec" <<'PY'
+      last="$(python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/usage/bayes.json.rec" 2>/dev/null <<'PY'
 import json, re, sys
 try:
     with open(sys.argv[1], "rb") as f:
         f.seek(0, 2)
         f.seek(max(0, f.tell() - 262144))
         lines = f.read().decode("utf-8", "replace").splitlines()
-except OSError:
+except FileNotFoundError:
     lines = []
+except OSError:                     # there but unreadable (EACCES, a directory, ...)
+    print("unreadable")
+    sys.exit(0)
 status = "none yet"
 for ln in reversed(lines):
     try:
         r = json.loads(ln)
-    except ValueError:
+    except (ValueError, RecursionError):     # a deeply nested line: skipped, never a traceback
         continue
     if isinstance(r, dict):
         s = r.get("status")
