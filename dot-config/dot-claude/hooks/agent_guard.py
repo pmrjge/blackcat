@@ -618,11 +618,18 @@ def project_agent_dirs(cwd, conf=None, sub="agents"):
     """Every .claude/<sub> directory (agents, skills, commands) Claude Code may read project ones from:
     `cwd` up to the repository root (or /), plus a linked worktree's main checkout; never the config dir's
     own <sub>/. The walk of bin/stack_sdk.py project_agent_files (tests/test_plan_gate.py pins them)."""
+    conf = conf or os.path.dirname(_HOOKS_DIR)
+    user = os.path.realpath(os.path.join(conf, sub))
+    return [a for r in project_roots(cwd) for a in [os.path.join(r, ".claude", sub)]
+            if os.path.lexists(a) and os.path.realpath(a) != user]
+
+
+def project_roots(cwd):
+    """`cwd` and its parents up to the repository root (or /), plus a linked worktree's main checkout."""
     def text(p):
         with open(p, encoding="utf-8") as fh:
             return fh.read().strip()
-    conf = conf or os.path.dirname(_HOOKS_DIR)
-    d, user = os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(conf, sub))
+    d = os.path.realpath(cwd or os.getcwd())
     roots = []
     while True:
         roots.append(d)
@@ -635,8 +642,7 @@ def project_agent_dirs(cwd, conf=None, sub="agents"):
             except (OSError, IndexError, UnicodeDecodeError):
                 pass
         if os.path.lexists(g) or os.path.dirname(d) == d:
-            return [a for r in roots for a in [os.path.join(r, ".claude", sub)]
-                    if os.path.lexists(a) and os.path.realpath(a) != user]
+            return roots
         d = os.path.dirname(d)
 
 
@@ -673,8 +679,13 @@ def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
 # A `context: fork` skill runs as its `agent:` (general-purpose without one), in that agent's own mode: the
 # Skill tool is a dispatch too. Every definition the name may resolve to is read (user, project, plugin):
 # one that forks into a plan-unsafe agent closes the call in plan mode (on_skill).
-FORK_RE = re.compile(r"^context:[ \t]*['\"]?fork['\"]?[ \t]*(?:#[^\r\n]*)?\r?$", re.M)   # LF or CRLF
-SKILL_AGENT_RE = re.compile(r"^agent:[ \t]*['\"]?([^'\"#\s]+)", re.M)          # \s stops at a CR too
+# The CLI strips a BOM, parses the block as YAML and tests context === "fork". These over-approximate on purpose
+# (plan mode only; a false match only refuses): any spelling of the key (quoted, `context : fork`, the value on the
+# next line, tags, anchors, aliases, block scalars, flow style); every `agent:` key counts (a duplicate: either may
+# win), and a fork with no readable agent (flow style, indented) is general-purpose. CRLF too.
+FORK_RE = re.compile(r"""["']?\bcontext["']?\s*:\s*(?:(?:!\S*|&\S+|[|>][-+0-9]*)\s+)*(?:["']?fork\b|\*)""")
+SKILL_AGENT_RE = re.compile(r"""^["']?agent["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
+SKILL_FM_NAME_RE = re.compile(r"""^["']?name["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
 SKILL_HEAD = 65536        # bytes of a skill file read for its frontmatter
 SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
@@ -690,10 +701,10 @@ def skill_files(name, cwd, conf=None):
     import glob
     conf = conf or os.path.dirname(_HOOKS_DIR)
     parts = str(name or "").strip().lstrip("/").split(":")
-    if not all(SKILL_NAME_RE.match(x) for x in parts):
+    sk, prefix = parts[-1], [t for x in parts[:-1] for t in x.split("/")]
+    if not all(SKILL_NAME_RE.match(x) for x in [sk] + prefix):
         return []
-    sk, prefix = parts[-1], parts[:-1]
-    found = []
+    found = skill_alias_files(sk, prefix, cwd, conf)
     for base in [os.path.join(conf, "skills")] + project_agent_dirs(cwd, conf, "skills"):
         found.append((base, os.path.join(base, sk, "SKILL.md")))
     for base in [os.path.join(conf, "commands")] + project_agent_dirs(cwd, conf, "commands"):
@@ -713,21 +724,54 @@ def skill_files(name, cwd, conf=None):
     return out
 
 
+def skill_frontmatter(path):
+    """The frontmatter text of a skill or command file (BOM stripped; the whole head when no closing ---), or "";
+    at most SKILL_HEAD characters are read."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            head = fh.read(SKILL_HEAD).lstrip("\ufeff")
+    except OSError:
+        return ""
+    if not head.startswith("---"):
+        return ""
+    parts = head.split("\n---", 1)
+    return parts[0]
+
+
+def skill_alias_files(sk, segs, cwd, conf):
+    """[(folder, file)] of the definitions reachable as `sk` by another name than their folder's: a SKILL.md in
+    a skills folder (config dir, project, plugins) or at a plugin's root whose frontmatter `name:` is sk or
+    <plugin>:sk; and, for a prefix ("apps/web:deploy"), <root>/<segs...>/.claude/skills/<sk>/SKILL.md for every
+    root from cwd up to the repository root. --add-dir folders and nested skills loaded later stay unseen."""
+    import glob
+    root = glob.escape(conf)
+    folders = [os.path.join(conf, "skills")] + project_agent_dirs(cwd, conf, "skills")
+    for pat in ("plugins/cache/*/*/*/skills", "plugins/marketplaces/*/skills",
+                "plugins/marketplaces/*/plugins/*/skills"):
+        folders += sorted(glob.glob(os.path.join(root, pat)))
+    cands = [(f, q) for f in folders for q in sorted(glob.glob(os.path.join(glob.escape(f), "*", "SKILL.md")))]
+    cands += [(os.path.join(conf, "plugins"), q)
+              for q in sorted(glob.glob(os.path.join(root, "plugins", "cache", "*", "*", "*", "SKILL.md")))]
+    out = []
+    for f, q in cands:
+        m = SKILL_FM_NAME_RE.search(skill_frontmatter(q))
+        if m and m.group(1).rpartition(":")[2] == sk:
+            out.append((f, q))
+    if segs:
+        for r in project_roots(cwd):
+            f = os.path.join(r, *segs, ".claude", "skills")
+            out.append((f, os.path.join(f, sk, "SKILL.md")))
+    return out
+
+
 def forked_skill_agents(name, cwd, conf=None):
     """The agents the skill `name` forks into, one per definition with `context: fork` (its `agent:`, else
     general-purpose); [] when no definition forks."""
     out = []
     for p in skill_files(name, cwd, conf):
-        try:
-            with open(p, encoding="utf-8", errors="replace") as fh:
-                head = fh.read(SKILL_HEAD)
-        except OSError:
-            continue
-        parts = head.split("\n---", 1) if head.startswith("---") else None
-        fm = parts[0] if parts and len(parts) == 2 else ""
+        fm = skill_frontmatter(p)
         if FORK_RE.search(fm):
-            m = SKILL_AGENT_RE.search(fm)
-            out.append(m.group(1) if m else "general-purpose")
+            out += SKILL_AGENT_RE.findall(fm) or ["general-purpose"]
     return out
 
 

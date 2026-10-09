@@ -2014,3 +2014,16 @@ def test_a_rotation_that_fails_never_stops_the_append(st, monkeypatch):
     monkeypatch.setattr(U, "_rotate_if_needed", boom)
     U.append_rows([row3(id="z1")])
     assert (SID, "z1", 0) in U.read_rows()
+
+
+def test_an_unreadable_stray_is_set_aside_once_and_appends_go_on(st):
+    """Security re-review (HIGH): the reviewer's case, a valid header and a NUL line, 14 appends."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    (u / "runs3.old-schema-123.csv").write_bytes((",".join(U.COLUMNS) + "\n").encode() + b"3,\x00bad\n")
+    for i in range(14):
+        U.append_rows([row3(id="q%d" % i)])
+    aside = [p.name for p in u.iterdir() if "old-schema" in p.name]
+    assert len(aside) == 1 and aside[0].count(".unreadable-") == 1, aside
+    r = U.read_rows()
+    assert all((SID, "q%d" % i, 0) in r for i in range(14))

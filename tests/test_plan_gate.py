@@ -298,7 +298,7 @@ def test_plugin_and_user_skill_definitions_are_read(tmp_path):
     conf = tmp_path / "conf"
     plug = conf / "plugins" / "cache" / "mkt" / "tools" / "1a2b" / "skills" / "deploy"
     plug.mkdir(parents=True)
-    (plug / "SKILL.md").write_text("---\nname: deploy\ncontext: 'fork'  # runs alone\nagent: \"main-coder\"\n---\nx\n")
+    (plug / "SKILL.md").write_text("---\ncontext: 'fork'  # runs alone\nagent: \"main-coder\"\n---\nx\n")   # no name:
     user = conf / "skills" / "notes"
     user.mkdir(parents=True)
     (user / "SKILL.md").write_text("---\nname: notes\ncontext: fork\nagent: scout\n---\nx\n")
@@ -427,7 +427,7 @@ def test_a_crlf_frontmatter_is_read():
 def test_a_frontmatter_closed_after_8_kb_is_read():
     e = env()
     write_def(os.path.join(e.tmp, ".claude", "skills", "long", "SKILL.md"),
-              "---\nname: long\ncontext: fork\nagent: coder\ndescription: " + "x" * 9000 + "\n---\nx\n")
+              "---\nname: long\ndescription: " + "x" * 9000 + "\ncontext: fork\nagent: coder\n---\nx\n")
     assert refused(skill_call(e, "long"))
 
 
@@ -440,3 +440,53 @@ def test_a_symlinked_skill_is_read_where_it_points(tmp_path):
     os.symlink(tmp_path / "dotfiles" / "ship", conf / "skills" / "ship")
     (tmp_path / "w" / ".git").mkdir(parents=True)
     assert g.forked_skill_agents("ship", str(tmp_path / "w"), str(conf)) == ["coder"]
+
+
+# ---------------------------------------------------------------- security re-review (2b96827f)
+FORKED_DEPLOY = "---\nname: deploy\ncontext: fork\nagent: orchestrator\n---\n"
+
+
+@pytest.mark.parametrize("rel,name", [(".claude/skills/deploy-staging/SKILL.md", "deploy"),
+                                      ("apps/web/.claude/skills/deploy/SKILL.md", "apps/web:deploy")])
+def test_a_forked_skill_reached_by_another_name_is_refused_in_plan_mode(rel, name):
+    """A frontmatter `name:` alias and a nested skill named by its directory reach the same fork."""
+    e = env()
+    write_def(os.path.join(e.tmp, rel), FORKED_DEPLOY)
+    r = skill_call(e, name)
+    assert refused(r) and "forks into 'orchestrator'" in r.reason, r
+
+
+def test_a_plugin_root_skill_is_read_by_its_name(tmp_path):
+    g = load("agent_guard_root", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(conf / "plugins" / "cache" / "mkt" / "my-plugin" / "1f" / "SKILL.md"),
+              "---\nname: review\ncontext: fork\nagent: coder\n---\n")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    assert g.forked_skill_agents("my-plugin:review", str(tmp_path / "w"), str(conf)) == ["coder"]
+
+
+@pytest.mark.parametrize("front", [
+    "﻿---\ncontext: fork\nagent: orchestrator\n---\n",
+    "---\ncontext : fork\nagent: orchestrator\n---\n",
+    '---\n"context": fork\nagent: orchestrator\n---\n',
+    "---\ncontext:\n  fork\nagent: orchestrator\n---\n",
+    "---\ncontext: !!str fork\nagent: orchestrator\n---\n",
+    "---\ncontext: &a fork\nagent: orchestrator\n---\n",
+    "---\ncontext: |-\n  fork\nagent: orchestrator\n---\n",
+    "---\n{context: fork, agent: orchestrator}\n---\n",
+    "---\nmeta:\n  x: 1\n  context: fork\n---\n",
+])
+def test_every_yaml_spelling_of_a_fork_is_read(tmp_path, front):
+    g = load("agent_guard_yaml", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(conf / "skills" / "s" / "SKILL.md"), front)
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    assert g.forked_skill_agents("s", str(tmp_path / "w"), str(conf)) not in ([], ["explore"])
+
+
+def test_a_duplicate_agent_key_is_refused_if_either_is_a_builder():
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "dup", "SKILL.md"),
+              "---\ncontext: fork\nagent: explore\nagent: orchestrator\n---\n")
+    r = skill_call(e, "dup")
+    assert refused(r) and "orchestrator" in r.reason, r
