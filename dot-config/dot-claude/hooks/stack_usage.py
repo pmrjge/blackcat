@@ -48,7 +48,8 @@ Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
                               (fcntl), header line, last row per (session, id, seg) wins
   usage/runs3.1.csv           the archive: rows rotated out of runs3.csv (STACK_USAGE_MAX_BYTES); a
                               runs3.csv of an older header (HEADERS) is merged into it at the next append,
-                              one of another header is set aside as runs3.old-schema-<epoch>.csv,
+                              one of another header is set aside as runs3.old-schema-<epoch>.csv (one an
+                              older collector set aside, of a header this code reads, is merged back),
                               one rotation cannot read (a line the csv module refuses, a NUL, bad UTF-8)
                               as runs3[.1].unreadable-<epoch>.csv, byte for byte
   usage/runs2.csv, runs2.1.csv  the v2 history (COLUMNS_V2, no `model`: read as unknown), and
@@ -1193,25 +1194,39 @@ def _rotate_if_needed(cur, old):
     line the csv module refuses, a NUL or bad UTF-8 (or, for the archive, another header or no read
     access) is set aside intact as runs3[.1].unreadable-<epoch>.csv, never rewritten from the rows
     ahead of that line; an unreadable runs3.csv then starts again empty, an unreadable archive is
-    rebuilt from runs3.csv alone. Only runs3*.csv is ever touched. Called under runs3.lock."""
+    rebuilt from runs3.csv alone. Only runs3*.csv is ever touched. Called under runs3.lock.
+    Strays: an older collector still running after an install (another session's: the hand-off retires
+    only the starting session's own) sets aside a runs3.csv of today's header as runs3.old-schema-<epoch>.csv,
+    which no reader reads. Every such file whose header this code reads (HEADERS) is merged in here, at the
+    next append, the newer last_ts winning per key, and deleted once the archive holding its rows is in place."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
     except OSError:
-        return
+        size = 0
     if size and not _header_ok(cur):
         _set_aside(cur)
         return
+    strays = _strays(cur)
     legacy = size and _header_of(cur) != COLUMNS     # an older header: merged now, the new file has every column
-    if cap <= 0 or (size <= cap and not legacy):
+    if cap <= 0 or (size <= cap and not legacy and not strays):
         return
     if os.path.lexists(old) and not _header_ok(old):
         _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs3.csv's
     rows = _read_strict(old) or {}
-    new = _read_strict(cur)
+    merged = []
+    for p in strays:
+        got = _read_strict(p)            # unreadable: set aside as such (no longer a stray), never deleted
+        if got is not None:
+            _merge_newer(rows, got)
+            merged.append(p)
+    new = _read_strict(cur) if size else {}
     if new is None:
         return
-    rows.update(new)                       # the last row of a key wins, as read_rows([old, cur])
+    if merged:
+        _merge_newer(rows, new)
+    else:
+        rows.update(new)                   # the last row of a key wins, as read_rows([old, cur])
     by_session = {}
     for k, r in rows.items():
         by_session.setdefault(k[0], []).append(r)
@@ -1241,7 +1256,33 @@ def _rotate_if_needed(cur, old):
         fh.write(buf.getvalue())
     os.chmod(tmp, 0o600)
     os.replace(tmp, old)
-    os.unlink(cur)
+    for p in ([cur] if size else []) + merged:
+        os.unlink(p)
+
+
+def _strays(cur):
+    """The runs3.old-schema-*.csv files beside runs3.csv whose header is one of HEADERS, oldest first."""
+    base = os.path.splitext(cur)[0] + ".old-schema-"
+    return sorted((p for p in glob.glob(glob.escape(base) + "*.csv") if _header_ok(p)), key=_mtime)
+
+
+def _mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0.0
+
+
+def _merge_newer(rows, new):
+    """rows.update(new), except that a row of `new` replaces one of `rows` only when its last_ts is not older."""
+    def ts(r):
+        try:
+            return float(r.get("last_ts") or 0)
+        except ValueError:
+            return 0.0
+    for k, r in new.items():
+        if k not in rows or ts(r) >= ts(rows[k]):
+            rows[k] = r
 
 
 def valid_cell(col, v):

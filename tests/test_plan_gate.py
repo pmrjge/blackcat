@@ -105,6 +105,12 @@ def test_the_gate_binds_every_caller_in_plan_mode():
     assert ok(agent(e, "coder", mode="acceptEdits", caller="O1", ctype="orchestrator"))
 
 
+def test_the_refusal_tells_a_main_thread_without_exit_plan_mode_how_to_leave_plan():
+    """Review (code-review LOW): claude-ultracode's ninja-coder main thread has no ExitPlanMode."""
+    r = agent(env(), "coder", ctype="ninja-coder")
+    assert refused(r) and ("Shift+Tab" in r.reason or "--permission-mode" in r.reason), r
+
+
 def test_policy_off_lifts_the_plan_gate():
     assert ok(agent(env(STACK_POLICY="off"), "coder"))
 
@@ -251,3 +257,92 @@ def test_a_child_still_writing_after_the_flag_is_not_released():
     stopped_meta(e, "C1", age_meta=20, age_tr=5)   # transcript lines 15 s after the meta
     assert refused(agent(e, "coder", mode="acceptEdits", caller="M1", ctype="main-coder"), "Fan-out limit")
     assert not e.reg("C1").get("stopped")
+
+
+# ---------------------------------------------------------------- review F1: forked skills
+def skill(e, name, front, mode="plan"):
+    if front is not None:
+        d = os.path.join(e.tmp, ".claude", "skills", name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "SKILL.md"), "w") as f:
+            f.write("---\nname: %s\ndescription: d\n%s---\nDo it.\n" % (name, front))
+    ev = e.base("PreToolUse", tool_name="Skill", agent_type="blackcat", permission_mode=mode,
+                tool_use_id="toolu_sk1", tool_input={"skill": name})
+    return e.run(ev)
+
+
+def test_a_forked_skill_into_a_builder_is_refused_in_plan_mode():
+    """Review F1: a `context: fork` skill runs as its `agent:` in that agent's own mode."""
+    e = env()
+    r = skill(e, "ship", "context: fork\nagent: orchestrator\n")
+    assert refused(r) and "'ship' forks into 'orchestrator'" in r.reason and "ExitPlanMode" in r.reason, r
+    assert ok(skill(e, "ship", None, mode="default"))
+
+
+def test_a_forked_skill_without_an_agent_is_general_purpose_and_refused():
+    r = skill(env(), "fork-me", "context: fork\n")
+    assert refused(r) and "general-purpose" in r.reason, r
+
+
+@pytest.mark.parametrize("front", ["", "agent: orchestrator\n", "context: fork\nagent: explore\n"])
+def test_skills_that_do_not_fork_into_a_builder_pass_in_plan_mode(front):
+    assert ok(skill(env(), "look", front))
+
+
+def test_an_unknown_skill_passes(tmp_path):
+    assert ok(skill(env(), "no-such-skill", None))
+
+
+def test_plugin_and_user_skill_definitions_are_read(tmp_path):
+    g = load("agent_guard_skills", GUARD)
+    conf = tmp_path / "conf"
+    plug = conf / "plugins" / "cache" / "mkt" / "tools" / "1a2b" / "skills" / "deploy"
+    plug.mkdir(parents=True)
+    (plug / "SKILL.md").write_text("---\nname: deploy\ncontext: 'fork'  # runs alone\nagent: \"main-coder\"\n---\nx\n")
+    user = conf / "skills" / "notes"
+    user.mkdir(parents=True)
+    (user / "SKILL.md").write_text("---\nname: notes\ncontext: fork\nagent: scout\n---\nx\n")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    cwd = str(tmp_path / "w")
+    assert g.forked_skill_agents("tools:deploy", cwd, str(conf)) == ["main-coder"]
+    assert g.forked_skill_agents("/notes", cwd, str(conf)) == ["scout"]
+    (conf / "notes").mkdir()
+    (conf / "notes" / "SKILL.md").write_text("---\ncontext: fork\nagent: coder\n---\n")   # reachable by ../
+    for bad in ("../notes", "tools:../../notes", "", "a/b", "skills/../../notes"):
+        assert g.skill_files(bad, cwd, str(conf)) == []
+
+
+# ---------------------------------------------------------------- review F2: the child-side backstop
+def child_call(e, aid, tid, mode, ctype="code-reviewer"):
+    sub = os.path.join(e.proj, e.sid, "subagents")
+    with open(os.path.join(sub, "agent-%s.meta.json" % aid), "w") as f:
+        json.dump({"agentType": ctype, "toolUseId": tid, "spawnDepth": 1}, f)
+    ev = e.base("PreToolUse", tool_name="Write", agent_id=aid, agent_type=ctype, tool_use_id="toolu_w",
+                tool_input={"file_path": "/x", "content": "y"})
+    if mode is not None:
+        ev["permission_mode"] = mode
+    return e.run(ev, args=["budget"])
+
+
+def test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing():
+    """Review F2: an --add-dir agents folder (unseen by hooks) can redefine code-reviewer with acceptEdits."""
+    e = env()
+    pre = dict(e.pre_agent("code-reviewer", agent_type="blackcat", tid="toolu_plan1"), permission_mode="plan")
+    assert ok(e.run(pre))
+    r = child_call(e, "R1", "toolu_plan1", "acceptEdits")
+    assert refused(r) and "runs in 'acceptEdits'" in r.reason, r
+    for mode in ("plan", "default", None):                     # its own mode reads, or none is reported: fail-open
+        assert ok(child_call(e, "R1", "toolu_plan1", mode)), mode
+    pre = dict(e.pre_agent("coder", agent_type="blackcat", tid="toolu_def1"), permission_mode="default")
+    assert ok(e.run(pre))
+    assert ok(child_call(e, "C1", "toolu_def1", "acceptEdits", "coder"))   # dispatched outside plan
+    assert ok(child_call(e, "R2", "toolu_none", "acceptEdits"))            # no marker for its spawn
+
+
+def test_plan_markers_are_dropped_at_startup_and_named_safely():
+    e = env()
+    pre = dict(e.pre_agent("explore", agent_type="blackcat", tid="toolu_../../x"), permission_mode="plan")
+    assert ok(e.run(pre))
+    assert os.listdir(os.path.join(e.sdir(), "plan")) == ["toolu_______x"]
+    e.run(e.base("SessionStart", source="resume"))
+    assert not os.path.exists(os.path.join(e.sdir(), "plan"))

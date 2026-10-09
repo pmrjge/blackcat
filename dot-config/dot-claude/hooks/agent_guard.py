@@ -19,12 +19,15 @@ Reads the hook JSON on stdin.
                                     spawn every stack agent as a main thread, nothing as a
                                     subagent; BlackCat has its own row); missing,
                                     generic, built-in and unknown types are refused
-  PreToolUse  Agent, Workflow, SendMessage  the plan gate (plan_gate_violation): a caller whose
-                                    permission_mode is "plan" dispatches only PLAN_SAFE_TYPES (no
+  PreToolUse  Agent, Workflow, SendMessage, Skill  the plan gate (plan_gate_violation): a caller
+                                    whose permission_mode is "plan" dispatches only PLAN_SAFE_TYPES (no
                                     frontmatter mode: they inherit plan; builders run in their own
-                                    acceptEdits), runs no Workflow and resumes no finished builder;
-                                    a project .claude/agents folder closes it; every caller and
-                                    entrypoint. Agent and SendMessage first release the background
+                                    acceptEdits), runs no Workflow, no skill that forks into another
+                                    agent (on_skill) and resumes no finished builder; a project
+                                    .claude/agents folder closes it; every caller and entrypoint. Its
+                                    child-side backstop (budget mode, plan_child_reason): a child
+                                    it let through that runs in a writing mode runs no tool.
+                                    Agent and SendMessage first release the background
                                     children an Agent SDK host stopped (stop_task: no hook fires;
                                     meta.json stoppedByUser, reap_host_stopped)
   PreToolUse  Workflow (RunWorkflow)  every agent() call of the script names a stack agentType
@@ -600,7 +603,9 @@ def generic_agent_reason(ev):
 # entrypoint (terminal, `claude -p`, every Agent SDK host). A project's .claude/agents may redefine a
 # safe name with another mode (project agents take precedence), so with one present nothing is
 # dispatched in plan mode. STACK_POLICY=off lifts it with the other policy gates.
-PLAN_APPROVE = "Approve the plan first (ExitPlanMode on the main thread), then dispatch it."
+PLAN_APPROVE = ("Approve the plan first (ExitPlanMode on the main thread; a main thread without that tool, such "
+                "as claude-ultracode's, leaves Plan with Shift+Tab or --permission-mode acceptEdits), "
+                "then dispatch it.")
 
 
 def in_plan_mode(ev):
@@ -609,15 +614,15 @@ def in_plan_mode(ev):
     return str(ev.get("permission_mode") or "").strip() == "plan"
 
 
-def project_agent_dirs(cwd, conf=None):
-    """Every .claude/agents directory Claude Code may read project agents from: `cwd` up to the
-    repository root (or /), plus a linked worktree's main checkout; never the config dir's own
-    agents/. The walk of bin/stack_sdk.py project_agent_files (tests/test_plan_gate.py pins them)."""
+def project_agent_dirs(cwd, conf=None, sub="agents"):
+    """Every .claude/<sub> directory (agents, skills, commands) Claude Code may read project ones from:
+    `cwd` up to the repository root (or /), plus a linked worktree's main checkout; never the config dir's
+    own <sub>/. The walk of bin/stack_sdk.py project_agent_files (tests/test_plan_gate.py pins them)."""
     def text(p):
         with open(p, encoding="utf-8") as fh:
             return fh.read().strip()
     conf = conf or os.path.dirname(_HOOKS_DIR)
-    d, user = os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(conf, "agents"))
+    d, user = os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(conf, sub))
     roots = []
     while True:
         roots.append(d)
@@ -630,7 +635,7 @@ def project_agent_dirs(cwd, conf=None):
             except (OSError, IndexError, UnicodeDecodeError):
                 pass
         if os.path.lexists(g) or os.path.dirname(d) == d:
-            return [a for r in roots for a in [os.path.join(r, ".claude", "agents")]
+            return [a for r in roots for a in [os.path.join(r, ".claude", sub)]
                     if os.path.lexists(a) and os.path.realpath(a) != user]
         d = os.path.dirname(d)
 
@@ -663,6 +668,111 @@ def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
         [t for t in (row if row is not None else sorted(PLAN_SAFE_TYPES)) if t in PLAN_SAFE_TYPES]
     return ("Plan mode: '%s' is not dispatched while planning: %s. %s While planning you may dispatch: "
             "%s." % (child, why, PLAN_APPROVE, ", ".join(safe_now) or "none"))
+
+
+# A `context: fork` skill runs as its `agent:` (general-purpose without one), in that agent's own mode: the
+# Skill tool is a dispatch too. Every definition the name may resolve to is read (user, project, plugin):
+# one that forks into a plan-unsafe agent closes the call in plan mode (on_skill).
+FORK_RE = re.compile(r"^context:[ \t]*['\"]?fork['\"]?[ \t]*(?:#.*)?$", re.M)
+SKILL_AGENT_RE = re.compile(r"^agent:[ \t]*['\"]?([^'\"#\s]+)", re.M)
+SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+
+
+def skill_files(name, cwd, conf=None):
+    """The files the skill (or command) `name` ("skill" or "plugin:skill") may be defined in: the config dir's
+    skills/<s>/SKILL.md and commands/<s>.md, the project's .claude/skills and .claude/commands (the agents
+    walk), and every installed plugin's skills/<s>/SKILL.md (any plugin: an over-approximation). Existing files
+    only; a name that is not a plain token gives none."""
+    import glob
+    conf = conf or os.path.dirname(_HOOKS_DIR)
+    plugin, _, sk = str(name or "").strip().lstrip("/").rpartition(":")
+    if not SKILL_NAME_RE.match(sk) or (plugin and not SKILL_NAME_RE.match(plugin)):
+        return []
+    out = [os.path.join(conf, "skills", sk, "SKILL.md"), os.path.join(conf, "commands", sk + ".md")]
+    out += [os.path.join(x, sk, "SKILL.md") for x in project_agent_dirs(cwd, conf, "skills")]
+    out += [os.path.join(x, sk + ".md") for x in project_agent_dirs(cwd, conf, "commands")]
+    e = glob.escape(sk)
+    for pat in ("plugins/cache/*/*/*/skills/%s/SKILL.md", "plugins/marketplaces/*/skills/%s/SKILL.md",
+                "plugins/marketplaces/*/plugins/*/skills/%s/SKILL.md"):
+        out += sorted(glob.glob(os.path.join(glob.escape(conf), pat % e)))
+    return [p for p in out if os.path.isfile(p)]
+
+
+def forked_skill_agents(name, cwd, conf=None):
+    """The agents the skill `name` forks into, one per definition with `context: fork` (its `agent:`, else
+    general-purpose); [] when no definition forks."""
+    out = []
+    for p in skill_files(name, cwd, conf):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                head = fh.read(8192)
+        except OSError:
+            continue
+        parts = head.split("\n---", 1) if head.startswith("---") else None
+        fm = parts[0] if parts and len(parts) == 2 else ""
+        if FORK_RE.search(fm):
+            m = SKILL_AGENT_RE.search(fm)
+            out.append(m.group(1) if m else "general-purpose")
+    return out
+
+
+# The child-side backstop (review F2): an --add-dir or /add-dir folder's .claude/agents can redefine a safe
+# name with permissionMode acceptEdits, and hooks never see add_dirs. So a spawn the plan gate allowed in plan
+# mode leaves a marker plan/<tool_use_id>; budget mode refuses every tool call of a subagent whose meta.json
+# toolUseId has one while its own permission_mode says it writes. Fail-open: no meta, no toolUseId or no
+# reported mode passes. It assumes a subagent's PreToolUse permission_mode is its own mode (unverified).
+PLAN_DIR = "plan"
+PLAN_CHILD_MODES = ("plan", "default")
+PLAN_MARKERS_MAX = 1024
+
+
+def mark_plan_spawn(d, tid):
+    """plan/<tool_use_id> for an Agent call allowed in plan mode (O_EXCL; pruned past PLAN_MARKERS_MAX: the
+    ones older than STACK_LEASE_TTL_S go)."""
+    if not tid:
+        return
+    folder = os.path.join(d, PLAN_DIR)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    names = os.listdir(folder)
+    if len(names) >= PLAN_MARKERS_MAX:
+        ttl, now = knob_int("STACK_LEASE_TTL_S", 21600), time.time()
+        for f in names:
+            try:
+                if now - os.path.getmtime(os.path.join(folder, f)) > ttl:
+                    unlink(os.path.join(folder, f))
+            except OSError:
+                pass
+    create_excl(os.path.join(folder, safe(tid)))
+
+
+def plan_child_reason(ev):
+    """budget mode: the refusal for a subagent dispatched in plan mode that runs in a writing mode, else None."""
+    aid = ev.get("agent_id")
+    mode = str(ev.get("permission_mode") or "").strip()
+    if not aid or not mode or mode in PLAN_CHILD_MODES:
+        return None
+    folder = os.path.join(state_root(), safe(ev.get("session_id"), "nosession"), PLAN_DIR)
+    if not os.path.isdir(folder):
+        return None
+    tid = spawn_meta(ev, ident(aid)).get("toolUseId")
+    if not isinstance(tid, str) or not tid.strip() or not os.path.exists(os.path.join(folder, safe(tid.strip()))):
+        return None
+    return ("Plan mode: this agent was dispatched while planning but runs in '%s' (a definition of its type, "
+            "e.g. from an --add-dir folder, sets that mode), so it runs no tool. Stop now: reply in one line "
+            "that it must be dispatched after the plan is approved, and end your turn." % mode[:32])
+
+
+def on_skill(ev, d):
+    """PreToolUse Skill: in plan mode, no skill that forks into a plan-unsafe agent (FORK_RE)."""
+    if not policy_on() or not in_plan_mode(ev):
+        return
+    ti = tool_input(ev)
+    name = next((ti[k] for k in ("skill", "command", "name") if isinstance(ti.get(k), str) and ti[k].strip()), "")
+    for a in forked_skill_agents(name, ev.get("cwd")):
+        why = plan_unsafe(ev, norm(a))
+        if why:
+            deny("Plan mode: the skill '%s' forks into '%s' (context: fork) while planning: %s. %s"
+                 % (name.strip()[:80], a[:80], why, PLAN_APPROVE))
 
 
 def canonical_tool(name):
@@ -1878,6 +1988,8 @@ def on_agent(ev, d):
         why = plan_gate_violation(ev, "Agent", child, spawn_row(parent, caller_is_main(ev, parent)))
         if why:
             deny(why)
+        if in_plan_mode(ev):
+            mark_plan_spawn(d, tid)         # the child-side backstop (plan_child_reason)
         # the equilibrium rules (their writes wait for step 3)
         eqd = eq_hook("agent_pre", ev, d, ti) if eq_maybe(ev, d) else None
         why = name_takeover(d, ti)
@@ -4694,6 +4806,7 @@ def session_start_bookkeeping(ev, d):
     shutil.rmtree(os.path.join(d, "blackcat"), ignore_errors=True)
     shutil.rmtree(os.path.join(d, "fanout"), ignore_errors=True)
     shutil.rmtree(os.path.join(d, "fanout-dyn"), ignore_errors=True)     # dynamic fan-out state
+    shutil.rmtree(os.path.join(d, PLAN_DIR), ignore_errors=True)         # plan-spawn markers: no child outlives it
     # Subagents never outlive the process that ran them: after a restart or --resume nothing from
     # the registry is running any more (a SendMessage resume fires SubagentStart, which clears
     # this again). Without this, dead children would count against the fan-out caps. The spawn
@@ -5841,7 +5954,7 @@ def budget_main(raw):
     # every tool call of every agent passes here: a subagent of a foreign or generic type (a forked
     # skill without `agent:`, a workflow stage without agentType, a fork, a host's own agent) runs
     # nothing. Pure and checked before the fail-open part below.
-    why = generic_agent_reason(ev)
+    why = generic_agent_reason(ev) or plan_child_reason(ev)
     if why:
         deny(why)
     if eq_maybe(ev):            # the equilibrium tool allowlists and member paths: fail closed
@@ -12714,7 +12827,7 @@ def generic_agent_self_test(conf):
             if any(re.search(r"(?:agent_guard\.py\"?|/bin/stack-hook\"? (?:--fail-closed )?agent_guard)\s*$", c)
                    for c in cmds):
                 wired[event] |= set(re.split(r"\s*[|,]\s*", entry.get("matcher") or ""))
-    for event, need in (("PreToolUse", {"Agent", "Task", "SubAgent", "Workflow", "RunWorkflow"}),
+    for event, need in (("PreToolUse", {"Agent", "Task", "SubAgent", "Workflow", "RunWorkflow", "Skill"}),
                         ("PostToolUse", {"Agent", "Task", "SubAgent"})):
         if not need <= wired[event]:
             problems.append("settings.json %s matcher of agent_guard.py lacks %s"
@@ -13134,6 +13247,7 @@ HANDLERS = {
     ("PreToolUse", "Agent"): on_agent,
     ("PreToolUse", "Workflow"): on_workflow,
     ("PreToolUse", "SendMessage"): on_send,
+    ("PreToolUse", "Skill"): on_skill,
     ("PostToolUse", "Agent"): on_agent_done,
     ("PostToolUse", "TaskStop"): on_task_stop,
     ("PostToolUse", "Bash"): on_bash_done,              # equilibrium check verdicts

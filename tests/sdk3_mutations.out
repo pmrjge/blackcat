@@ -1,37 +1,50 @@
-BASE  doctor  3 named tests: PASS (1.4s)
-BASE  guard   14 named tests: PASS (10.8s)
-BASE  usage   6 named tests: PASS (2.6s)
-KILLED G1   test_plan_mode_refuses_every_builder                                   no plan gate on Agent [1.4s] E       AssertionError: allow(updated-input)
-KILLED G2   test_other_modes_and_no_reported_mode_dispatch_builders                plan mode read as another mode [1.0s] E       AssertionError: assert False
-KILLED G3   test_plan_safe_types_are_the_agents_without_a_mode                     a builder listed as plan-safe [0.4s] E       AssertionError: assert {'claude-code...eviewer', ...} == {'claude-code...planner', ...}
+BASE  doctor  3 named tests: PASS (1.5s)
+BASE  guard   20 named tests: PASS (15.0s)
+BASE  usage   8 named tests: PASS (2.8s)
+KILLED G1   test_plan_mode_refuses_every_builder                                   no plan gate on Agent [1.5s] E       AssertionError: allow(updated-input)
+KILLED G2   test_other_modes_and_no_reported_mode_dispatch_builders                plan mode read as another mode [1.1s] E       AssertionError: assert False
+KILLED G3   test_plan_safe_types_are_the_agents_without_a_mode                     a builder listed as plan-safe [0.5s] E       AssertionError: assert {'claude-code...eviewer', ...} == {'claude-code...planner', ...}
 KILLED G4   test_no_workflow_runs_in_plan_mode                                     Workflow runs in plan mode [0.5s] E       AssertionError: assert False
-KILLED G5   test_resuming_a_finished_builder_is_refused_in_plan_mode               a finished builder resumes in plan mode [1.4s] E       AssertionError: allow(no-output)
-KILLED G6   test_a_finished_record_of_unknown_type_is_refused_in_plan_mode         a finished record of unknown type resumes [0.9s] E       AssertionError: assert False
+KILLED G5   test_resuming_a_finished_builder_is_refused_in_plan_mode               a finished builder resumes in plan mode [1.6s] E       AssertionError: allow(no-output)
+KILLED G6   test_a_finished_record_of_unknown_type_is_refused_in_plan_mode         a finished record of unknown type resumes [1.0s] E       AssertionError: assert False
 KILLED G7   test_a_project_agents_folder_closes_the_gate                           project agents folders ignored [0.5s] E       AssertionError: allow(updated-input)
-KILLED G8   test_project_agent_dirs_walk_like_stack_sdk                            the walk skips the parents of cwd [0.5s] E               AssertionError: (PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14289/test_project_agent_dirs_
-KILLED G9   test_project_agent_dirs_walk_like_stack_sdk                            a linked worktree's main checkout ignored [0.5s] E               AssertionError: (PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14290/test_project_agent_dirs_
+KILLED G8   test_project_agent_dirs_walk_like_stack_sdk                            the walk skips the parents of cwd [0.5s] E               AssertionError: (PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14365/test_project_agent_dirs_
+KILLED G9   test_project_agent_dirs_walk_like_stack_sdk                            a linked worktree's main checkout ignored [0.5s] E               AssertionError: (PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14366/test_project_agent_dirs_
 KILLED G10  SELFTEST                                                               self-test misses a builder in PLAN_SAFE_TYPES [0.2s] agent_guard self-test: FAIL plan gate: PLAN_SAFE_TYPES != the agents that inherit plan (['writer'])
-KILLED R1   test_a_child_its_host_stopped_is_released_before_the_count             no release before the count [1.2s] E       AssertionError: assert False
-KILLED R2   test_only_a_true_stopped_by_user_flag_releases                         any truthy stoppedByUser releases [3.8s] E       AssertionError: assert False
-KILLED R3   test_a_child_resumed_after_the_stop_is_not_released                    a flag older than the latest start releases [1.2s] E       AssertionError: assert False
-KILLED R4   test_a_child_still_writing_after_the_flag_is_not_released              a child still writing is released [1.2s] E       AssertionError: assert False
-KILLED R6   test_a_host_stop_also_frees_the_slot_for_a_resume                      no release before a resume [1.7s] E       AssertionError: assert False
-KILLED U1   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session entrypoint never reaches the rows [0.5s] E       AssertionError: assert {''} == {'sdk-py'}
-KILLED U2   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session the last entrypoint wins [0.5s] E       AssertionError: assert {'cli'} == {'sdk-py'}
-KILLED U3   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session an invalid entrypoint is taken [0.5s] E       AssertionError: assert {''} == {'sdk-py'}
-KILLED U4   test_entrypoint_cell_validated_on_write_and_read                       the entrypoint cell is not validated [0.5s] E       AssertionError: assert ['sdk-py', 'x...aaaaaaaaaaaa'] == ['sdk-py', '', '', '']
-KILLED U5   test_an_older_runs3_header_is_merged_not_set_aside                     the header before entrypoint is set aside [0.5s] E       AssertionError: assert not [PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14295/test_an_older_runs3_h
-KILLED U6   test_an_older_runs3_header_is_merged_not_set_aside                     an older header is kept, not merged [0.5s] E       AssertionError: assert 'schema_versi...q_run,eq_role' == 'schema_versi...le,entrypoint'
-KILLED U7   test_a_handed_off_state_reads_the_entrypoint_from_the_transcript_head  no head read for an older state [0.5s] E       AssertionError: assert '' == 'sdk-cli'
+KILLED R1   test_a_child_its_host_stopped_is_released_before_the_count             no release before the count [1.3s] E       AssertionError: assert False
+KILLED R2   test_only_a_true_stopped_by_user_flag_releases                         any truthy stoppedByUser releases [4.1s] E       AssertionError: assert False
+KILLED R3   test_a_child_resumed_after_the_stop_is_not_released                    a flag older than the latest start releases [1.3s] E       AssertionError: assert False
+KILLED R4   test_a_child_still_writing_after_the_flag_is_not_released              a child still writing is released [1.3s] E       AssertionError: assert False
+KILLED R6   test_a_host_stop_also_frees_the_slot_for_a_resume                      no release before a resume [1.9s] E       AssertionError: assert False
+KILLED U1   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session entrypoint never reaches the rows [0.6s] E       AssertionError: assert {''} == {'sdk-py'}
+KILLED U2   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session the last entrypoint wins [0.6s] E       AssertionError: assert {'cli'} == {'sdk-py'}
+KILLED U3   test_entrypoint_is_the_main_transcripts_first_on_every_row_of_the_session an invalid entrypoint is taken [0.6s] E       AssertionError: assert {''} == {'sdk-py'}
+KILLED U4   test_entrypoint_cell_validated_on_write_and_read                       the entrypoint cell is not validated [0.6s] E       AssertionError: assert ['sdk-py', 'x...aaaaaaaaaaaa'] == ['sdk-py', '', '', '']
+KILLED U5   test_an_older_runs3_header_is_merged_not_set_aside                     the header before entrypoint is set aside [0.6s] E       AssertionError: assert not [PosixPath('/private/tmp/claude-501/pytest-of-pmrj/pytest-14371/test_an_older_runs3_h
+KILLED U6   test_an_older_runs3_header_is_merged_not_set_aside                     an older header is kept, not merged [0.6s] E       AssertionError: assert 'schema_versi...q_run,eq_role' == 'schema_versi...le,entrypoint'
+KILLED U7   test_a_handed_off_state_reads_the_entrypoint_from_the_transcript_head  no head read for an older state [0.6s] E       AssertionError: assert '' == 'sdk-cli'
 KILLED U8   test_a_collector_without_the_column_count_is_retired                   a collector without `cols` is kept [21.0s] E                   subprocess.TimeoutExpired: Command '['/usr/bin/python3', '/private/tmp/claude-501/pytest-of-pmrj/pyt
-KILLED U9   test_without_an_entrypoint_every_other_cell_is_byte_equal              entrypoint not the last column [0.5s] E       AssertionError: assert (['entrypoint'...', 'seg', ...] == ['schema_vers...'status', ...]
-KILLED D1   test_all_present_reads_both_versions_without_importing_the_sdk         the lock check goes online [0.7s] E       assert (False)
-KILLED D2   test_all_present_reads_both_versions_without_importing_the_sdk         the lock check may write the lock [0.7s] E       assert (True and False)
-KILLED D3   test_a_stale_or_missing_lock_warns                                     a stale lock reads as ok [0.6s] E       AssertionError: assert (False)
-KILLED D4   test_a_stale_or_missing_lock_warns                                     a missing lock reads as ok [0.7s] E       AssertionError: assert ('lock missing' in '  ok    sdk: pin 0.2.163, lock ok, uv ok, cli system v2.1.287 / bundl
-KILLED D5   test_no_environment_yet_and_an_environment_of_another_version          an environment of another version is reported as bundled [0.7s] E       AssertionError: assert (True and ('holds 0.2.160: the next run re-syncs it to %s' % '0.2.163') in '  ok    sdk: 
+KILLED U9   test_without_an_entrypoint_every_other_cell_is_byte_equal              entrypoint not the last column [0.6s] E       AssertionError: assert (['entrypoint'...', 'seg', ...] == ['schema_vers...'status', ...]
+KILLED D1   test_all_present_reads_both_versions_without_importing_the_sdk         the lock check goes online [0.7s] E       assert False
+KILLED D2   test_all_present_reads_both_versions_without_importing_the_sdk         the lock check may write the lock [0.7s] E       assert False
+KILLED D3   test_a_stale_or_missing_lock_warns                                     a stale lock reads as ok [0.7s] E       AssertionError: assert (False)
+KILLED D4   test_a_stale_or_missing_lock_warns                                     a missing lock reads as ok [1.0s] E       AssertionError: assert ('lock missing' in '  ok    sdk: pin 0.2.163, lock ok, uv ok, cli system v2.1.287 / bundl
+KILLED D5   test_no_environment_yet_and_an_environment_of_another_version          an environment of another version is reported as bundled [0.8s] E       AssertionError: assert (True and ('holds 0.2.160: the next run re-syncs it to %s' % '0.2.163') in '  ok    sdk: 
 KILLED D6   test_all_present_reads_both_versions_without_importing_the_sdk         the SDK package is imported [0.7s] E       AssertionError: assert '  ok    sdk:... not be read)' == '  ok    sdk:...dled v2.1.286'
 KILLED D7   test_a_stale_or_missing_lock_warns                                     a stale lock is not a warning [0.7s] E       AssertionError: assert (False)
-KILLED I1   test_install_stages_the_sdk_lock_beside_the_helper                     the lock is not staged [8.6s] E       AssertionError: ('matics, chem-md, chem-qm, ci-cd-pipelines, claude-code-extensions, cloud-aws, cloud-gcp, cmake
-KILLED I2   test_install_stages_the_sdk_lock_beside_the_helper                     the lock is not in the manifest [10.3s] E       KeyError: 'bin/stack_sdk.py.lock'
-33 of 33 killed
+KILLED U10  test_an_older_collector_of_another_session_hides_no_rows               set-aside strays are never merged back [0.6s] E       KeyError: ('11111111-2222-3333-4444-555555555555', 'new1', 0)
+KILLED U11  test_a_stray_of_an_unknown_header_is_never_merged_or_deleted           a stray of an unknown header is merged and deleted [0.5s] E       FileNotFoundError: [Errno 2] No such file or directory: '/private/tmp/claude-501/pytest-of-pmrj/pytest-14384/tes
+KILLED U12  test_an_older_collector_of_another_session_hides_no_rows               the older row of a key wins the merge [0.6s] E       AssertionError: assert (('22222222-2222-3333-4444-555555555555', 'old1', 0) in {('11111111-2222-3333-4444-555555
+KILLED G11  test_the_refusal_tells_a_main_thread_without_exit_plan_mode_how_to_leave_plan the refusal names only ExitPlanMode [0.5s] E       AssertionError: deny | Plan mode: 'coder' is not dispatched while planning: it runs in its own permission mode a
+KILLED G12  test_a_forked_skill_into_a_builder_is_refused_in_plan_mode             Skill has no handler [0.5s] E       AssertionError: allow(no-output)
+KILLED G13  test_a_forked_skill_without_an_agent_is_general_purpose_and_refused    a fork without agent: is let through [0.5s] E       AssertionError: allow(no-output)
+KILLED G14  test_plugin_and_user_skill_definitions_are_read                        plugin skills are not read [0.5s] E       AssertionError: assert [] == ['main-coder']
+KILLED G15  test_plugin_and_user_skill_definitions_are_read                        a skill name with a path is read [0.5s] E           AssertionError: assert ['/private/tm...tes/SKILL.md'] == []
+KILLED G16  test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing    no child-side backstop [0.7s] E       AssertionError: allow(no-output)
+KILLED G17  test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing    no marker for a plan-mode spawn [0.6s] E       AssertionError: allow(no-output)
+KILLED G18  test_a_plan_dispatched_child_running_in_a_writing_mode_runs_nothing    a child without a reported mode is refused [1.0s] E           AssertionError: None
+KILLED G19  test_plan_markers_are_dropped_at_startup_and_named_safely              plan markers survive a restart [0.7s] E       AssertionError: assert not True
+KILLED G20  test_plan_markers_are_dropped_at_startup_and_named_safely              the marker name is the raw tool_use_id [0.5s] E       AssertionError: assert False
+KILLED I1   test_install_stages_the_sdk_lock_beside_the_helper                     the lock is not staged [9.8s] E       AssertionError: ('matics, chem-md, chem-qm, ci-cd-pipelines, claude-code-extensions, cloud-aws, cloud-gcp, cmake
+KILLED I2   test_install_stages_the_sdk_lock_beside_the_helper                     the lock is not in the manifest [11.2s] E       KeyError: 'bin/stack_sdk.py.lock'
+46 of 46 killed

@@ -24,7 +24,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
-USAGE_PY = Path(os.environ.get("USAGE_PY") or HOOKS / "stack_usage.py")     # USAGE_PY=: a copy (tests/sdk3_mutations.py)
+USAGE_PY = Path(os.environ.get("USAGE_PY") or HOOKS / "stack_usage.py")     # a copy: tests/sdk3_mutations.py
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 SID = "11111111-2222-3333-4444-555555555555"
 
@@ -1567,7 +1567,8 @@ def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_
         (dict(live, exited=now), None),                               # it has let go
         (dict(live, heartbeat=now - U.HANDOFF_FRESH_S - 5), None),    # stale: hung, or a crashed one's
         (dict(live, heartbeat=float("nan")), None), (dict(live, heartbeat=now + 3600), None),
-        (dict(live, schema=U.SCHEMA_VERSION, cols=len(U.COLUMNS)), None), (dict(live, schema=U.SCHEMA_VERSION + 1), None),
+        (dict(live, schema=U.SCHEMA_VERSION, cols=len(U.COLUMNS)), None),
+        (dict(live, schema=U.SCHEMA_VERSION + 1), None),
         (live, "sleep 120"),                                          # ps: not a collector
         (live, other),                                                # ps: another session's collector
     ]
@@ -1953,3 +1954,37 @@ def test_a_collector_without_the_column_count_is_retired(st, tmp_path, owner, re
     assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
     time.sleep(0.5)
     assert collector_meta(st)["pid"] == pid and lock_held(st)
+
+
+def test_an_older_collector_of_another_session_hides_no_rows(st, tmp_path):
+    """Review (code-review MEDIUM): the hand-off retires only the starting session's collector, so an older
+    (ENTRY_REV) collector of another session sets today's runs3.csv aside as runs3.old-schema-<epoch>.csv, which
+    no reader reads. The next append of this code merges it back (newer last_ts wins) and deletes it."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % ENTRY_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (ENTRY_REV, p.stderr.strip()[:80]))
+    d = tmp_path / "old"
+    d.mkdir()
+    (d / "stack_usage.py").write_text(p.stdout)
+    (d / "stack_io.py").write_bytes((HOOKS / "stack_io.py").read_bytes())
+    OLD = _load("stack_usage_entry_rev", d / "stack_usage.py")
+    u = st / "usage"
+    U.append_rows([row3(id="new1", entrypoint="sdk-py", last_ts="100"), row3(id="k", api_calls=1, last_ts="50")])
+    OLD.append_rows([dict(row3(id="old1", last_ts="60"), session="22222222-2222-3333-4444-555555555555"),
+                   row3(id="k", api_calls=2, last_ts="40")])                 # an older row of a key: loses
+    assert list(u.glob("runs3.old-schema-*.csv"))                            # the older code set ours aside
+    U.append_rows([row3(id="new2", last_ts="200")])
+    r = U.read_rows()
+    assert r[(SID, "new1", 0)]["entrypoint"] == "sdk-py" and (SID, "new2", 0) in r
+    assert ("22222222-2222-3333-4444-555555555555", "old1", 0) in r and r[(SID, "k", 0)]["api_calls"] == "1"
+    assert not list(u.glob("runs3.old-schema-*.csv"))                        # merged, then deleted
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+
+
+def test_a_stray_of_an_unknown_header_is_never_merged_or_deleted(st):
+    u = st / "usage"
+    u.mkdir(parents=True)
+    (u / "runs3.old-schema-1.csv").write_text("schema_version,session,future_col\n3,x,y\n")
+    U.append_rows([row3(id="a1")])
+    assert (u / "runs3.old-schema-1.csv").read_text() == "schema_version,session,future_col\n3,x,y\n"
