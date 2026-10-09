@@ -18,6 +18,7 @@ import re
 import signal
 import sys
 import types
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -60,13 +61,20 @@ def sdk(monkeypatch):
 class World:
     """What the fake sessions share: dirs, the options each session got, the wire, kills."""
 
-    def __init__(self, tmp, bad=False, hollow=False):
+    def __init__(self, tmp, bad=False, hollow=False, child="held", child_end_s=None, shell=False):
+        """bad: the measurements say no. hollow: nothing to measure (PR5: no registry record; PR6: the
+        reply ends before the interrupt). child (PR5): held (asks for Bash, parked), no_bash (never
+        asks), pre_stopped (its record already says stopped). child_end_s (PR7): when the CLI's
+        background child ends after stdin closes (None: it outlives the run; bad: after the
+        ceiling). shell: every session's first turn leaves a background shell task running."""
         self.bad, self.hollow, self.config, self.state = bad, hollow, tmp / "config", tmp / "state" / "claude-agent-stack"
+        self.child, self.shell = child, shell
+        self.child_end_s = 0.6 if bad and child_end_s is None else child_end_s
         (self.config / "agents").mkdir(parents=True)
         for a in ("blackcat", "coder", "orchestrator", "explore"):
             (self.config / "agents" / (a + ".md")).write_text("---\nname: %s\n---\n" % a)
         self.ids, self.opened, self.answers, self.fakes, self.killed = itertools.count(1), [], [], {}, []
-        self.ok_calls = 0
+        self.ok_calls = Counter()                       # per scratch dir: PR13's two calls share one
 
     def factory(self, opts):
         f = FakeCLI(self, opts)
@@ -80,7 +88,8 @@ class World:
 
     def cfg(self, **kw):
         return P.Config(config_dir=str(self.config), cli_path="/nonexistent/claude", state_dir=str(self.state),
-                        transport_factory=self.factory, killer=self.kill, bg_ceiling_ms=300, settle_s=0.01, **kw)
+                        transport_factory=self.factory, killer=self.kill, bg_ceiling_ms=300, settle_s=0.01,
+                        hold_s=5.0, wait_s=0.5, **kw)
 
 
 class FakeCLI(Base):
@@ -89,7 +98,7 @@ class FakeCLI(Base):
         self.sid = opts.resume or "sess-%04d-fake" % self.n
         self._process = types.SimpleNamespace(pid=40000 + self.n)
         self.q, self.pending, self.tasks, self.callbacks = asyncio.Queue(), {}, set(), []
-        self.killed = self.started = self.turn_open = self.input_ended = self.bg = False
+        self.killed = self.started = self.turn_open = self.input_ended = self.bg = self.exiting = False
         self.rids, self.prompts = itertools.count(1), 0
 
     # Transport
@@ -106,8 +115,22 @@ class FakeCLI(Base):
             self.exit()
 
     def exit(self):
-        if self.bg and self.w.bad:                             # the CLI waits for its child
-            self.emit(self.done_task("t7", "tu-7"))
+        if self.exiting:
+            return
+        self.exiting = True
+        if self.bg and self.w.child_end_s is not None:          # the CLI waits for its child
+            t = asyncio.ensure_future(self.child_then_exit(self.w.child_end_s))
+            self.tasks.add(t)
+            t.add_done_callback(self.tasks.discard)
+            return
+        self.emit(None)
+
+    async def child_then_exit(self, delay):
+        """The background child ends `delay` s after stdin closed; the CLI then reports a second
+        result (the 2026-10-09 PR7 run: results=2) and exits."""
+        await asyncio.sleep(delay)
+        self.emit(self.done_task("t7", "tu-7"))
+        self.emit(self.result())
         self.emit(None)
 
     async def close(self):
@@ -145,11 +168,16 @@ class FakeCLI(Base):
         if sub == "interrupt" and self.turn_open:
             self.finish(terminal_reason="aborted_streaming")
         elif sub == "stop_task":
-            lease = self.w.state / self.sid / "fanout" / "blackcat" / "tu-5.json"
-            if not self.w.bad:
-                lease.unlink(missing_ok=True)
-            self.emit(self.sysm("task_notification", task_id=req["task_id"], status="stopped", output_file="/o",
-                                summary=LEAK, tool_use_id="tu-5"))
+            # the CLI kills the task (TaskUpdated killed); its SubagentStop runs the guard's
+            # mark_stopped, which stamps the registry record and drops the child's own leases
+            self.emit(self.sysm("task_updated", task_id=req["task_id"], patch={"status": "killed"}))
+            rec = self.w.state / self.sid / "agents" / "a5.json"
+            if not self.w.bad and rec.exists():
+                rec.write_text(json.dumps(dict(json.loads(rec.read_text()), stopped=1.0)))
+                (self.w.state / self.sid / "fanout" / "a5" / "tu-x.json").unlink(missing_ok=True)
+                if self.o.include_hook_events:
+                    self.emit(self.sysm("hook_response", hook_event="SubagentStop", output=LEAK, exit_code=0,
+                                        outcome="success"))
 
     async def ask(self, subtype, **req):
         rid = "cli_%d" % next(self.rids)
@@ -192,15 +220,21 @@ class FakeCLI(Base):
         return self.sysm("task_notification", task_id=task_id, status=status, output_file="/o", summary=LEAK,
                          tool_use_id=tuid)
 
+    def result(self, **kw):
+        # a fixed 9502-token prefix read by every call; a later call in the same cwd also reads what
+        # the first wrote, except in the bad world (the 2026-10-09 PR13 run: 9502 and 9502)
+        reuse = not self.w.bad and self.w.ok_calls[str(self.o.cwd)] >= 2
+        cache = 9502 + (18470 if reuse else 0)
+        return dict({"type": "result", "subtype": "success", "duration_ms": 5, "duration_api_ms": 4,
+                     "is_error": False, "num_turns": 1, "session_id": self.sid, "total_cost_usd": 0.01,
+                     "result": LEAK, "terminal_reason": "completed",
+                     "modelUsage": {"fake-model": {"inputTokens": 10, "cacheCreationInputTokens": 18470,
+                                                   "cacheReadInputTokens": cache, "outputTokens": 1}}}, **kw)
+
     def finish(self, **kw):
         self.turn_open = False
         (self.w.state / self.sid / "prompt-pending.json").unlink(missing_ok=True)
-        cache = 0 if self.w.bad or self.w.ok_calls < 2 else 700
-        self.emit(dict({"type": "result", "subtype": "success", "duration_ms": 5, "duration_api_ms": 4,
-                        "is_error": False, "num_turns": 1, "session_id": self.sid, "total_cost_usd": 0.01,
-                        "result": LEAK, "terminal_reason": "completed",
-                        "modelUsage": {"fake-model": {"inputTokens": 10, "cacheCreationInputTokens": 5,
-                                                      "cacheReadInputTokens": cache, "outputTokens": 1}}}, **kw))
+        self.emit(self.result(**kw))
         self.prompts -= 1
         if self.input_ended and self.prompts == 0:
             self.exit()
@@ -225,6 +259,9 @@ class FakeCLI(Base):
             proj.mkdir(parents=True, exist_ok=True)
             entry = "cli" if self.w.bad else "sdk-py"
             (proj / (self.sid + ".jsonl")).write_text(json.dumps({"entrypoint": entry, "message": prompt}) + "\n")
+            if self.w.shell:                                    # a background shell that never ends
+                self.emit(self.sysm("task_started", task_id="tsh", description=LEAK, tool_use_id="tu-sh",
+                                    task_type="local_bash"))
         g.mkdir(parents=True, exist_ok=True)
         with open(g / "prompt-windows.jsonl", "a") as fh:
             fh.write('{"base": 1}\n')
@@ -238,7 +275,7 @@ class FakeCLI(Base):
         await getattr(self, "play_" + key)()
 
     async def play_ok(self):
-        self.w.ok_calls += 1
+        self.w.ok_calls[str(self.o.cwd)] += 1
         self.emit(self.asst({"type": "text", "text": LEAK}))
         self.finish()
 
@@ -268,14 +305,27 @@ class FakeCLI(Base):
         self.finish()
 
     async def play_stop(self):
+        if not await self.allowed("Agent", {"subagent_type": "coder", "prompt": LEAK}):
+            self.finish()
+            return
         self.emit(self.asst({"type": "tool_use", "id": "tu-5", "name": "Agent", "input": {"prompt": LEAK}}))
-        lease = self.w.state / self.sid / "fanout" / "blackcat" / "tu-5.json"
-        lease.parent.mkdir(parents=True, exist_ok=True)
+        # the guard under the SDK: the launch is async, the spawn lease is gone, the child is in the
+        # registry (bg, keyed by its agent id, naming the Agent call); another agent's record beside it
+        g = self.w.state / self.sid
+        (g / "agents").mkdir(parents=True, exist_ok=True)
+        (g / "agents" / "a9.json").write_text(json.dumps({"id": "a9", "tool_use_id": "tu-9", "bg": True}))
         if not self.w.hollow:
-            lease.write_text("{}")
+            rec = {"id": "a5", "type": "coder", "bg": True, "tool_use_id": "tu-5", "status": "async_launched"}
+            if self.w.child == "pre_stopped":
+                rec["stopped"] = 1.0
+            (g / "agents" / "a5.json").write_text(json.dumps(rec))
+        (g / "fanout" / "a5").mkdir(parents=True, exist_ok=True)
+        (g / "fanout" / "a5" / "tu-x.json").write_text("{}")      # a lease the child holds itself
         self.emit(self.started_task("t5", "tu-5", "coder: "))
-        await self.allowed("Bash", {"command": "sleep 110; rm -rf ~"}, agent_id="a5")
-        await self.allowed("Bash", {"command": "sleep 110"}, agent_id="a5")
+        await self.allowed("Bash", {"command": "rm -rf ~"})          # the main thread's: denied, not held
+        if self.w.child != "no_bash":
+            await self.allowed("Read", {"file_path": "/etc/passwd"}, agent_id="a5")
+            await self.allowed("Bash", {"command": "true"}, agent_id="a5")   # held until the probe lets go
 
     async def play_count(self):
         if self.w.hollow:                                       # the reply completes before any interrupt
@@ -366,6 +416,13 @@ def test_the_default_command_prints_the_plan_and_spends_nothing(capsys, monkeypa
     assert "PR1 " in out and "PR10" in out and "PR3 " not in out and "total cap $2.00" in out
     with pytest.raises(SystemExit):
         P.main(["--only", "PR99"])
+    assert P.main([]) == 0                                     # the whole plan: caps unchanged
+    out = capsys.readouterr().out
+    assert "total cap $10.50" in out
+    for pid in ("PR3", "PR5", "PR7", "PR10"):
+        assert re.search(rf"^{pid}\s+\$1\.50 ", out, re.MULTILINE), pid
+    assert len(re.findall(r"^PR\d+\s+\$0\.50 ", out, re.MULTILINE)) == 9
+    assert P.Config(config_dir="/x", cli_path=None, state_dir="/x").bg_ceiling_ms == 2000
 
 
 # ---------------------------------------------------------------- the report (pure)
@@ -433,10 +490,21 @@ def test_every_probe_answers_yes_in_the_good_world_with_its_own_cap(sdk, tmp_pat
     pr7 = next(o for o in w.opened if probe_of(o) == "PR7")
     assert pr7.can_use_tool is None and not pr7.hooks          # else the SDK holds stdin while the child runs
     assert "Bash(sleep 110)" in pr7.allowed_tools
+    pr5 = next(o for o in w.opened if probe_of(o) == "PR5")
+    assert isinstance(pr5.can_use_tool, P.HoldHost) and not pr5.hooks and pr5.include_hook_events
+    f5 = next(r.facts for r in rows if r.probe.pid == "PR5")
+    assert f5["child_live_at_stop"] and f5["registry_is_held_agent"] and f5["registry_bg_before"]
+    assert (f5["child_status_after_stop"], f5["registry_stopped_after"], f5["subagent_stop_events"]) == (
+        "killed", True, 1)
+    assert (f5["leases_before"], f5["leases_after"], f5["hold_released_by"]) == (1, 0, "event")
+    f13 = next(r.facts for r in rows if r.probe.pid == "PR13")
+    assert (f13["run1_cache_read"], f13["run2_cache_read"], f13["cache_read_gain"]) == (9502, 27972, 18470)
     for r in rows:              # PR7 closes while its child runs: counted at its whole cap
         want = 1.50 if r.probe.pid == "PR7" else 0.01 * len(per[r.probe.pid])
         assert r.cost == pytest.approx(want) and r.cap == caps[r.probe.pid], r.probe.pid
         assert r.sessions and r.facts["rate_limit_events"] >= 1
+        open_at_close = {"local_agent": 1} if r.probe.pid == "PR7" else {}
+        assert r.facts["open_tasks_at_close_by_type"] == open_at_close, r.probe.pid
     # the real transport would pass the cap to the CLI
     from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 
@@ -465,7 +533,8 @@ def test_host_and_observer_never_decide_more_than_the_probe_allows(sdk, tmp_path
     assert all("updatedPermissions" not in r for _, r in can)                     # nothing persisted
     decided = [(t, r["behavior"]) for t, r in can]
     assert decided == [("AskUserQuestion", "allow"), ("ExitPlanMode", "allow"), ("Write", "allow"),
-                       ("Write", "deny"), ("Bash", "deny"), ("Bash", "deny"), ("Bash", "allow")]
+                       ("Write", "deny"), ("Bash", "deny"),
+                       ("Agent", "allow"), ("Bash", "deny"), ("Read", "deny"), ("Bash", "deny")]  # PR5
     ask = next(r for t, r in can if t == "AskUserQuestion")
     assert list(ask["updatedInput"]["answers"].values()) == ["red"]
 
@@ -478,11 +547,53 @@ def test_answers_follow_the_measurements_in_the_bad_world(sdk, tmp_path):
 
 
 def test_hollow_measurements_answer_unknown(sdk, tmp_path):
-    """PR5 with no lease to release, PR6 with no turn actually interrupted: no answer either way."""
+    """PR5 with no registry record of the child, PR6 with no turn actually interrupted: no answer."""
     w = World(tmp_path, hollow=True)
     got = {r.probe.pid: (r.answer, r.facts) for r in run(w, [p for p in P.PROBES if p.pid in ("PR5", "PR6")])}
-    assert got["PR5"][0] == "unknown" and got["PR5"][1]["stopped_child_had_lease"] is False
+    assert got["PR5"][0] == "unknown" and got["PR5"][1]["registry_before"] is False
+    assert got["PR5"][1]["child_pending"] is True and got["PR5"][1]["child_status_after_stop"] == "killed"
     assert got["PR6"][0] == "unknown" and got["PR6"][1]["interrupted"] is False
+
+
+@pytest.mark.parametrize("child, fact", [("no_bash", "child_pending"), ("pre_stopped", "registry_stopped_before")])
+def test_pr5_answers_only_for_a_child_live_at_the_stop(sdk, tmp_path, child, fact):
+    """A child that never asked for Bash (not held) or whose record already says stopped: the stop
+    proves nothing, although the record ends up stopped and the task terminal."""
+    w = World(tmp_path, child=child)
+    (row,) = run(w, [p for p in P.PROBES if p.pid == "PR5"])
+    assert row.answer == "unknown", row.facts
+    assert row.facts["child_live_at_stop"] is False and row.facts[fact] is (child == "pre_stopped")
+    assert row.facts["child_status_after_stop"] == "killed" and row.facts["registry_stopped_after"] is True
+
+
+def test_hold_host_parks_only_the_first_subagent_bash(sdk):
+    async def go():
+        import anyio
+
+        def ctx(agent):
+            return types.SimpleNamespace(agent_id=agent)
+        h = P.HoldHost(hold_s=5.0)
+        assert (await h("Agent", {}, ctx(None))).behavior == "allow"
+        assert (await h("Task", {}, ctx(None))).behavior == "allow"
+        assert (await h("Bash", {"command": "true"}, ctx(None))).behavior == "deny"     # main thread
+        assert (await h("Read", {"file_path": "x"}, ctx("a1"))).behavior == "deny"
+        assert not h.pending
+        out = {}
+        async with anyio.create_task_group() as tg:
+            async def first():
+                out["first"] = await h("Bash", {"command": "true"}, ctx("a1"))
+            tg.start_soon(first)
+            await P.poll(lambda: h.pending, 2)
+            assert h.pending and h.pending_agent == "a1" and "first" not in out      # parked
+            second = await h("Bash", {"command": "true"}, ctx("a1"))
+            assert second.behavior == "deny" and "first" not in out                   # not parked
+            h.release.set()
+        assert out["first"].behavior == "deny" and h.released_by == "event"
+        assert all(not getattr(r, "updated_permissions", None) for r in out.values())
+        h2 = P.HoldHost(hold_s=0.05)
+        assert (await h2("Bash", {"command": "true"}, ctx("a2"))).behavior == "deny"
+        assert h2.released_by == "timeout"
+    asyncio.run(go())
 
 
 def test_a_session_without_a_cap_never_connects_and_stops_the_run(sdk, tmp_path):
@@ -580,6 +691,36 @@ def test_a_session_closed_while_its_child_runs_counts_at_its_whole_cap(sdk, tmp_
     pr11 = next(p for p in P.PROBES if p.pid == "PR11")
     rows = run(w, [dataclasses.replace(pr11, fn=leave_child)])
     assert rows[0].cost == pytest.approx(0.5) and rows[0].facts["sessions_without_result"] == 1
+    assert rows[0].facts["open_tasks_at_close_by_type"] == {"local_agent": 1}
+
+
+def test_a_background_shell_left_running_does_not_count_the_whole_cap(sdk, tmp_path):
+    """Only agent tasks (the SDK's DEFERRING_TASK_TYPES) hold a session at its cap: the 2026-10-09
+    PR5 session was counted at $1.50 for a background shell."""
+    w = World(tmp_path, shell=True)
+    rows = run(w, [p for p in P.PROBES if p.pid in ("PR11", "PR13")])
+    for r in rows:
+        n = len([o for o in w.opened if probe_of(o) == r.probe.pid])
+        assert r.cost == pytest.approx(0.01 * n) and r.facts["sessions_without_result"] == 0, r.probe.pid
+        assert r.facts["open_tasks_at_close_by_type"] == {"local_bash": n}, r.probe.pid
+    from claude_agent_sdk._internal.query import DEFERRING_TASK_TYPES
+    assert P.AGENT_TASKS == DEFERRING_TASK_TYPES == {"local_agent", "local_workflow"}
+
+
+def test_pr7_a_child_that_ends_before_the_ceiling_gives_no_answer(sdk, tmp_path):
+    """The 2026-10-09 run: the child ended 7.4 s after the first result, under the 30 s ceiling, and
+    query() streamed on to a second result. That is no measurement of the ceiling: unknown."""
+    w = World(tmp_path, child_end_s=0.0)
+    (row,) = run(w, [p for p in P.PROBES if p.pid == "PR7"])
+    assert row.answer == "unknown", row.facts
+    assert row.facts["results"] == 2 and row.facts["ended_at_first_result"] is False
+    assert row.facts["child_status_at_end"] == "completed" and row.facts["child_end_s"] is not None
+    w = World(tmp_path / "late", child_end_s=0.6)               # past the 300 ms ceiling: the run waited
+    (row,) = run(w, [p for p in P.PROBES if p.pid == "PR7"])
+    assert row.answer == "no" and row.facts["results"] == 2, row.facts
+    w = World(tmp_path / "cut")                                  # the run ends while the child runs
+    (row,) = run(w, [p for p in P.PROBES if p.pid == "PR7"])
+    assert row.answer == "yes" and row.facts["ended_at_first_result"] is True, row.facts
 
 
 @pytest.fixture

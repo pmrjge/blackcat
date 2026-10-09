@@ -27,7 +27,9 @@ a settings overlay with sandbox.autoAllowBashIfSandboxed false (sandboxed Bash w
 without asking), strict_mcp_config (no MCP server from the user's or a project's config is loaded),
 and disallows WebSearch, WebFetch, the image-studio server and every mcp__ rule in the permissions.allow
 of <config>/settings.json and settings.local.json (spend outside max_budget_usd). A session that ends
-without a result, or is closed while a child still runs, is counted at its whole cap.
+without a result, or is closed while an agent task (local_agent, local_workflow: the SDK's
+DEFERRING_TASK_TYPES) still runs, is counted at its whole cap; a background shell left running is not
+(fact open_tasks_at_close_by_type).
 
 The report (default <main checkout>/.claude-work/sdk/probes/<date>.md) holds per probe the question,
 yes / no / unknown / error / skipped / refused, cost, cap, session ids, transcript paths and measured
@@ -63,6 +65,9 @@ SDK_PIN = "0.2.163"
 SMALL_USD, LARGE_USD, TOTAL_CAP_USD = 0.50, 1.50, 10.50
 LARGE = frozenset({"PR3", "PR5", "PR7", "PR10"})        # the probes that spawn children
 TERMINAL = frozenset({"completed", "failed", "stopped", "killed"})
+# the task types whose end the SDK waits for (claude_agent_sdk/_internal/query.py DEFERRING_TASK_TYPES,
+# 0.2.163): agent work, not background shells or monitors, which may run for good
+AGENT_TASKS = frozenset({"local_agent", "local_workflow"})
 FILE_TOOLS = frozenset({"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "NotebookEdit"})
 # every session: what user allow rules would otherwise approve without asking the host
 SETTINGS_OVERLAY = json.dumps({"sandbox": {"autoAllowBashIfSandboxed": False}})
@@ -90,8 +95,8 @@ PROMPTS = {
             "options red and blue. Then reply with only the chosen colour. Do not plan or delegate."),
     "plan": ("Plan, then have one builder create the file hello.txt in the current directory "
              "containing the single word hi. Keep the plan to one step."),
-    "stop": ("Dispatch exactly one coder subagent whose only task is to run the Bash command "
-             "`sleep 110` and then reply done. Then wait for it."),
+    "stop": ("Dispatch exactly one coder subagent whose only task is to run the Bash command `true` "
+             "once and reply done. Then wait for it."),
     "count": "Count from 1 to 400, one number per line, with no other text.",
     "bg": ("Dispatch exactly one coder subagent in the background whose only task is to run the Bash "
            "command `sleep 110` and then reply done. End your turn right after dispatching it."),
@@ -132,9 +137,11 @@ class Config:
     state_dir: str                    # $XDG_STATE_HOME/claude-agent-stack (guard and usage state)
     transport_factory: Callable[[Any], Any] | None = None   # tests: a fake Transport per session
     killer: Callable[[int, int], None] = os.kill
-    bg_ceiling_ms: int = 30_000       # PR7: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS (child sleeps 110 s,
-                                      # under the Bash tool's 120 s default timeout)
+    bg_ceiling_ms: int = 2_000        # PR7: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS (the 2026-10-09 child
+                                      # ended 7.4 s after the first result: a 30 s ceiling never acted)
     settle_s: float = 5.0             # wait for hook side effects (SessionEnd marker, lease release)
+    hold_s: float = 45.0              # PR5: the longest the host parks the child's Bash request
+    wait_s: float = 60.0              # PR5: each wait (child parked, terminal status, closing result)
 
 
 def validate_registry(probes: list[Probe]) -> None:
@@ -183,6 +190,11 @@ def tool_uses(msgs: list[Any]) -> list[tuple[str, str, str | None]]:
             for b in m.content if kind(b) == "ToolUseBlock"]
 
 
+def task_status(m: Any) -> str | None:
+    """The status a task message reports: TaskNotification.status or TaskUpdated.patch.status."""
+    return getattr(m, "status", None) or (getattr(m, "patch", None) or {}).get("status")
+
+
 def task_states(msgs: list[Any]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for m in msgs:
@@ -194,13 +206,19 @@ def task_states(msgs: list[Any]) -> dict[str, dict[str, Any]]:
         if k == "TaskStartedMessage":
             label = re.match(r"([\w-]+): ", m.description or "")
             t.update(type=label and label.group(1), task_type=m.task_type)
-        status = getattr(m, "status", None) or (getattr(m, "patch", None) or {}).get("status")
-        t["status"] = status or t["status"]
+        t["status"] = task_status(m) or t["status"]
     return out
 
 
+def open_tasks(msgs: list[Any]) -> Counter[str]:
+    """Tasks not yet terminal, by task_type (any type: shells and monitors too)."""
+    return Counter(str(t["task_type"] or "unknown") for t in task_states(msgs).values()
+                   if t["status"] not in TERMINAL)
+
+
 def agents_running(msgs: list[Any]) -> bool:
-    return any(t["status"] not in TERMINAL for t in task_states(msgs).values())
+    """An agent task (AGENT_TASKS) is still running: a background shell does not count."""
+    return any(t["status"] not in TERMINAL and t["task_type"] in AGENT_TASKS for t in task_states(msgs).values())
 
 
 def tokens(model_usage: Any) -> dict[str, int]:
@@ -266,6 +284,33 @@ class Host:
         return PermissionResultDeny(message="denied by the probe host")
 
 
+class HoldHost:
+    """can_use_tool for PR5: allows Agent and Task; parks the first Bash request of a subagent
+    (records `pending`, waits for `release` at most `hold_s`) and then denies it; denies everything
+    else at once. The parked request keeps the child alive whatever the CLI lets a command do (CLI
+    2.1.287 blocked a standalone `sleep 110`, so a sleeping child ended on its own). Never returns
+    updated_permissions. Records tool names only."""
+
+    def __init__(self, hold_s: float):
+        import anyio
+        self.hold_s, self.release, self.seen = hold_s, anyio.Event(), []
+        self.pending, self.pending_agent, self.released_by = False, None, None
+
+    async def __call__(self, tool: str, inp: dict[str, Any], context: Any) -> Any:
+        import anyio
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+        self.seen.append(tool)
+        if tool in ("Agent", "Task"):
+            return PermissionResultAllow()      # HoldHost: dispatching only
+        agent = getattr(context, "agent_id", None)
+        if tool == "Bash" and agent and not self.pending:
+            self.pending, self.pending_agent, self.released_by = True, agent, "cancelled"
+            with anyio.move_on_after(self.hold_s) as scope:
+                await self.release.wait()
+            self.released_by = "timeout" if scope.cancelled_caught else "event"
+        return PermissionResultDeny(message="denied by the probe host")
+
+
 def observer(log: list[tuple[bool, Any]]) -> dict[str, list[Any]]:
     """The neutral PreToolUse hook (the Python can_use_tool workaround): records (in a subagent?,
     permission_mode) and returns only {"continue_": True}, never a decision."""
@@ -305,6 +350,17 @@ class Session:
         self._it = None                  # a cancelled generator is finished; the next read opens one
         return None
 
+    async def drain(self) -> None:
+        """Read every message into self.msgs until the stream ends or the task is cancelled (PR5's
+        reader: the SDK buffers 100 messages, and the probe polls instead of reading)."""
+        try:
+            while True:
+                await self.next()
+        except StopAsyncIteration:
+            pass
+        finally:
+            self._it = None
+
     async def turn(self, prompt: str, timeout: float) -> list[Any]:
         n = len(self.msgs)
         await self.c.query(prompt)
@@ -326,6 +382,7 @@ class Ctx:
         self.costs: dict[int, float] = {}
         self.session_ids: list[str] = []
         self.rate_limit_events = 0
+        self.open_at_close: Counter[str] = Counter()  # tasks still open when a session closed, by type
         self.keys = itertools.count()             # one cost entry per session
         self.reported: set[int] = set()           # sessions that have sent a result
         self.scratch = tempfile.mkdtemp(prefix="sdk-probe-%s-" % probe.pid.lower())
@@ -362,8 +419,10 @@ class Ctx:
         self.costs[key] = float(opts.max_budget_usd)
 
     def settle(self, key: int, msgs: list[Any], opts: Any) -> None:
-        """Closed while a child still runs: what it spends after the last result is not reported, so
-        the session counts at its whole cap."""
+        """Closed while an agent task still runs: what it spends after the last result is not
+        reported, so the session counts at its whole cap. A shell or monitor task costs no tokens
+        of its own: it is only recorded (open_at_close)."""
+        self.open_at_close.update(open_tasks(msgs))
         if agents_running(msgs):
             self.costs[key] = max(self.costs.get(key, 0.0), float(opts.max_budget_usd))
             self.reported.discard(key)
@@ -435,6 +494,23 @@ class Ctx:
         return sorted(p for p in glob.glob(os.path.join(self.guard_dir(sid), "fanout", "*", "*.json"))
                       if not os.path.basename(p).startswith("resume-"))
 
+    def registry(self, sid: str, tool_use_id: str | None) -> dict[str, Any] | None:
+        """The guard's registry record (<state>/<session>/agents/<agent id>.json) of the child that
+        the Agent call `tool_use_id` spawned. Under the SDK a BlackCat dispatch runs in the
+        background (agent_guard drops run_in_background false), so the child lives here, with its
+        bg and stopped fields, and its spawn lease is gone once the launch returns."""
+        if not tool_use_id:
+            return None
+        for p in sorted(glob.glob(os.path.join(self.guard_dir(sid), "agents", "*.json"))):
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    rec = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            if isinstance(rec, dict) and rec.get("tool_use_id") == tool_use_id:
+                return rec
+        return None
+
     def transcripts(self, sid: str) -> list[str]:
         return sorted(glob.glob(os.path.join(self.cfg.config_dir, "projects", "*", sid + ".jsonl")))
 
@@ -499,33 +575,69 @@ async def pr4(c: Ctx) -> Outcome:
     return Outcome(yn(None if tools is None else f["ended"] and not f["ask_in_init_tools"]), f)
 
 
-async def pr5(c: Ctx) -> Outcome:
+async def poll(pred: Callable[[], bool], timeout: float, step: float = 0.05) -> bool:
+    """Wait until pred() holds, at most `timeout` seconds; pred()'s last value."""
     import anyio
-    host = Host(c.scratch, ("Agent", "Task", "Bash"))
-    o = c.options(permission_mode="default", can_use_tool=host, hooks=observer([]), max_turns=6)
-    f: dict[str, Any] = {"child_started": False}
-    async with c.client(o) as s:
+    with anyio.move_on_after(timeout):
+        while not pred():
+            await anyio.sleep(step)
+    return pred()
+
+
+async def pr5(c: Ctx) -> Outcome:
+    """PR5b: the child is held live by its own parked Bash permission request, stopped with
+    stop_task, and the guard's registry record of it (R0 before, R1 after) shows whether the stop
+    reached the guard (SubagentStop -> mark_stopped, which also drops its locks and leases)."""
+    import anyio
+    import anyio.lowlevel
+    host, wait = HoldHost(c.cfg.hold_s), c.cfg.wait_s
+    o = c.options(permission_mode="default", can_use_tool=host, include_hook_events=True, max_turns=6)
+    f: dict[str, Any] = {"child_started": False, "child_pending": False, "child_live_at_stop": False}
+    async with c.client(o) as s, anyio.create_task_group() as tg:
+        tg.start_soon(s.drain)
+
+        def child() -> Any:
+            return next((m for m in s.msgs if kind(m) == "TaskStartedMessage" and m.task_type == "local_agent"), None)
         await s.c.query(PROMPTS["stop"])
-        child = await s.wait_for(lambda m: kind(m) == "TaskStartedMessage" and m.task_type == "local_agent", 300)
-        if child is not None:
-            f["child_started"], sid = True, child.session_id
-            await anyio.sleep(2 * c.cfg.settle_s)                  # let it reach its sleep
-            before = c.leases(sid)
-            f["leases_before"] = len(before)
-            f["stopped_child_had_lease"] = any(child.tool_use_id and child.tool_use_id in p for p in before)
-            await s.c.stop_task(child.task_id)
-            await s.wait_for(lambda m: task_states(s.msgs).get(child.task_id, {}).get("status") in TERMINAL, 60)
+        await poll(lambda: host.pending and child() is not None, wait)
+        t, f["child_pending"] = child(), host.pending
+        if t is not None:
+            sid, tuid = t.session_id, t.tool_use_id
+
+            def own(paths: list[str]) -> bool:
+                return any(tuid and tuid in os.path.basename(p) for p in paths)
+            r0, before = c.registry(sid, tuid), c.leases(sid)
+            live = host.pending and r0 is not None and not r0.get("stopped")
+            f.update(child_started=True, child_live_at_stop=live, registry_before=r0 is not None,
+                     registry_bg_before=bool(r0 and r0.get("bg")), registry_stopped_before=bool(r0 and r0.get("stopped")),
+                     registry_is_held_agent=bool(r0 and host.pending_agent and r0.get("id") == host.pending_agent),
+                     leases_before=len(before), child_lease_before=own(before))
+            n = len(s.msgs)
+            await s.c.stop_task(t.task_id)
+
+            def status() -> Any:
+                return task_states(s.msgs).get(t.task_id, {}).get("status")
+            await poll(lambda: status() in TERMINAL, wait)
+            host.release.set()
             await anyio.sleep(c.cfg.settle_s)
-            after = c.leases(sid)
-            f.update(child_status_after_stop=task_states(s.msgs)[child.task_id]["status"], leases_after=len(after),
-                     stopped_child_lease_remains=any(child.tool_use_id and child.tool_use_id in p for p in after),
+            r1, after = c.registry(sid, tuid), c.leases(sid)
+            f.update(child_status_after_stop=status(), registry_after=r1 is not None,
+                     registry_stopped_after=bool(r1 and r1.get("stopped")),
+                     subagent_stop_events=sum(1 for m in s.msgs[n:] if kind(m) == "HookEventMessage"
+                                              and m.hook_event_name == "SubagentStop"),
+                     leases_after=len(after), child_lease_after=own(after),
                      locks_after=len(glob.glob(os.path.join(c.guard_dir(sid), "**", "*.lock"), recursive=True)))
-        await s.c.interrupt()
-        await s.wait_for(is_result, 60)
-    if not f["child_started"] or not f["stopped_child_had_lease"]:
-        return Outcome("unknown", f)                    # nothing to release: no answer
-    released = not f["stopped_child_lease_remains"] and f["child_status_after_stop"] in TERMINAL
-    return Outcome(yn(released), f)
+        host.release.set()
+        await anyio.lowlevel.checkpoint()               # the parked callback records how it ended
+        if not any(map(is_result, s.msgs)):             # the turn is still open: end it
+            n = len(s.msgs)
+            await s.c.interrupt()
+            await poll(lambda: any(map(is_result, s.msgs[n:])), wait)
+        f["hold_released_by"] = host.released_by
+        tg.cancel_scope.cancel()
+    if not f["child_live_at_stop"]:
+        return Outcome("unknown", f)                    # no live child at the stop: nothing measured
+    return Outcome(yn(f["child_status_after_stop"] in TERMINAL and f["registry_stopped_after"]), f)
 
 
 def guard_snapshot(c: Ctx, sid: str | None) -> dict[str, Any]:
@@ -588,14 +700,22 @@ async def pr7(c: Ctx) -> Outcome:
     out = await c.one_shot(PROMPTS["bg"], o)
     t_end, msgs = time.monotonic(), [m for _, m in out]
     t_res = next((t for t, m in out if is_result(m)), None)
-    tasks = [t for t in task_states(msgs).values() if t["task_type"] == "local_agent"]
-    f = {"ceiling_ms": c.cfg.bg_ceiling_ms, "sdk_bidirectional": bool(o.can_use_tool or o.hooks), "results": sum(map(is_result, msgs)), "child_started": bool(tasks),
-         "child_status_at_end": tasks[0]["status"] if tasks else None, "end_s": round(t_end - t0, 1),
+    tasks = [(i, t) for i, t in task_states(msgs).items() if t["task_type"] == "local_agent"]
+    tid = tasks[0][0] if tasks else None
+    t_child = next((t for t, m in out if kind(m) in ("TaskNotificationMessage", "TaskUpdatedMessage")
+                    and m.task_id == tid and task_status(m) in TERMINAL), None)
+    ceiling, results = c.cfg.bg_ceiling_ms / 1000, sum(map(is_result, msgs))
+    f = {"ceiling_ms": c.cfg.bg_ceiling_ms, "sdk_bidirectional": bool(o.can_use_tool or o.hooks), "results": results,
+         "ended_at_first_result": results == 1, "child_started": bool(tasks),
+         "child_status_at_end": tasks[0][1]["status"] if tasks else None, "end_s": round(t_end - t0, 1),
          "first_result_s": None if t_res is None else round(t_res - t0, 1),
+         "child_end_s": None if t_child is None else round(t_child - t0, 1),
          "wait_after_first_result_s": None if t_res is None else round(t_end - t_res, 1)}
     if not tasks or t_res is None:
         return Outcome("unknown", f)
-    cut = tasks[0]["status"] not in TERMINAL and t_end - t_res <= c.cfg.bg_ceiling_ms / 1000 + 60
+    if t_child is not None and t_child <= t_res + ceiling:
+        return Outcome("unknown", f)                    # the child ended before the ceiling could act
+    cut = t_child is None and t_end - t_res <= ceiling + 60
     return Outcome(yn(cut), f)
 
 
@@ -703,7 +823,10 @@ async def pr13(c: Ctx) -> Outcome:
         t = tokens(r.model_usage if r is not None else None)
         f.update({"run%d_input" % i: t.get("inputTokens"), "run%d_cache_write" % i: t.get("cacheCreationInputTokens"),
                   "run%d_cache_read" % i: t.get("cacheReadInputTokens")})
-    return Outcome(yn(None if f["run2_cache_read"] is None else f["run2_cache_read"] > 0), f)
+    # reuse = what the second call reads beyond the first (2026-10-09: both read 9,502 and wrote 18,470)
+    r1, r2 = f["run1_cache_read"], f["run2_cache_read"]
+    f["cache_read_gain"] = gain = None if r1 is None or r2 is None else r2 - r1
+    return Outcome(yn(None if gain is None else gain > 0), f)
 
 
 PROBES = [
@@ -715,7 +838,8 @@ PROBES = [
           LARGE_USD, 1500, pr3),
     Probe("PR4", "extra_args passes --permission-prompts none: AskUserQuestion is gone from the init tools "
                  "and the run ends", SMALL_USD, 300, pr4),
-    Probe("PR5", "stop_task on a running child releases the guard's lease for it", LARGE_USD, 600, pr5),
+    Probe("PR5", "stop_task on a live child (held by a parked permission request) marks it stopped in the "
+                 "guard's registry", LARGE_USD, 600, pr5),
     Probe("PR6", "interrupt() then resume: same session, no pending prompt, one prompt window per prompt",
           SMALL_USD, 420, pr6),
     Probe("PR7", "the background-wait ceiling ends an SDK single-message run while its child still runs",
@@ -727,7 +851,8 @@ PROBES = [
                   "and off)", LARGE_USD, 1500, pr10),
     Probe("PR11", "the session transcript carries entrypoint sdk-py", SMALL_USD, 300, pr11),
     Probe("PR12", "SessionEnd (the usage end marker) runs on disconnect() and not on SIGKILL", SMALL_USD, 420, pr12),
-    Probe("PR13", "the second identical call reads the cache (exclude_dynamic_sections plus --agent)",
+    Probe("PR13", "the second identical call reads more from the cache than the first (exclude_dynamic_sections "
+                  "plus --agent)",
           SMALL_USD, 420, pr13),
 ]
 
@@ -774,6 +899,7 @@ async def run_probes(probes: list[Probe], cfg: Config, helper: Any, rows: list[R
         row.cost, row.sessions, row.seconds = ctx.spent, list(ctx.session_ids), round(time.monotonic() - t0, 1)
         row.transcripts = [t for sid in ctx.session_ids for t in ctx.transcripts(sid)]
         row.facts["rate_limit_events"] = ctx.rate_limit_events
+        row.facts["open_tasks_at_close_by_type"] = dict(sorted(ctx.open_at_close.items()))
         row.facts["sessions_without_result"] = ctx.unreported      # counted at their whole cap
         total += ctx.spent
         rows.append(row)
@@ -904,7 +1030,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default=os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
     ap.add_argument("--cli", default=shutil.which("claude"), help="the installed claude (default: PATH)")
     ap.add_argument("--out", help="report path (default <main checkout>/.claude-work/sdk/probes/<date>.md)")
-    ap.add_argument("--bg-ceiling-ms", type=int, default=30_000, help="PR7's background-wait ceiling")
+    ap.add_argument("--bg-ceiling-ms", type=int, default=Config.bg_ceiling_ms, help="PR7's background-wait ceiling")
     a = ap.parse_args(argv)
     only = {x.strip().upper() for x in a.only.split(",") if x.strip()}
     if only - {p.pid for p in PROBES}:
