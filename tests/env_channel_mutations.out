@@ -1,7 +1,7 @@
-BASE  guard 4 named tests: PASS (1.1s)
-BASE  wse   2 named tests: PASS (0.6s)
+BASE  guard 5 named tests: PASS (1.5s)
+BASE  wse   2 named tests: PASS (0.5s)
 KILLED X1   test_a_parser_failure_fails_closed                      the scan's trigger misses the channel names [0.5s] E           Failed: DID NOT RAISE SystemExit
-KILLED X2   test_channel_assignment_is_denied                       envchan not in the secrets scan [0.5s] E       AssertionError: CLAUDE_CODE_SESSION_KIND=bg claude -p hi
+KILLED X2   test_channel_assignment_is_denied                       envchan not in the secrets scan [0.6s] E       AssertionError: CLAUDE_CODE_SESSION_KIND=bg claude -p hi
 KILLED X3   test_channel_assignment_is_denied                       NAME=value at command position unchecked [0.5s] E       AssertionError: CLAUDE_CODE_SESSION_KIND=bg claude -p hi
 KILLED X4   test_channel_assignment_is_denied                       a value naming the channel (V=NAME) unchecked [0.5s] E       AssertionError: V=CLAUDE_BG_X; export "$V=1"
 KILLED X5   test_channel_mention_is_allowed                         NAME=value denied anywhere (echo NAME=1) [0.5s] E       AssertionError: echo CLAUDE_BG_X=1
@@ -16,8 +16,14 @@ KILLED X13  test_channel_mention_is_allowed                         names matche
 KILLED X14  test_channel_assignment_is_denied                       CLAUDE_CODE_SANDBOXED missing [0.5s] E       AssertionError: env CLAUDE_CODE_SANDBOXED=1 claude
 KILLED X15  test_channel_assignment_is_denied                       CLAUDE_BG_* missing [0.5s] E       AssertionError: export CLAUDE_BG_SESSION_PERMISSION_RULES='{"allow":["Bash"]}'
 KILLED X16  test_the_hook_denies_with_the_channel_reason            the hook gives another rule's reason [0.8s] E       AssertionError: deny | Blocked by the stack's git rule: agents never push to a remote, in any form (git push, se
-KILLED W1   test_exec_mode_skips_the_channel_keys_with_a_warning    channel keys loaded from stack.env [2.1s] E       AssertionError: CLAUDE_BG_WORKSPACE_TRUSTED=1
-KILLED W2   test_exec_mode_skips_the_channel_keys_with_a_warning    skipped silently [2.0s] E       AssertionError:
-KILLED W3   test_only_and_print_env_skip_them_too                   only CLAUDE_BG_ itself, not CLAUDE_BG_* [0.4s] E       AssertionError: assert 'CLAUDE_BG_WORKSPACE_TRUSTED' not in {'CLAUDE_BG_WORKSPACE_TRUSTED': '1', 'STACK_ENV_FILE
-KILLED W4   test_only_and_print_env_skip_them_too                   CLAUDE_CODE_SANDBOXED loaded (also with --only) [1.7s] E       AssertionError: assert ('hf_keep3' == 'hf_keep3'
-20 of 20 killed
+KILLED X17  test_channel_assignment_is_denied                       CLAUDE_RELAUNCH_* missing from ENV_CHANNEL_RE [0.5s] E       AssertionError: export CLAUDE_RELAUNCH_SESSION_ADD_DIRS='["/tmp/x"]'
+KILLED X18  test_channel_assignment_is_denied                       the trigger misses CLAUDE_RELAUNCH_ [0.5s] E       AssertionError: export CLAUDE_RELAUNCH_SESSION_ADD_DIRS='["/tmp/x"]'
+KILLED X19  test_a_command_past_a_scan_limit_fails_closed           nesting past MAX_NEST is opaque again (None in the secrets scan) [0.5s] E       assert None is not None
+KILLED X20  test_a_command_past_a_scan_limit_fails_closed           a command over MAX_COMMAND is opaque again [0.8s] E       AssertionError: assert None is not None
+KILLED X21  test_a_command_past_a_scan_limit_fails_closed           limit() never fails closed [0.5s] E       assert None is not None
+KILLED W1   test_exec_mode_skips_the_channel_keys_with_a_warning    channel keys loaded from stack.env [0.4s] E       AssertionError: CLAUDE_BG_WORKSPACE_TRUSTED=1
+KILLED W2   test_exec_mode_skips_the_channel_keys_with_a_warning    skipped silently [0.4s] E       AssertionError:
+KILLED W3   test_only_and_print_env_skip_them_too                   only CLAUDE_BG_ itself, not CLAUDE_BG_* [0.5s] E       AssertionError: assert 'CLAUDE_BG_WORKSPACE_TRUSTED' not in {'CLAUDE_BG_WORKSPACE_TRUSTED': '1', 'STACK_ENV_FILE
+KILLED W4   test_only_and_print_env_skip_them_too                   CLAUDE_CODE_SANDBOXED loaded (also with --only) [0.4s] E       AssertionError: assert ('hf_keep3' == 'hf_keep3'
+KILLED W5   test_exec_mode_skips_the_channel_keys_with_a_warning    CLAUDE_RELAUNCH_* loaded [0.4s] E       AssertionError: CLAUDE_BGX=keep2
+26 of 26 killed

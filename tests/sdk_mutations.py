@@ -137,9 +137,13 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('E2a', 'CLAUDE_BG_* not refused', 'test_env_channel_refused_in_the_callers_env',
      're.compile(r"CLAUDE_BG_\\w*|CLAUDE_CODE_SESSION_KIND|', 're.compile(r"CLAUDE_CODE_SESSION_KIND|'),
     ('E2a', 'CLAUDE_CODE_SESSION_KIND not refused', 'test_env_channel_refused_in_os_environ_at_connect',
-     '|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # E2a', '|CLAUDE_CODE_SANDBOXED")   # E2a'),
+     '|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH', '|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH'),
     ('E2a', 'CLAUDE_CODE_SANDBOXED not refused', 'test_env_channel_refused_in_the_callers_env',
-     '|CLAUDE_CODE_SANDBOXED")   # E2a', '")   # E2a'),
+     '|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH', '|CLAUDE_RELAUNCH'),
+    ('E2a', 'CLAUDE_RELAUNCH_* not refused in env', 'test_env_channel_refused_in_the_callers_env',
+     '|CLAUDE_RELAUNCH_\\w*")  # E2a', '")  # E2a'),
+    ('E2a', 'CLAUDE_RELAUNCH_* not refused in os.environ', 'test_env_channel_refused_in_os_environ_at_connect',
+     '|CLAUDE_RELAUNCH_\\w*")  # E2a', '")  # E2a'),
     ('E2a', 'env keys matched by prefix', 'test_env_channel_forced_off_and_unrelated_keys_pass',
      'ENV_REFUSED.fullmatch(str(k))', 'ENV_REFUSED.match(str(k))'),
     ('E2a', 'env keys matched anywhere', 'test_env_channel_forced_off_and_unrelated_keys_pass',
@@ -147,7 +151,7 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('E2a', 'os.environ keys matched by prefix', 'test_env_channel_forced_off_and_unrelated_keys_pass',
      'ENV_REFUSED.fullmatch(k))', 'ENV_REFUSED.match(k))'),
     ('E2a', 'keys matched case-insensitively', 'test_env_channel_forced_off_and_unrelated_keys_pass',
-     'CLAUDE_CODE_SANDBOXED")   # E2a', 'CLAUDE_CODE_SANDBOXED", re.I)   # E2a'),
+     'CLAUDE_RELAUNCH_\\w*")  # E2a', 'CLAUDE_RELAUNCH_\\w*", re.I)  # E2a'),
 ]
 
 

@@ -24,6 +24,7 @@ _spec.loader.exec_module(G)
 DENY = [
     "CLAUDE_CODE_SESSION_KIND=bg claude -p hi",
     "export CLAUDE_CODE_SESSION_KIND=bg",
+    "export CLAUDE_RELAUNCH_SESSION_ADD_DIRS='[\"/tmp/x\"]'",
     "export CLAUDE_BG_SESSION_PERMISSION_RULES='{\"allow\":[\"Bash\"]}'",
     "env CLAUDE_CODE_SANDBOXED=1 claude",
     "env -i CLAUDE_BG_WORKSPACE_TRUSTED=1 claude",
@@ -104,6 +105,14 @@ def test_the_hook_denies_with_the_channel_reason(atype, aid, policy):
     r = run("CLAUDE_CODE_SESSION_KIND=bg CLAUDE_BG_SESSION_PERMISSION_RULES=x claude -p hi")
     assert r.decision == "deny" and "environment-channel rule" in r.reason, r
     assert run("echo CLAUDE_CODE_SESSION_KIND").decision == "allow(no-output)"
+
+
+def test_a_command_past_a_scan_limit_fails_closed():
+    """The secrets scan wants no "opaque": a command nested past MAX_NEST or longer than MAX_COMMAND is a hit."""
+    hit = "'CLAUDE_CODE_SESSION_KIND=bg claude -p hi'"
+    assert G.secrets_leak_in("eval " * 9 + hit) is not None
+    assert G.secrets_leak_in(hit[1:-1] + "; " + "true " * (G.MAX_COMMAND // 5 + 10)) is not None
+    assert G.secrets_leak_in("eval " * 9 + "'echo hi'") is None          # no trigger: never scanned
 
 
 def test_a_parser_failure_fails_closed(monkeypatch, capsys):

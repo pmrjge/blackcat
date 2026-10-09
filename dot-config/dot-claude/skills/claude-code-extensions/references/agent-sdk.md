@@ -126,8 +126,8 @@ out["outcome"], out["gate"], out["needs_user"], out["report"]["status"], out["co
   repository's `.claude/agents` would add or shadow an agent), `"tty"` (the terminal; plan approval needs
   a printed nonce) or an app callable `can_use_tool` (only session addRules for the requested tool survive).
 - An explicit non-plan `permission_mode` is logged `gate_waived`; `bypassPermissions` is always refused.
-- `CLAUDE_BG_*`, `CLAUDE_CODE_SESSION_KIND` and `CLAUDE_CODE_SANDBOXED` (the CLI's env permission and trust
-  channel, probe E2a) are refused in `env` and, at connect, in `os.environ`; the CLI always gets
+- `CLAUDE_BG_*`, `CLAUDE_CODE_SESSION_KIND`, `CLAUDE_CODE_SANDBOXED` and `CLAUDE_RELAUNCH_*` (the CLI's env
+  permission, directory and trust channel, probe E2a) are refused in `env` and, at connect, in `os.environ`; the CLI always gets
   `CLAUDE_CODE_SESSION_KIND=""`. The legacy `run()` checks neither.
 - `run(prompt, options(...))` is the legacy one-shot (no load check); `parse_stream(lines)` gives the same
   dict from `claude -p --output-format stream-json --verbose`; each run appends a numbers-only row to

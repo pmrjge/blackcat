@@ -12,12 +12,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WSE = os.environ.get("WITH_STACK_ENV") or str(ROOT / "dot-config" / "dot-claude" / "bin" / "with-stack-env")
 CHANNEL = ["CLAUDE_CODE_SESSION_KIND", "CLAUDE_BG_SESSION_PERMISSION_RULES", "CLAUDE_BG_WORKSPACE_TRUSTED",
-           "CLAUDE_CODE_SANDBOXED"]
+           "CLAUDE_CODE_SANDBOXED", "CLAUDE_RELAUNCH_SESSION_ADD_DIRS"]
 KEPT = {"CLAUDE_CODE_SESSION_KIND_X": "keep1", "CLAUDE_BGX": "keep2", "HF_TOKEN": "hf_keep3"}
 STACK_ENV = ("CLAUDE_CODE_SESSION_KIND=bg\n"
              "export CLAUDE_BG_SESSION_PERMISSION_RULES='{\"allow\":[\"Bash\"]}'\n"
              "  CLAUDE_BG_WORKSPACE_TRUSTED=1  # trust\n"
-             "CLAUDE_CODE_SANDBOXED=\"1\"\n" + "".join(f"{k}={v}\n" for k, v in KEPT.items()))
+             "CLAUDE_CODE_SANDBOXED=\"1\"\n"
+             "CLAUDE_RELAUNCH_SESSION_ADD_DIRS='[\"/tmp\"]'\n" + "".join(f"{k}={v}\n" for k, v in KEPT.items()))
 
 
 def wse(tmp_path, *args, **env):

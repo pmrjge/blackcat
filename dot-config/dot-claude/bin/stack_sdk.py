@@ -48,7 +48,7 @@ REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name", 
               "max_budget_usd", "setting_sources")                        # budget_usd= and sources= own these
 POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")
 CEILING_ENV, STATE_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"
-ENV_REFUSED = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # E2a: rules, trust by env
+ENV_REFUSED = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_\w*")  # E2a
 HOST_WAIT_S, LOAD_WAIT_S, INTERRUPT_S, GRACE_S, DEADLINE_NONE_S, GAP_S = 300.0, 20.0, 10.0, 2.0, 3600.0, 0.5
 RESULT_KEYS = ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "session_id",
                "total_cost_usd", "usage", "result", "permission_denials", "errors", "api_error_status",

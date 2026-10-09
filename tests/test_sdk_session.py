@@ -1311,7 +1311,7 @@ def test_agents_found_up_the_parent_chain(tmp_path):
 
 # ---------------------------------------------------------------- E2a: the CLI's env channel (probe E2a, 2026-10-09)
 CHANNEL = ["CLAUDE_CODE_SESSION_KIND", "CLAUDE_BG_SESSION_PERMISSION_RULES", "CLAUDE_BG_WORKSPACE_TRUSTED",
-           "CLAUDE_BG_", "CLAUDE_CODE_SANDBOXED"]
+           "CLAUDE_BG_", "CLAUDE_CODE_SANDBOXED", "CLAUDE_RELAUNCH_SESSION_ADD_DIRS"]
 NOT_CHANNEL = {"CLAUDE_CODE_SESSION_ID": "x", "CLAUDE_CODE_SESSION_KIND_X": "1", "MY_CLAUDE_BG_X": "1",
                "CLAUDE_BGX": "1", "CLAUDE_CODE_SANDBOX": "1", "claude_bg_x": "1", "claude_code_session_kind": "bg"}
 

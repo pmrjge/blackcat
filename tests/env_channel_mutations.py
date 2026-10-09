@@ -23,10 +23,11 @@ from sdk3_mutations import CONF, first_error, killed_by, run_tests, sandbox  # n
 FILES = {"guard": CONF / "hooks" / "agent_guard.py", "wse": CONF / "bin" / "with-stack-env"}
 EG, WS = "tests/test_guard_env_channel.py::", "tests/test_with_stack_env.py::"
 DENY, ALLOW = EG + "test_channel_assignment_is_denied", EG + "test_channel_mention_is_allowed"
+LIMIT = EG + "test_a_command_past_a_scan_limit_fails_closed"
 
 MUTANTS = [  # (id, mutant, file key, named test, anchor, replacement)
     ("X1", "the scan's trigger misses the channel names", "guard", EG + "test_a_parser_failure_fails_closed",
-     'r"CLAUDE_BG_|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")   # + ENV_CHANNEL_RE', 'r"CLAUDE_BG_NEVER")'),
+     'r"CLAUDE_BG_|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_")', 'r"CLAUDE_BG_NEVER")'),
     ("X2", "envchan not in the secrets scan", "guard", DENY,
      '_Scan(("secrets", "install", "envchan"), ev=ev)', '_Scan(("secrets", "install"), ev=ev)'),
     ("X3", "NAME=value at command position unchecked", "guard", DENY,
@@ -55,21 +56,35 @@ MUTANTS = [  # (id, mutant, file key, named test, anchor, replacement)
     ("X13", "names matched anywhere", "guard", ALLOW,
      'here_cmd and (ENV_CHANNEL_RE.fullmatch(name)', 'here_cmd and (ENV_CHANNEL_RE.search(name)'),
     ("X14", "CLAUDE_CODE_SANDBOXED missing", "guard", DENY,
-     'ENV_CHANNEL_RE = re.compile(r"CLAUDE_BG_\\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED")',
-     'ENV_CHANNEL_RE = re.compile(r"CLAUDE_BG_\\w*|CLAUDE_CODE_SESSION_KIND")'),
+     'CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_\\w*")\n',
+     'CLAUDE_CODE_SESSION_KIND|CLAUDE_RELAUNCH_\\w*")\n'),
     ("X15", "CLAUDE_BG_* missing", "guard", DENY,
      'ENV_CHANNEL_RE = re.compile(r"CLAUDE_BG_\\w*|', 'ENV_CHANNEL_RE = re.compile(r"'),
     ("X16", "the hook gives another rule's reason", "guard", EG + "test_the_hook_denies_with_the_channel_reason",
      '             ENV_CHANNEL_REASON % what if kind == "envchan" else\n', ''),
+    ("X17", "CLAUDE_RELAUNCH_* missing from ENV_CHANNEL_RE", "guard", DENY, '|CLAUDE_RELAUNCH_\\w*")\n', '")\n'),
+    ("X18", "the trigger misses CLAUDE_RELAUNCH_", "guard", DENY, '|CLAUDE_RELAUNCH_")', '")'),
+    ("X19", "nesting past MAX_NEST is opaque again (None in the secrets scan)", "guard", LIMIT,
+     'return self.limit("a command nested too deeply to check")',
+     'return self.hit("opaque", "a command nested too deeply to check")'),
+    ("X20", "a command over MAX_COMMAND is opaque again", "guard", LIMIT,
+     '            return self.limit("a command too large to check in time")\n        for inner, cmd_pos in substs:',
+     '            return self.hit("opaque", "a command too large to check in time")\n'
+     '        for inner, cmd_pos in substs:'),
+    ("X21", "limit() never fails closed", "guard", LIMIT,
+     '        return self.overflow(what) if "secrets" in self.want else self.hit("opaque", what)',
+     '        return self.hit("opaque", what)'),
     ("W1", "channel keys loaded from stack.env", "wse", WS + "test_exec_mode_skips_the_channel_keys_with_a_warning",
-     '    case "$k" in CLAUDE_BG_*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED)\n',
+     '    case "$k" in CLAUDE_BG_*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_*)\n',
      '    case "$k" in NEVER_A_KEY)\n'),
     ("W2", "skipped silently", "wse", WS + "test_exec_mode_skips_the_channel_keys_with_a_warning",
      '      echo "with-stack-env: $k in stack.env skipped', '      : "with-stack-env: $k in stack.env skipped'),
     ("W3", "only CLAUDE_BG_ itself, not CLAUDE_BG_*", "wse", WS + "test_only_and_print_env_skip_them_too",
      'in CLAUDE_BG_*|CLAUDE_CODE_SESSION_KIND', 'in CLAUDE_BG_|CLAUDE_CODE_SESSION_KIND'),
     ("W4", "CLAUDE_CODE_SANDBOXED loaded (also with --only)", "wse", WS + "test_only_and_print_env_skip_them_too",
-     '|CLAUDE_CODE_SANDBOXED)\n', '|CLAUDE_CODE_SESSION_KIND_NEVER)\n'),
+     '|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_*)\n', '|CLAUDE_RELAUNCH_*)\n'),
+    ("W5", "CLAUDE_RELAUNCH_* loaded", "wse", WS + "test_exec_mode_skips_the_channel_keys_with_a_warning",
+     '|CLAUDE_RELAUNCH_*)\n', ')\n'),
 ]
 
 
