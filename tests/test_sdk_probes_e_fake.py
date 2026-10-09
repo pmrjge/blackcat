@@ -87,6 +87,7 @@ SWITCHES = dict(
     denials_listed=True,    # E1c: a denied call shows in the result's permission_denials
     hollow=False,           # no tool is ever called
     stack_rule=True,        # E1c: the stack's exact rule is installed
+    bg_any_kind=False,      # E2a: the env rules apply whatever CLAUDE_CODE_SESSION_KIND says (the control too)
     cost=0.01,              # every result's total_cost_usd (None: the field is missing)
 )
 
@@ -197,7 +198,7 @@ class FakeCLI(Base):
         return {fm(p).get("name") for d in self.agent_dirs() if d.is_dir() for p in d.glob("*.md")} - {None}
 
     def bg(self):
-        if self.env.get("CLAUDE_CODE_SESSION_KIND") != "bg" or not self.w.bg_rules:
+        if self.env.get("CLAUDE_CODE_SESSION_KIND") != "bg" and not self.w.bg_any_kind or not self.w.bg_rules:
             return None
         return json.loads(self.env.get("CLAUDE_BG_SESSION_PERMISSION_RULES") or "null")
 
@@ -340,7 +341,8 @@ class FakeCLI(Base):
 
     def child(self, aid, agent, tu):
         (self.subagents() / ("agent-%s.meta.json" % aid)).write_text(json.dumps(
-            {"agentType": agent, "toolUseId": tu if self.w.meta_tid_match else "tu-other", "description": LEAK}))
+            {"agentType": agent, "description": LEAK, **({} if self.w.meta_tid_match is None else
+                                                          {"toolUseId": tu if self.w.meta_tid_match else "tu-other"})}))
         (self.subagents() / ("agent-%s.jsonl" % aid)).write_text(json.dumps({"m": LEAK}) + "\n" + json.dumps({"m": 2}) + "\n")
 
     def edit_meta(self, aid, **kw):
@@ -578,7 +580,7 @@ def test_dry_run_is_the_default_and_spends_nothing(capsys, monkeypatch):
         assert re.search(r"^\s+%s\s" % pid, out, re.MULTILINE), pid
     assert P.main(["--dry-run", "--only", "e3"]) == 0
     out = capsys.readouterr().out
-    assert "E3 " in out and "E1 " not in out
+    assert re.search(r"^E3\s+\$", out, re.MULTILINE) and not re.search(r"^E1\s+\$", out, re.MULTILINE)
     monkeypatch.setenv(P.CONSENT_ENV, P.CONSENT_VALUE)        # the env alone is still a dry run
     assert P.main([]) == 0
     assert "without --paid this is a dry run" in capsys.readouterr().out
@@ -588,10 +590,13 @@ def test_dry_run_is_the_default_and_spends_nothing(capsys, monkeypatch):
         P.main(["--paid", "--dry-run"])
 
 
+V2_HELPER = types.SimpleNamespace(options=None, **dict.fromkeys(P.E1_NEEDS))     # the names main() checks
+
+
 @pytest.fixture
 def pinned(monkeypatch):
     monkeypatch.setattr(P.base, "versions", lambda cli: {"sdk": P.SDK_PIN, "system_cli": None, "bundled_cli": None})
-    monkeypatch.setattr(P.base, "load_helper", lambda config: None)
+    monkeypatch.setattr(P.base, "load_helper", lambda config: V2_HELPER)
 
 
 @pytest.mark.parametrize("env", [None, "", "1", "yes", "2", "2.0", "10.50", " 2.00"])
@@ -646,9 +651,31 @@ def test_an_unpinned_sdk_or_an_unwritable_report_is_refused_before_any_call(monk
     with pytest.raises(SystemExit):
         P.main(["--paid", "--cli", "/x", "--out", str(tmp_path / "r.md")])
     monkeypatch.setattr(P.base, "versions", lambda cli: {"sdk": P.SDK_PIN, "system_cli": None, "bundled_cli": None})
+    monkeypatch.setattr(P.base, "load_helper", lambda config: V2_HELPER)
     with pytest.raises(SystemExit):
         P.main(["--paid", "--cli", "/x", "--out", "/dev/null/x/r.md"])
     assert not list(tmp_path.iterdir())
+
+
+def test_e1_needs_the_v2_helper_installed_and_e2_e3_do_not(pinned, monkeypatch, tmp_path, capsys):
+    """The installed stack_sdk.py is checked before the ledger opens: without Session & co. E1 cannot run, so
+    a paid run with E1 is refused at $0; E2 and E3 need only options()."""
+    monkeypatch.setenv(P.CONSENT_ENV, P.CONSENT_VALUE)
+    called = []
+
+    async def record(probes, cfg, helper, rows, ledger):
+        called.append([p.pid for p in probes])
+    monkeypatch.setattr(P, "run_probes", record)
+    monkeypatch.setattr(P.base, "load_helper", lambda config: types.SimpleNamespace(options=None))
+    for only in ([], ["--only", "E1"], ["--only", "E1,E3"]):
+        with pytest.raises(SystemExit) as e:
+            P.main(["--paid", "--cli", "/x", "--out", str(tmp_path / "r.md"), *only])
+        assert e.value.code == 2 and called == [] and not list(tmp_path.iterdir())
+        assert "Session" in capsys.readouterr().err
+    P.main(["--paid", "--cli", "/x", "--out", str(tmp_path / "r.md"), "--only", "E2,E3"])
+    assert called == [["E2", "E3"]]
+    for name in P.E1_NEEDS:                     # what E1 calls on the helper is what the check asks for
+        assert hasattr(helper(), name), name
 
 
 # ---------------------------------------------------------------- the report (pure)
@@ -742,7 +769,7 @@ def test_the_report_and_ledger_of_a_full_run_have_no_prompt_text(sdk, tmp_path):
         assert "| %s |" % pid in text
     assert str(w.config / "projects") in text and "Consent envelope" in text
     kinds = [e["ev"] for e in events]
-    assert kinds.count("probe") == 3 and kinds.count("probe_end") == 3 and kinds.count("reserve") == 11
+    assert kinds.count("probe") == 3 and kinds.count("probe_end") == 3 and kinds.count("reserve") == 14
     assert kinds.count("cost") >= 10 and "cost_unknown" not in kinds
 
 
@@ -883,3 +910,46 @@ def test_e2c_counts_at_its_whole_cap_and_reads_server_info_only(sdk, tmp_path):
     assert row.facts["e2c_e2_above"] is False and row.facts["e2c_e2_subdir"] is False
     assert row.facts["e2b_init_frames"] == 2 and row.facts["e2b_in_first_init"] is False
     assert row.facts["e2b_in_last_init"] is True
+
+
+# ---------------------------------------------------------------- review fixes (SDK probes E, round 1)
+def test_an_open_turn_counts_at_the_whole_cap(sdk, tmp_path):
+    """F1: another prompt on a session that already reported may spend up to the session's cap again: it is
+    booked at that cap until the turn's result reports, and never below what was reported before."""
+    events = []
+    ctx = P.Ctx(P.PROBES[2], World(tmp_path).cfg(), helper(), 0.40, events.append)
+    ctx.reserve(0, types.SimpleNamespace(max_budget_usd=0.20))
+    ctx.note(0, FakeResult(0.01))
+    assert ctx.spent == pytest.approx(0.01)
+    ctx.open_turn(0)
+    assert ctx.spent == pytest.approx(0.20) and ctx.budget() <= 0.20 and ctx.unreported == 1
+    assert events[-1]["ev"] == "reserve" and events[-1]["usd"] == 0.20
+    ctx.note(0, FakeResult(0.05))                    # the turn's result: the running total of the process
+    assert ctx.spent == pytest.approx(0.05) and ctx.unreported == 0
+    ctx.open_turn(0)
+    ctx.note(0, FakeResult(0.03))                    # a lower figure never undercuts what was reported
+    assert ctx.spent == pytest.approx(0.05)
+
+
+def test_e1_rule_legs_need_a_denied_control(sdk, tmp_path):
+    """F2: if plan runs the command without any rule, a rule leg that ran proves nothing about the rule."""
+    (row,) = run(World(tmp_path, plan_open=True), [P.PROBES[0]])
+    assert row.facts["control_verdict"] == "ran" and row.facts["session_rule_verdict"] == "ran"
+    assert (row.answers["E1a"], row.answers["E1b"], row.answers["E1c"]) == ("unknown", "unknown", "unknown")
+
+
+def test_e2a_needs_a_control_the_rules_do_not_touch(sdk, tmp_path):
+    """F4: the env rules acting on the control too (kind unset): no rule's effect is measured."""
+    (row,) = run(World(tmp_path, bg_any_kind=True), [P.PROBES[1]])
+    assert row.answers["E2a"] == "unknown", row.facts
+    assert (row.facts["e2a_allow_applied"], row.facts["e2a_deny_applied"], row.facts["e2a_add_dirs_applied"]) == (
+        None, None, None)
+    assert row.facts["e2a_control_allow_marker"] and not row.facts["e2a_control_deny_marker"]
+    assert not row.facts["e2a_control_read_failed"]
+
+
+def test_e3c2_needs_a_tool_use_id(sdk, tmp_path):
+    """F5: a meta.json without toolUseId before and after the resume is no evidence that it survived."""
+    (row,) = run(World(tmp_path, meta_tid_match=None), [P.PROBES[2]])
+    assert row.facts["e3c_resumed"] is True and row.facts["e3c_meta_tool_use_id"] is None
+    assert row.answers["E3c1"] == "no" and row.answers["E3c2"] == "unknown"
