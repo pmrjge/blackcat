@@ -110,17 +110,29 @@ Request order is tools → system → messages.
 ## The helper (`~/.claude/bin/stack_sdk.py`, installed, loaded by nothing)
 
 ```python
-import sys, asyncio, dataclasses; sys.path.insert(0, "/Users/<you>/.claude/bin"); import stack_sdk
-opts = stack_sdk.options("coder", max_turns=20, budget_usd=1.0, permission_mode="acceptEdits",
-                         json_reports=True)            # a plain ClaudeAgentOptions
-opts = dataclasses.replace(opts, cwd="/path/to/repo")  # adjust anything
-out = asyncio.run(stack_sdk.run("Fix the failing test in tests/test_x.py", opts, on_message=print))
-out["report"]["status"], out["session_id"], out["agents"], out["model_usage"], out["ledger"]
-# resume: stack_sdk.options(resume=out["session_id"]); fork: also fork=True
+import sys, asyncio; sys.path.insert(0, "/Users/<you>/.claude/bin"); import stack_sdk
+async def main():                     # Session: the supported path (SDK-2)
+    async with stack_sdk.Session("blackcat", budget_usd=1.0, cwd="/path/to/repo") as s:   # host="none"
+        return await s.ask("Plan the fix for tests/test_x.py")
+out = asyncio.run(main())
+out["outcome"], out["gate"], out["needs_user"], out["report"]["status"], out["cost_usd"], out["tasks"]
 ```
-CLI (one JSON line on stdout, exit 1 on partial/blocked/error): `~/.claude/bin/stack_sdk.py "task"
---agent scout --max-turns 5 --budget-usd 0.5 --json-reports`; `--print-options` shows the options and
-runs nothing; `--stream` prints every SDK message on stderr. Needs `uv` on PATH (shebang `uv run --script`).
+- `connect()` checks the stack loaded before any prompt (server_info agents, SessionStart hook responses,
+  agent_guard's `session-start.json`), else `StackNotLoaded`.
+- Hosts: `none` (default; unattended: needs `budget_usd`, deadline 3600 s, permission prompts off,
+  ExitPlanMode and every builder agent denied under plan; fails closed if the mode is not plan or a
+  repository's `.claude/agents` would add or shadow an agent), `"tty"` (the terminal; plan approval needs
+  a printed nonce) or an app callable `can_use_tool` (only session addRules for the requested tool survive).
+- An explicit non-plan `permission_mode` is logged `gate_waived`; `bypassPermissions` is always refused.
+- `run(prompt, options(...))` is the legacy one-shot (no load check); `parse_stream(lines)` gives the same
+  dict from `claude -p --output-format stream-json --verbose`; each run appends a numbers-only row to
+  `$XDG_STATE_HOME/claude-agent-stack/usage/sdk-runs.jsonl`.
+
+CLI (one JSON line on stdout): `~/.claude/bin/stack_sdk.py "task" --budget-usd 0.5 [--host tty]
+[--bg-wait-s 600] [--deadline-s S] [--cli PATH|bundled] [--continue]`. Exit 0 done, 1 partial, failed,
+interrupted, unknown or error, 2 usage (host none needs `--budget-usd`), 3 stack not loaded, 4 no `claude`
+CLI, 5 waiting on the user (a question or the plan gate). `--print-options` shows the options and runs
+nothing; `--stream` prints every SDK message on stderr. Needs `uv` on PATH (shebang `uv run --script`).
 
 TypeScript (the same options; not shipped):
 ```ts

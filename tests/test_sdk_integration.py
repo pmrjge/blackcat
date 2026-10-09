@@ -25,6 +25,11 @@ HELPER = DOT / "bin" / "stack_sdk.py"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # What the Python SDK 0.2.163 adds to the CLI's environment (subprocess_cli.py), which every hook
 # inherits; CLAUDECODE is removed.
+# stack_sdk.py's size cap (D13 estimated about 650; v2 came to ~905, the two SDK-2r rounds to ~990): the TTY host
+# (~120 lines: reader thread, nonce, gap, wrapping, sanitising), the reducer shared by Session, run() and
+# parse_stream (~150), the load check with its plan-gate checks (project agents, worktrees, add_dirs) and the
+# extra_args allowlist, and the end-of-run loop. Still one file: install.sh stages bin/ files by name.
+CAP = 1000
 SDK_ENV = {"CLAUDE_CODE_ENTRYPOINT": "sdk-py", "CLAUDE_AGENT_SDK_VERSION": "0.2.163"}
 
 
@@ -99,6 +104,44 @@ def test_no_push_and_session_start_need_no_terminal(env):
     for src in ("startup", "resume", "clear", "compact", "fork"):
         assert hook({"session_id": sid(), "hook_event_name": "SessionStart", "source": src}, env,
                     **SDK_ENV) is None                     # default: no output, prompt unchanged
+
+
+# ---------------------------------------------------------------- D17: the guard's session-start marker
+@pytest.mark.parametrize("policy", ["on", "off"])
+def test_session_start_marker_on_every_source_and_policy(env, policy):
+    for src in ("startup", "resume", "clear", "compact", "fork"):
+        s, t0 = sid(), __import__("time").time()
+        out = hook({"session_id": s, "hook_event_name": "SessionStart", "source": src}, env,
+                   STACK_POLICY=policy)
+        assert out is None                                  # nothing on stdout: the prompt is unchanged
+        p = Path(env["XDG_STATE_HOME"]) / "claude-agent-stack" / s / "session-start.json"
+        m = json.loads(p.read_text())
+        assert m.keys() == {"v", "ts", "source", "policy"} and (m["v"], m["source"]) == (1, src)
+        assert m["policy"] is (policy == "on") and t0 - 1 <= m["ts"] <= __import__("time").time() + 1
+        assert p.stat().st_mode & 0o777 == 0o600
+    s = sid()                                               # a subagent's SessionStart writes none
+    hook({"session_id": s, "hook_event_name": "SessionStart", "source": "startup", "agent_id": "a1"}, env)
+    assert not (Path(env["XDG_STATE_HOME"]) / "claude-agent-stack" / s / "session-start.json").exists()
+
+
+def test_session_start_marker_failure_keeps_the_output(env, monkeypatch, capsys):
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("STACK_REPORT_FORMAT", "json")
+    real = guard.write_json_atomic
+
+    def boom(path, obj, *a, **k):
+        if os.path.basename(path) == "session-start.json":
+            raise OSError("disk full")
+        return real(path, obj, *a, **k)
+    monkeypatch.setattr(guard, "write_json_atomic", boom)
+    s = sid()
+    d = guard.sdir(s)
+    with pytest.raises(SystemExit):
+        guard.on_session_start({"session_id": s, "hook_event_name": "SessionStart", "source": "startup"}, d)
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out == {"hookEventName": "SessionStart", "additionalContext": guard.REPORT_JSON_LINE}
+    assert not os.path.exists(os.path.join(d, "session-start.json"))
 
 
 # ---------------------------------------------------------------- C: the opt-in JSON report line
@@ -192,7 +235,7 @@ def test_run_collects_result_and_per_subagent_usage(monkeypatch):
     assert out["model_usage"]["model-x"]["inputTokens"] == 9
 
 
-def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeypatch):
+def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeypatch, tmp_path):
     def msg(name, **kw):
         return type(name, (), kw)()
 
@@ -208,6 +251,7 @@ def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeyp
                   num_turns=1, duration_ms=1, total_cost_usd=0, usage={}, model_usage={})
 
     monkeypatch.setitem(sys.modules, "claude_agent_sdk", types.SimpleNamespace(query=query))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))                 # the run row (D10) lands here
     got = {a["tool_use_id"]: a for a in asyncio.run(sdk.run("x", None))["agents"]}
     assert set(got) == {"tu1", "tu2", "tu3"}                      # the update joined its tool_use_id
     assert (got["tu1"]["agent"], got["tu2"]["agent"], got["tu3"]["agent"]) == (None, "scout", None)
@@ -233,8 +277,10 @@ def test_options_with_the_pinned_sdk():
 
 def test_helper_is_small_pinned_installed_and_never_loaded():
     text = HELPER.read_text()
-    # 135: the hand-back protocol's FILES forms (files_of) and E flag; still one small file
-    assert len(text.splitlines()) <= 135 and os.access(HELPER, os.X_OK)
+    # SDK-2 (D13): one file, because install.sh lists bin/ files explicitly; v2 adds Session, the load
+    # check, the three permission hosts, the shared reducer, the run row and the CLI flags.
+    assert len(text.splitlines()) <= CAP and os.access(HELPER, os.X_OK)
+    assert (HELPER.parent / "stack_sdk.py.lock").is_file()            # `uv lock --script` (D13)
     pin = re.search(r'"claude-agent-sdk==([\d.]+)"', text)
     assert pin, "the PEP 723 header pins the SDK"
     install = (ROOT / "install.sh").read_text()
