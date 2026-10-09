@@ -112,6 +112,19 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      [(" or not k[\"read_failed\"] else not b[\"read_failed\"]", " else not b[\"read_failed\"]")]),
     ("F5", "E3c2 answered without a toolUseId", "test_e3c2_needs_a_tool_use_id",
      [(" if resumed and isinstance(tid0, str) and c1 is not None", " if resumed and c1 is not None")]),
+    # review round 2
+    ("S1", "the resume turn closed by any result (a late one of an earlier turn too)",
+     "test_a_late_result_does_not_close_the_resume_turn",
+     [("                return at is not None and any(map(is_result, later[at:])) and not agents_running(s.msgs)\n",
+       "                return any(map(is_result, later)) and not agents_running(s.msgs)\n")]),
+    ("S1", "an unproven session re-booked without a ledger event", "test_a_late_result_does_not_close_the_resume_turn",
+     [("        self.ledger({\"ev\": \"reserve\", \"probe\": self.probe.pid, \"session\": key, \"usd\": self.costs[key], "
+       "\"unproven\": True})\n", "")]),
+    ("S2", "E3c2's reading omits the missing toolUseId", "test_e3c2_needs_a_tool_use_id",
+     [("E3c1 unknown, or no toolUseId before the resume\"", "or E3c1 unknown\"")]),
+    ("S3", "settle()'s whole-cap booking left out of the ledger",
+     "test_a_session_closed_with_an_agent_running_is_rebooked_in_the_ledger",
+     [("        if self.costs.get(key) != before:\n", "        if False:\n")]),
 ]
 
 

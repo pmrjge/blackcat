@@ -260,6 +260,12 @@ class Ctx(base.Ctx):
         self.caps[key] = float(opts.max_budget_usd)
         self.ledger({"ev": "reserve", "probe": self.probe.pid, "session": key, "usd": self.caps[key]})
 
+    def rebook(self, key: int, usd: float) -> None:
+        """No result proves what a session spent: it counts at its whole cap again (ledger 'reserve')."""
+        self.reported.discard(key)
+        self.costs[key] = max(self.costs.get(key, 0.0), usd)
+        self.ledger({"ev": "reserve", "probe": self.probe.pid, "session": key, "usd": self.costs[key], "unproven": True})
+
     def open_turn(self, key: int) -> None:
         """Before another prompt on a session that already reported: the CLI may spend up to the session's
         cap again, so the session counts at its whole cap until that turn's result replaces it (never below
@@ -298,7 +304,10 @@ class Ctx(base.Ctx):
             self.session_ids.append(sid)
 
     def settle(self, key: int, msgs: list[Any], opts: Any) -> None:
-        super().settle(key, msgs, opts)
+        before = self.costs.get(key)
+        super().settle(key, msgs, opts)          # closed with an agent running: its whole cap
+        if self.costs.get(key) != before:
+            self.ledger({"ev": "reserve", "probe": self.probe.pid, "session": key, "usd": self.costs[key], "closed": True})
         if key in self.unknown_keys:
             self.reported.discard(key)
 
@@ -853,16 +862,27 @@ async def e3_hold(c: Ctx, logger: str) -> None:
             await s.c.interrupt()
             closed = await poll(lambda: any(map(is_result, s.msgs[m:])), cfg.wait_s)
         if not closed:      # its whole cap; the resume's result (a running total per process, D8) replaces it
-            c.reported.discard(s.key)
-            c.costs[s.key] = max(c.costs.get(s.key, 0.0), float(o.max_budget_usd))
+            c.rebook(s.key, float(o.max_budget_usd))
         f["e3d_result_after_stop"] = closed
         if aid and (meta0 or {}).get("stoppedByUser") is True:
             m = len(s.msgs)
             c.open_turn(s.key)
             await s.c.query(PROMPTS["e3_send"].format(agent_id=aid))
-            await poll(lambda: any(map(is_result, s.msgs[m:])) and not agents_running(s.msgs), cfg.wait_s)
+
+            def resume_done() -> bool:
+                """The resume turn ended: its own SendMessage call, a result after it, no agent running (a
+                result of an earlier turn landing late proves nothing about this one)."""
+                later = s.msgs[m:]
+                at = next((i for i, x in enumerate(later) if kind(x) == "AssistantMessage" and any(
+                    kind(b) == "ToolUseBlock" and b.name == "SendMessage" for b in x.content)), None)
+                return at is not None and any(map(is_result, later[at:])) and not agents_running(s.msgs)
+            await poll(resume_done, cfg.wait_s)
             await anyio.sleep(cfg.settle_s)
             meta1, lines1 = read_meta(cfg.config_dir, sid, aid), transcript_lines(cfg.config_dir, sid, aid)
+            # decided after the last read, with no await before the reader stops: no frame lands in between
+            f["e3d_resume_turn_ended"] = done = resume_done()
+            if not done:
+                c.rebook(s.key, float(o.max_budget_usd))
         tg.cancel_scope.cancel()
     rows = hook_rows(log)
     made = os.path.exists(marker)
@@ -932,7 +952,7 @@ PROBES = [
              "yes: equal; no: different or missing; unknown: no meta.json or no Skill call"),
         Part("E3c2", "Does that toolUseId survive a SendMessage resume of the child?",
              "the meta.json re-read after the resume; the resume proven by the child's transcript growing",
-             "yes: unchanged; no: changed or gone; unknown: no resume proven, or E3c1 unknown"),
+             "yes: unchanged; no: changed or gone; unknown: no resume proven, E3c1 unknown, or no toolUseId before the resume"),
         Part("E3d", "Does stoppedByUser in meta.json survive a SendMessage resume after stop_task?",
              "the held child's meta.json after stop_task (PR5b's hold) and after the resume (its transcript grows)",
              "yes: true after both; no: true after the stop, not after the resume; unknown: not true after the stop, "

@@ -84,6 +84,7 @@ SWITCHES = dict(
     stopped_survives=True,  # E3d
     resume=True,            # E3c2/E3d: SendMessage resumes the child (its transcript grows)
     wake_on_stop=True,      # E3d: the stopped child's end wakes the main thread (a result after the stop)
+    late_wake=False,        # E3d: that wake's result lands only after the next query, whose turn then never ends
     denials_listed=True,    # E1c: a denied call shows in the result's permission_denials
     hollow=False,           # no tool is ever called
     stack_rule=True,        # E1c: the stack's exact rule is installed
@@ -143,7 +144,7 @@ class FakeCLI(Base):
         self.cwd, self.env = Path(opts.cwd), dict(opts.env or {})
         self.user = "user" in (opts.setting_sources or [])
         self.mode = opts.permission_mode or "default"
-        self.turn_open, self.hold, self.started = False, None, False
+        self.turn_open, self.hold, self.started, self.deferred = False, None, False, False
         self.agents0 = self.agent_names()
 
     # Transport
@@ -278,7 +279,9 @@ class FakeCLI(Base):
         self.emit(self.sysm("task_updated", task_id=task_id, patch={"status": "killed"}))
         if self.w.stopped_written:
             self.edit_meta(aid, stoppedByUser=True)
-        if self.w.wake_on_stop:
+        if self.w.wake_on_stop and self.w.late_wake:
+            self.deferred = True                                # its result comes with the next query
+        elif self.w.wake_on_stop:
             self.turn_open = True
             self.emit(self.asst({"type": "text", "text": LEAK}))
             self.finish()
@@ -470,7 +473,15 @@ class FakeCLI(Base):
             self.done_task("th", "tu-x")
 
     async def play_e3_send(self, agent_id):
+        late = self.deferred
+        if late:                                                # the earlier turn's result, late
+            self.deferred = False
+            self.emit(self.asst({"type": "text", "text": LEAK}))
+            self.finish()
+            self.turn_open = True
         tu = self.use("SendMessage", {"to": agent_id, "message": LEAK})
+        if late:
+            return                                              # the resume turn is still running
         await self.hook("SendMessage", self.mode)
         p = self.subagents() / ("agent-%s.jsonl" % agent_id)
         if await self.ask("SendMessage", {"to": agent_id}) and p.exists() and self.w.resume:
@@ -953,3 +964,38 @@ def test_e3c2_needs_a_tool_use_id(sdk, tmp_path):
     (row,) = run(World(tmp_path, meta_tid_match=None), [P.PROBES[2]])
     assert row.facts["e3c_resumed"] is True and row.facts["e3c_meta_tool_use_id"] is None
     assert row.answers["E3c1"] == "no" and row.answers["E3c2"] == "unknown"
+    e3c2 = next(x for x in P.PROBES[2].parts if x.pid == "E3c2")
+    assert e3c2.reading.endswith("unknown: no resume proven, E3c1 unknown, or no toolUseId before the resume")
+
+
+# ---------------------------------------------------------------- review fixes (SDK probes E, round 2)
+def test_a_late_result_does_not_close_the_resume_turn(sdk, tmp_path):
+    """Round 2, 1: the wake's result lands only after the resume query, whose own turn never ends. Only a
+    result after the resume's SendMessage call closes that turn's spend; here none does, so the hold session
+    stays at its whole cap (and the ledger says so)."""
+    events = []
+    (row,) = run(World(tmp_path, late_wake=True, resume=False), [P.PROBES[2]], ledger=events.append)
+    f = row.facts
+    hold_cap = 0.40 - 0.01                          # the fork session reported $0.01 first
+    assert row.cost == pytest.approx(0.01 + hold_cap), row.cost
+    assert f["e3d_result_after_stop"] is False and f["e3d_resume_turn_ended"] is False, f
+    assert [e.get("unproven") for e in events if e["ev"] == "reserve"].count(True) == 2
+    assert row.answers["E3d"] == "unknown"
+
+
+def test_a_session_closed_with_an_agent_running_is_rebooked_in_the_ledger(sdk, tmp_path):
+    """Round 2, 3: settle() books a session closed with an agent still running at its whole cap: the ledger
+    records that booking too."""
+    events = []
+    ctx = P.Ctx(P.PROBES[2], World(tmp_path).cfg(), helper(), 0.40, events.append)
+    opts = types.SimpleNamespace(max_budget_usd=0.20)
+    ctx.reserve(0, opts)
+    ctx.note(0, FakeResult(0.01))
+    running = type("TaskStartedMessage", (), dict(task_id="t1", tool_use_id="tu-1", description="coder: x",
+                                                 task_type="local_agent", session_id="sess-fake-result"))()
+    ctx.settle(0, [running], opts)
+    assert ctx.spent == pytest.approx(0.20)
+    assert events[-1] == dict(ev="reserve", probe="E3", session=0, usd=0.20, closed=True)
+    n = len(events)
+    ctx.settle(1, [], types.SimpleNamespace(max_budget_usd=0.1))          # nothing changes: no event
+    assert len(events) == n
