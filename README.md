@@ -950,7 +950,7 @@ The full list, with sources and the optional toolchains, is in [Requirements (ma
 | jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | brew batch when missing |
 | elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | installed by step 2 (`STACK_INSTALL_LEAN`; elan from Homebrew's sha256-pinned `elan-init` bottle, the official `elan-init.sh` only without Homebrew; the project, about 8 GB, at `~/lean/stack_mathlib` only on a terminal or with `STACK_INSTALL_LEAN_MATHLIB=1`; your own `LEAN_PROJECT_PATH` project is used as it is); you set `LEAN_PROJECT_PATH` in `stack.env`; the plugin is enabled only when `lake` exists |
 | Homebrew | One batch for every missing formula, one for every missing cask | installed when missing (on a terminal) |
-| magg 1.3.0, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned, checksummed) |
+| magg 1.3.0, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned; huetension checksummed, magg and its dependencies by version pin and the `--exclude-newer` cooldown) |
 | ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | brew batch, else warned |
 | just | The instructor's recipes (`tools/instructor/justfile`) | brew batch when missing |
 | The toolchain groups (Rust, Haskell, Julia, Scala, Java, LaTeX, C++ tools, Go, dev tools; PostgreSQL and MongoDB off) | The language and domain agents | installed when missing; `STACK_INSTALL_<GROUP>=0` skips one |

@@ -13,6 +13,7 @@ mcpServers:
       env:
         MAGG_PATH: "__CLAUDE_DIR__/magg:__HOME__/.magg"
         MAGG_BACKEND_INIT_TIMEOUT: "300"
+        NETRC: "/dev/null"
 permissionMode: acceptEdits
 color: orange
 ---
