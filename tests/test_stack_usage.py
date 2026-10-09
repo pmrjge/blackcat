@@ -2027,3 +2027,19 @@ def test_an_unreadable_stray_is_set_aside_once_and_appends_go_on(st):
     assert len(aside) == 1 and aside[0].count(".unreadable-") == 1, aside
     r = U.read_rows()
     assert all((SID, "q%d" % i, 0) in r for i in range(14))
+
+
+def test_rows_never_land_under_a_foreign_header(st, monkeypatch):
+    """Security re-check 3 (LOW): a runs3.csv of a header this code does not read, which could not be set aside,
+    takes no rows (retried next tick)."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    text = "schema_version,session,future_col\n3,x,y\n"
+    (u / "runs3.csv").write_text(text)
+
+    def deny(*a, **k):
+        raise OSError(13, "Permission denied")
+    monkeypatch.setattr(U.os, "replace", deny)
+    with pytest.raises(OSError):
+        U.append_rows([row3(id="f1")])
+    assert (u / "runs3.csv").read_text() == text

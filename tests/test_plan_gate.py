@@ -15,6 +15,7 @@ GUARD=/path/to/agent_guard.py points them at another copy of the hook (mutation 
 import importlib.util
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -490,3 +491,59 @@ def test_a_duplicate_agent_key_is_refused_if_either_is_a_builder():
               "---\ncontext: fork\nagent: explore\nagent: orchestrator\n---\n")
     r = skill_call(e, "dup")
     assert refused(r) and "orchestrator" in r.reason, r
+
+
+# ---------------------------------------------------------------- security re-check 3 (d86259d0)
+def test_review3_a_fifo_skill_md_does_not_hang_the_scan(tmp_path):
+    """A repo-shipped FIFO (or tty symlink) as a SKILL.md must not block the alias scan past the hook timeout."""
+    g = load("agent_guard_fifo", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(conf / "skills" / "ship" / "SKILL.md"), "---\ncontext: fork\nagent: coder\n---\n")
+    (conf / "skills" / "zz").mkdir(parents=True)
+    os.mkfifo(conf / "skills" / "zz" / "SKILL.md")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    result = []
+    t = threading.Thread(target=lambda: result.append(g.forked_skill_agents("ship", str(tmp_path / "w"), str(conf))),
+                         daemon=True)
+    t.start()
+    t.join(5)
+    assert result == [["coder"]]
+
+
+def test_review3_a_frontmatter_past_64_kb_is_read():
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "huge", "SKILL.md"),
+              "---\nname: huge\ndescription: " + "x" * 70000 + "\ncontext: fork\nagent: coder\n---\nx\n")
+    assert refused(skill_call(e, "huge"))
+
+
+@pytest.mark.parametrize("front", [
+    "---\ncontext: # runs alone\n  fork\nagent: orchestrator\n---\n",
+    "---\ncontext: |- # c\n  fork\nagent: orchestrator\n---\n",
+    '---\ncontext: "\\x66ork"\nagent: orchestrator\n---\n',
+    '---\ncontext: "fo\\\n  rk"\nagent: orchestrator\n---\n',
+    '---\n"con\\x74ext": fork\nagent: orchestrator\n---\n',
+    '---\ncontext: fork\nagent": explore\nagent:\n  coder\n---\n',
+])
+def test_review3_yaml_spellings_of_a_builder_fork_are_refused(front):
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "y", "SKILL.md"), front)
+    r = skill_call(e, "y")
+    assert refused(r) and "forks into" in r.reason, r
+
+
+def test_review3_fork_detection_is_linear(tmp_path):
+    g = load("agent_guard_lin", GUARD)
+    conf = tmp_path / "conf"
+    write_def(str(conf / "skills" / "lin" / "SKILL.md"), "---\ndescription: " + "context:!" * 7200 + "\n---\n")
+    (tmp_path / "w" / ".git").mkdir(parents=True)
+    t = time.monotonic()
+    g.forked_skill_agents("lin", str(tmp_path / "w"), str(conf))
+    assert time.monotonic() - t < 0.5
+
+
+def test_review3_a_fork_into_explore_and_a_builder_without_fork_still_pass():
+    e = env()
+    write_def(os.path.join(e.tmp, ".claude", "skills", "safe", "SKILL.md"), "---\ncontext: fork\nagent: explore\n---\n")
+    write_def(os.path.join(e.tmp, ".claude", "skills", "nofork", "SKILL.md"), "---\nagent: orchestrator\n---\n")
+    assert ok(skill_call(e, "safe")) and ok(skill_call(e, "nofork"))

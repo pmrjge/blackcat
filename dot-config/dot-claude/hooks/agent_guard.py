@@ -680,13 +680,17 @@ def plan_gate_violation(ev, tool, child=None, row=None, conf=None):
 # Skill tool is a dispatch too. Every definition the name may resolve to is read (user, project, plugin):
 # one that forks into a plan-unsafe agent closes the call in plan mode (on_skill).
 # The CLI strips a BOM, parses the block as YAML and tests context === "fork". These over-approximate on purpose
-# (plan mode only; a false match only refuses): any spelling of the key (quoted, `context : fork`, the value on the
-# next line, tags, anchors, aliases, block scalars, flow style); every `agent:` key counts (a duplicate: either may
-# win), and a fork with no readable agent (flow style, indented) is general-purpose. CRLF too.
-FORK_RE = re.compile(r"""["']?\bcontext["']?\s*:\s*(?:(?:!\S*|&\S+|[|>][-+0-9]*)\s+)*(?:["']?fork\b|\*)""")
+# (plan mode only; a false match only refuses): a frontmatter that holds both words `context` and `fork` once YAML
+# escapes (\x66, \u0066, a line-continued "fo\<newline>rk") are undone forks (skill_forks: linear, no regex
+# backtracking; any spelling of the key, comments, tags, anchors, block scalars, flow style); every `agent:` key
+# counts (a duplicate: either may win), and a fork whose agent is not plainly readable (none, flow style, indented,
+# escaped, a `key :` spelling, an agent key the plain reading misses) is also general-purpose. CRLF too.
+YAML_ESCAPE_RE = re.compile(r"\\(?:x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|\r?\n[ \t]*)")
+AGENT_KEY_RE = re.compile(r"""\bagent\b["']?\s*:""")
 SKILL_AGENT_RE = re.compile(r"""^["']?agent["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
 SKILL_FM_NAME_RE = re.compile(r"""^["']?name["']?[ \t]*:[ \t]*["']?([^"'#\s,}]+)""", re.M)
 SKILL_HEAD = 65536        # bytes of a skill file read for its frontmatter
+SKILL_TRUNCATED = "\ncontext: fork\nagent: ?\n"   # appended to a head with no closing --- in it: fails closed
 SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
@@ -725,16 +729,29 @@ def skill_files(name, cwd, conf=None):
 
 
 def skill_frontmatter(path):
-    """The frontmatter text of a skill or command file (BOM stripped; the whole head when no closing ---), or "";
-    at most SKILL_HEAD characters are read."""
+    """The frontmatter text of a skill or command file (BOM stripped; the whole head when no closing ---), or "".
+    Regular files only, opened without blocking (a FIFO or a device would hang the hook past its timeout; the CLI
+    skips them too). At most SKILL_HEAD characters are read: a longer file with no closing --- in them (the CLI
+    reads on) is returned with SKILL_TRUNCATED appended, a fork into an unknown agent."""
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            head = fh.read(SKILL_HEAD).lstrip("\ufeff")
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except OSError:
         return ""
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return ""
+        with os.fdopen(os.dup(fd), encoding="utf-8", errors="replace") as fh:
+            text = fh.read(SKILL_HEAD + 1)
+    except (OSError, ValueError):
+        return ""
+    finally:
+        os.close(fd)
+    more, head = len(text) > SKILL_HEAD, text[:SKILL_HEAD].lstrip("\ufeff")
     if not head.startswith("---"):
         return ""
     parts = head.split("\n---", 1)
+    if more and len(parts) == 1:
+        return head + SKILL_TRUNCATED
     return parts[0]
 
 
@@ -754,8 +771,9 @@ def skill_alias_files(sk, segs, cwd, conf):
               for q in sorted(glob.glob(os.path.join(root, "plugins", "cache", "*", "*", "*", "SKILL.md")))]
     out = []
     for f, q in cands:
-        m = SKILL_FM_NAME_RE.search(skill_frontmatter(q))
-        if m and m.group(1).rpartition(":")[2] == sk:
+        fm = skill_frontmatter(q)
+        m = SKILL_FM_NAME_RE.search(fm)
+        if fm.endswith(SKILL_TRUNCATED) or (m and m.group(1).rpartition(":")[2] == sk):
             out.append((f, q))
     if segs:
         for r in project_roots(cwd):
@@ -764,14 +782,32 @@ def skill_alias_files(sk, segs, cwd, conf):
     return out
 
 
+def _yaml_unescape(m):
+    h = m.group(1) or m.group(2) or m.group(3)
+    try:
+        return chr(int(h, 16)) if h else ""
+    except (ValueError, OverflowError):
+        return ""
+
+
+def skill_forks(fm):
+    """Whether the frontmatter text may set context: fork (both words present once YAML escapes are undone)."""
+    d = YAML_ESCAPE_RE.sub(_yaml_unescape, fm)
+    return "context" in d and "fork" in d
+
+
 def forked_skill_agents(name, cwd, conf=None):
-    """The agents the skill `name` forks into, one per definition with `context: fork` (its `agent:`, else
-    general-purpose); [] when no definition forks."""
+    """The agents the skill `name` forks into, one per definition that may fork (skill_forks): its `agent:` keys,
+    plus general-purpose when none is plainly readable or an agent key may hide (an escape, a `key :` spelling,
+    more agent keys than plain readings); [] when no definition forks."""
     out = []
     for p in skill_files(name, cwd, conf):
         fm = skill_frontmatter(p)
-        if FORK_RE.search(fm):
-            out += SKILL_AGENT_RE.findall(fm) or ["general-purpose"]
+        if skill_forks(fm):
+            got = SKILL_AGENT_RE.findall(fm)
+            if not got or "\\" in fm or re.search(r"\s:", fm) or len(AGENT_KEY_RE.findall(fm)) > len(got):
+                got.append("general-purpose")
+            out += got
     return out
 
 
@@ -822,7 +858,8 @@ def plan_child_reason(ev):
 
 
 def on_skill(ev, d):
-    """PreToolUse Skill: in plan mode, no skill that forks into a plan-unsafe agent (FORK_RE)."""
+    """PreToolUse Skill: in plan mode, no skill that may fork (skill_forks) into a plan-unsafe agent (or into
+    general-purpose when its agent is not plainly readable)."""
     if not policy_on() or not in_plan_mode(ev):
         return
     ti = tool_input(ev)

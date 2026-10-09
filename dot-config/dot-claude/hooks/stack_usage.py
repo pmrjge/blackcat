@@ -1339,6 +1339,8 @@ def append_rows(rows):
             _rotate_if_needed(cur, old)
         except OSError as exc:           # a rename or rewrite that fails never stops the recording
             sys.stderr.write("stack_usage: rotation skipped (%s)\n" % type(exc).__name__)
+            if os.path.exists(cur) and os.path.getsize(cur) and _header_of(cur) is None:
+                raise                    # a foreign runs3.csv not set aside takes no rows: retried next tick
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
         cols = COLUMNS if new else (_header_of(cur) or COLUMNS)    # a legacy file kept by cap <= 0 stays legacy
