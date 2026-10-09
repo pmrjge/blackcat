@@ -290,7 +290,8 @@ def test_tools_venv_lock_covers_the_stack_imports():
     req = os.path.join(ROOT, "requirements")
     norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()  # noqa: E731
     dist = {"PIL": "pillow"}
-    left_out = {"claude-agent-sdk"}       # inside the cooldown at the last lock (requirements/README.md)
+    left_out = {"claude-agent-sdk",       # inside the cooldown at the last lock (requirements/README.md)
+                "anyio"}                  # the SDK's own dependency: locked with it by stack_sdk.py.lock and sdk_probes.py.lock
     # opt-in extras (requirements/README.md): a file's imports may come from its own lock's input instead
     extras = {"dot-config/dot-claude/hooks/stack_bayes.py": "tools-bayes.in"}
     dirs = ["dot-config/dot-claude/bin", "dot-config/dot-claude/mcp", "dot-config/dot-claude/hooks", "lib", "tests"]
