@@ -90,6 +90,55 @@ if [ ! -x "$C/venvs/tools/bin/python" ]; then fail "tools venv missing — rerun
 elif "$C/venvs/tools/bin/python" -c 'import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory' >/dev/null 2>&1; then ok "tools venv (imports ok; full suite: $C/venvs/tools/bin/python -m pytest -q tests/)"
 else fail "tools venv imports fail — rerun install.sh"; fi
 [ -x "$C/venvs/ml/bin/python" ] && ok "ML venv ($C/venvs/ml)" || ok "ML venv not installed (optional: ./install.sh --with-ml)"
+# >>> bayes line (docs/BAYES.md §2.9; tests/test_bayes_wiring.py runs this block alone)
+# The Bayes fitter's packages are opt-in (./install.sh --with-bayes), so their absence is never a failure.
+# Distribution metadata only: importing pytensor would write a compile cache under ~. The last fit's status
+# comes from the collector's usage/bayes.json.rec, printed only when it has the record's shape.
+bayes_line(){
+  local py="$C/venvs/tools/bin/python" mode got last
+  mode="$(printf '%s' "${STACK_BAYES-}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$mode" in off|shadow|on) ;; *) mode=shadow ;; esac
+  if [ "$mode" = off ]; then ok "bayes: skipped (STACK_BAYES=off: no fits, the limits use the empirical rule)"; return 0; fi
+  if [ ! -x "$py" ]; then ok "bayes: venv missing (no tools venv; the fits record skipped:no-pymc)"; return 0; fi
+  got="$("$py" -I -B -c 'from importlib.metadata import version
+for d in ("pymc", "pytensor", "nutpie", "arviz", "scipy", "numpy"):
+    try:
+        print(d, version(d))
+    except Exception:
+        print(d, "-")' 2>/dev/null)" || got=""
+  case "$got" in
+    "") warn "bayes: couldn't read the tools venv's packages ($py)" ;;
+    *"pymc -"*"pytensor -"*"nutpie -"*"arviz -"*)
+      ok "bayes: venv missing (optional: ./install.sh --with-bayes; until then the fits record skipped:no-pymc and the limits stay empirical)" ;;
+    *" -"*) warn "bayes: venv incomplete ($(printf '%s' "$got" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — rerun ./install.sh --with-bayes" ;;
+    *)
+      last="$(python3 - "${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/usage/bayes.json.rec" <<'PY'
+import json, re, sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - 262144))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+except OSError:
+    lines = []
+status = "none yet"
+for ln in reversed(lines):
+    try:
+        r = json.loads(ln)
+    except ValueError:
+        continue
+    if isinstance(r, dict):
+        s = r.get("status")
+        status = s if isinstance(s, str) and re.fullmatch(r"[a-z-]+(:[a-z0-9 -]{1,40})?", s) else "unreadable"
+        break
+print(status)
+PY
+)"
+      ok "bayes: venv ok ($(printf '%s' "$got" | tr '\n' ',' | sed 's/,$//; s/,/, /g'); STACK_BAYES=$mode; last fit: ${last:-unreadable})" ;;
+  esac
+}
+bayes_line
+# <<< bayes line
 for f in with-stack-env mcp-headers magg-private claude-ultracode; do [ -x "$C/bin/$f" ] && ok "bin/$f" || fail "bin/$f missing or not executable — rerun install.sh"; done
 for n in claude-ninja; do
   if [ "$(readlink "$HOME/.local/bin/$n" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then

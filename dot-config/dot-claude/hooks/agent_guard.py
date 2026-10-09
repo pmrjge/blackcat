@@ -12798,6 +12798,8 @@ FIXED_LIMIT_KNOBS = (
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
     "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY",
     "STACK_FANOUT_SESSION",
+    # the Bayes limits mode (stack_limits.bayes_mode; docs/BAYES.md section 3.1): off | shadow | on
+    "STACK_BAYES",
     # the dynamic fan-out cap (stack_fanout.KNOBS; the self-test checks the two lists agree)
     "STACK_FANOUT_DYN", "STACK_FANOUT_DYN_ALPHA", "STACK_FANOUT_DYN_BETA_FAIL",
     "STACK_FANOUT_DYN_BETA_RL", "STACK_FANOUT_DYN_BREAKER", "STACK_FANOUT_DYN_DELAY_RATIO",
@@ -12866,6 +12868,10 @@ def limits_self_test(agents_dir=None):
     loose = [k for k in FIXED_LIMIT_KNOBS if not mod.is_fixed_guard(k) or k in names.values()]
     if loose:
         problems.append(f"limits: fixed knobs not marked fixed: {' '.join(loose)}")
+    # the other way: every STACK_* env knob stack_limits fixes is one of the guard's fixed knobs too
+    unlisted = sorted(k for k in mod.FIXED_GUARDS if k.startswith("STACK_") and k not in FIXED_LIMIT_KNOBS)
+    if unlisted:
+        problems.append(f"limits: fixed STACK_* guards of stack_limits not in FIXED_LIMIT_KNOBS: {' '.join(unlisted)}")
     fb = builtin_limits()
     want = {k: v for k, v in fb.values.items() if not k.startswith("hard.")}
     want.update({"hard.prompt": 300000000, "hard.session": 1920000000})

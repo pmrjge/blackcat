@@ -354,6 +354,46 @@ last 256 KiB and drops lines that do not parse to an object):
 `stack_usage.py status` ends with "last bayes fit: <the last record's status>". The child's other output is
 discarded.
 
+### 2.9 Installing the fitter's packages and the doctor line (WP3c)
+
+`./install.sh --with-bayes` is opt-in. It syncs the tools venv from `requirements/tools-bayes.txt` instead of
+`tools.txt`. The rest of the install is unchanged.
+- **The lock.** `tools-bayes.txt` is compiled from `tools-bayes.in` (`-r tools.in` plus pymc 6.3.2, pytensor 3.3.2,
+  nutpie 0.16.11, arviz 1.3.0, scipy 1.18.1). It uses the repo's tools command plus `-c requirements/tools.txt`,
+  with the 7-day cooldown (`--exclude-newer 2026-10-02T00:00:00Z`; command in `requirements/README.md`).
+  - Hashes and Python: every package is hashed, Python 3.13, arm64 wheels only. Every package it shares with
+    `tools.txt` has the same pin.
+  - Pins: equal to the prototype's lock except pytensor. Its 3.3.3 was published 2026-10-02T14:13Z, inside the
+    cooldown, so the lock pins 3.3.2 (pymc 6.3.2 accepts `>=3.2.2,<3.4`).
+  - Re-lock: on or after 2026-10-10 the lock can move to 3.3.3, the version the WP2 and WP3b fits ran on.
+    `fit_id` hashes the versions, so a refit on another version gets a new id.
+- **Vulnerability scan.** pip-audit 2.10.1 on 2026-10-09, run through `uvx` (uv's cache only, nothing
+  installed into the stack). It used the PyPI advisory feed, because the sandbox refused `api.osv.dev`.
+  - Result: 76 packages; no advisory for a Bayes package or for anything only the Bayes packages pull in.
+  - Two advisories for `pyjwt` 2.14.0: PYSEC-2026-4141 / CVE-2026-101918 and PYSEC-2026-4183 /
+    CVE-2026-102275, both fixed in 2.15.0. `tools.txt` pins this version (via `mcp`), and the same scan flags
+    it there. The fix is to re-lock `tools.txt`, then this lock.
+- **Shadow only.** Nothing installs these packages by default, and installing them changes no limit:
+  `STACK_BAYES` defaults to `shadow` (§3.1) and `BAYES_LIVE` is empty (§3.2). With the packages present, the
+  collector's fits write `limits/bayes.json`, which feeds only `bayes-shadow` records.
+  - A later run without `--with-bayes` syncs `tools.txt` (the same shared pins). It leaves the Bayes packages in
+    place and says so.
+  - `STACK_BAYES=off` stops the fits. `uv pip uninstall --python <config>/venvs/tools/bin/python pymc pytensor
+    nutpie arviz` removes the packages.
+  - Under `--no-deps` the flag does nothing, and the installer prints one line saying so.
+- **`doctor.sh`.** One line after the ML venv's. It reads distribution metadata only: importing pytensor
+  would write a compile cache under `~`.
+  - `bayes: skipped (STACK_BAYES=off …)`
+  - `bayes: venv missing (…)`: no tools venv, or none of pymc, pytensor, nutpie, arviz. An `ok` line, never a
+    failure.
+  - `bayes: venv incomplete (…)`: some of the six fitter dependencies are absent. A WARN.
+  - `bayes: venv ok (<versions>; STACK_BAYES=<mode>; last fit: <status>)`. The status is the last record of
+    `usage/bayes.json.rec`. It is printed only if it matches the record's status shape, else as `unreadable`.
+- **`STACK_BAYES` in the guard.** The knob is in the guard's `FIXED_LIMIT_KNOBS`. Its self-test fails when a
+  `STACK_*` name in `stack_limits.FIXED_GUARDS` is missing from that list. It already failed when a listed knob
+  was learnable.
+- **`accel.lock`.** Still no holder (§2.8). WP3c adds none.
+
 ---
 
 ## 3. Modes, shadow, promotion, rollback
@@ -831,8 +871,10 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
 - `<state>/accel.lock` (§2.8) has no holder in the stack yet.
 - A fit orphaned by a SIGKILLed collector runs to its end without the 900 s cap (it keeps `usage/bayes.lock`,
   so it is never doubled); a cap inside `stack_bayes.py` itself is not implemented.
-- WP3c builds on WP3b's `requirements/tools-bayes.in`, the install.sh staging of `hooks/stack_bayes.py` and the
-  `test_install_state` extras map; run an OSV / pip-audit scan before the hashed `tools-bayes.txt` ships.
+- The Bayes lock pins pytensor 3.3.2 rather than the 3.3.3 the WP2 and WP3b fits ran on, because of the cooldown
+  (§2.9). Re-lock on or after 2026-10-10. A fit on 3.3.2 has not been run.
+- `pyjwt` 2.14.0 in `tools.txt`, and so in the Bayes lock, has two advisories that 2.15.0 fixes (§2.9). The fix
+  is to re-lock `tools.txt` (outside WP3c).
 - Window and session row counts in today's live data: WP2.
 - The clustered check per stratum and the randomized PIT of censored rows: need a refit (WP2/WP5).
 - Turns and ctx fits were not bit-reproducible across processes with the same seed in v2 (§2). B1-T11 on the frozen

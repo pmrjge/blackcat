@@ -23,8 +23,29 @@ Full suite: `~/.claude/venvs/tools/bin/python -m pytest -q tests/`.
 Left out: `claude-agent-sdk==0.2.163` (bin/stack_sdk.py, tests/sdk_smoke.py, one importorskip test in
 test_sdk_integration.py), published 2026-09-30, inside the cooldown; add it at the next re-lock.
 
-Extras (e.g. a future Bayesian stack, PyMC or NumPyro): a separate lock, never extra lines in `tools.in`.
+Extras: a separate lock, never extra lines in `tools.in`.
 Write `requirements/tools-<extra>.in` starting with `-r tools.in`, compile it with the tools command above
-(`-o requirements/tools-<extra>.txt`; drop `--only-binary :all:` only if a dependency is sdist-only), and
-point `TOOLS_REQS` in install.sh at that `.txt` behind an opt-in flag (as `--with-ml` does); the base
-`tools.txt` stays the default.
+plus `-c requirements/tools.txt` (every package the two locks share keeps the base pin, so a later plain
+install, which syncs `tools.txt` into the same venv, changes none of them; `-o requirements/tools-<extra>.txt`;
+drop `--only-binary :all:` only if a dependency is sdist-only), and point `TOOLS_REQS` in install.sh at that
+`.txt` behind an opt-in flag; the base `tools.txt` stays the default. Re-lock an extra whenever `tools.txt`
+changes. Before an extra's `.txt` ships, scan it (below) and record the result in the commit message.
+
+### tools-bayes (`./install.sh --with-bayes`, docs/BAYES.md §2.9)
+The detached Bayes fitter's dependencies (`hooks/stack_bayes.py`: pymc, pytensor, nutpie, arviz, scipy) on top
+of the tools venv. Opt-in and shadow-only: nothing installs it by default, and installing it changes no limit
+(`STACK_BAYES` defaults to `shadow`, `BAYES_LIVE` is empty). Lock (2026-10-09, cutoff 2026-10-02):
+
+    uv pip compile requirements/tools-bayes.in -c requirements/tools.txt -o requirements/tools-bayes.txt --generate-hashes --python-version 3.13 --python-platform aarch64-apple-darwin --only-binary :all: --exclude-newer 2026-10-02T00:00:00Z
+
+Pins equal the prototype's lock (`docs/bayes/b1v2/fit_prototype.py.lock`) except pytensor 3.3.2 for 3.3.3
+(published 2026-10-02T14:13Z, inside the cooldown; `tools-bayes.in` says when to re-lock).
+Scan (no install into the stack: uv's cache only; api.osv.dev is not reachable from the agents' sandbox, so
+the PyPI advisory feed):
+
+    uvx --exclude-newer 2026-10-02T00:00:00Z pip-audit -r requirements/tools-bayes.txt --require-hashes --disable-pip -s pypi
+
+2026-10-09, pip-audit 2.10.1: 76 packages, none of the Bayes packages or their own dependencies flagged; 2
+advisories in `pyjwt` 2.14.0 (PYSEC-2026-4141 / CVE-2026-101918, PYSEC-2026-4183 / CVE-2026-102275, fixed in
+2.15.0), which comes from `tools.txt` (via `mcp`) and is flagged there too: fixed by re-locking `tools.txt`
+(pyjwt 2.15.1, published 2026-09-28), then this file.

@@ -3,6 +3,9 @@
 #   ./install.sh                 core install
 #   ./install.sh --with-ml       also create the ML venv ($C/venvs/ml: PyTorch, Transformers, PEFT,
 #                                 scikit-learn/XGBoost/LightGBM, MLX + mlx-lm on Apple Silicon; several GB)
+#   ./install.sh --with-bayes    also put the Bayes fitter's packages (pymc, pytensor, nutpie, arviz, scipy;
+#                                 requirements/tools-bayes.txt) in the tools venv; shadow only, no limit
+#                                 changes (docs/BAYES.md §2.9). Later runs without it leave them in place
 #   ./install.sh --with-lsp      also install missing language servers (pyright, typescript-language-server,
 #                                 rust-analyzer, kotlin-lsp; jdtls through step 2's LSP group; HLS,
 #                                 LanguageServer.jl, Metals when ghcup, julia, cs are present) before
@@ -139,7 +142,7 @@ for v in $(compgen -e); do
 done
 [ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
 
-WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
+WITH_ADOBE=0; WITH_ML=0; WITH_BAYES=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
 NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""; DIFF=0; DIFF_CONFLICT=""
 WITH_EQ_CONTAINER=0; EQ_CONTAINER_PROFILES=""; EQ_PROFILES_SET=0; EQ_BROKER=default; EQ_BROKER_FLAGS=""
@@ -152,6 +155,7 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --diff) DIFF=1 ;;
     --with-adobe) WITH_ADOBE=1 ;;
     --with-ml) WITH_ML=1 ;;
+    --with-bayes) WITH_BAYES=1 ;;
     --with-lsp) WITH_LSP=1 ;;
     --no-anthropic-plugins) ANTHROPIC_PLUGINS_ON=0 ;;
     # the default since 2026-10-04 (ANTHROPIC_PLUGINS); still accepted so older command lines run
@@ -1266,10 +1270,25 @@ fetch_verified(){
   rm -rf "$t"; return 1
 }
 # tools venv: what the stack's own scripts, MCP servers and tests import (hooks stay stdlib on
-# bin/stack-python). A future extra (e.g. a Bayesian stack) is its own lock, requirements/tools-<extra>.in
-# starting with "-r tools.in", installed by pointing TOOLS_REQS at its .txt (requirements/README.md).
+# bin/stack-python). An extra is its own lock, requirements/tools-<extra>.in starting with "-r tools.in",
+# installed by pointing TOOLS_REQS at its .txt (requirements/README.md).
 TOOLS_REQS="$SNAP_ROOT/requirements/tools.txt"
+# --with-bayes (opt-in; docs/BAYES.md §2.9): the same venv from the Bayes lock, tools.txt's pins plus the
+# detached fitter's packages. It changes no limit: STACK_BAYES (default shadow) and BAYES_LIVE (empty) are
+# untouched, so the fits only feed shadow records. A run without it syncs tools.txt, whose pins the Bayes
+# lock shares (-c tools.txt), and leaves the Bayes packages as they are.
+[ "$WITH_BAYES" = 0 ] || TOOLS_REQS="$SNAP_ROOT/requirements/tools-bayes.txt"
 TOOLS_IMPORTS='import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory'
+# the Bayes packages the tools venv holds, by distribution metadata (importing pytensor would write a
+# compile cache under ~): "pymc 6.3.2 pytensor 3.3.2 ...", "-" for one that is absent
+bayes_dists(){
+  "$C/venvs/tools/bin/python" -I -B -c 'from importlib.metadata import version
+for d in ("pymc", "pytensor", "nutpie", "arviz"):
+    try:
+        print(d, version(d), end=" ")
+    except Exception:
+        print(d, "-", end=" ")' 2>/dev/null || true
+}
 venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.13)
   local name="$1" reqs="$2"; shift 2
   local want=3.13 vdir="$C/venvs/$name" have=""
@@ -1339,6 +1358,7 @@ if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
   else miss "science venv at $C/venvs/sci" "uv venv $C/venvs/sci && uv pip install --require-hashes --only-binary :all: -r requirements/sci.txt"; fi
   if [ -x "$C/venvs/tools/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/tools to $TOOLS_REQS (--require-hashes)"
   else miss "tools venv at $C/venvs/tools" "uv venv --python 3.13 $C/venvs/tools && uv pip install --require-hashes --only-binary :all: -r requirements/$(basename "$TOOLS_REQS")"; fi
+  [ "$WITH_BAYES" = 0 ] || [ "$NO_DEPS" = 0 ] || note "! --with-bayes needs uv and is skipped under --no-deps"
 else
   # context-mode (researcher, doc-specialist) needs Node >= 22.5, typescript-language-server 6
   # (--with-lsp) >= 22, premiere-pro-mcp >= 20.19.
@@ -1375,6 +1395,12 @@ else
   else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
   if venv_sync tools "$TOOLS_REQS" --only-binary :all:; then
     note "tools venv: $C/venvs/tools ($("$C/venvs/tools/bin/python" -c "$TOOLS_IMPORTS"'; print("imports ok")' 2>/dev/null || echo '! imports failed'))"
+    bd="$(bayes_dists)"
+    if [ "$WITH_BAYES" = 1 ]; then
+      note "Bayes lock in the tools venv (shadow only; STACK_BAYES=off stops the fits): ${bd:-? (no metadata)}"
+    else
+      case "$bd" in "pymc -"*|"") ;; *) note "Bayes packages from an earlier --with-bayes stay in the tools venv, not updated by this run (${bd% }; ./install.sh --with-bayes updates them, STACK_BAYES=off stops the fits)" ;; esac
+    fi
   else note "! tools venv install failed — uv pip install --python $C/venvs/tools/bin/python --require-hashes --only-binary :all: -r $TOOLS_REQS"; fi
 fi
 
@@ -4023,6 +4049,7 @@ cat <<EOF
      /mcp → computer-use → Enable  (once per project), then grant Accessibility + Screen Recording.
   4. Browser agent with your logins: start with  claude --chrome  (or /chrome → Enabled by default).
   5. Optional: ./install.sh --with-ml (shared ML venv) · --with-lsp (language servers) · --with-adobe
+     · --with-bayes (the Bayes fitter's packages in the tools venv; shadow only)
      · --no-anthropic-plugins (skips mcp-server-dev, session-report, skill-creator, math-olympiad)
      · --with-eq-container (Apple container isolation images for the equilibrium harness, and its WALL)
 EOF
