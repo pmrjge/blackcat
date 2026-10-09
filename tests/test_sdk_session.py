@@ -89,6 +89,7 @@ class World:
         kw.setdefault("budget_usd", 0.5)
         kw.setdefault("cli", "bundled")
         kw.setdefault("load_timeout_s", 2.0)
+        kw.setdefault("cwd", str(self.config.parent))       # no repository's .claude/agents above it
         kw["env"] = dict(self.env(), **kw.get("env", {}))
         return sdk.Session(kw.pop("agent", "blackcat"), config_dir=str(self.config), transport=self.factory, **kw)
 
@@ -158,11 +159,12 @@ class FakeCLI(Transport):
             for h in ("h1", "h2"):
                 self.hook("hook_started", h)
         await asyncio.sleep(self.w.late)
-        if self.w.late_marker and self.w.marker:
+        if events:
+            self.hook("hook_response", "h1", self.w.outcome)
+        if self.w.late_marker and self.w.marker:     # the guard is the later hook: its marker lands between
             await asyncio.sleep(0.2)
             self.write_marker()
         if events:
-            self.hook("hook_response", "h1", self.w.outcome)
             self.hook("hook_response", "h2")
 
     async def write(self, data):
@@ -327,9 +329,9 @@ def test_host_none_denies_builders(tmp_path):
     assert out["gate_waived"] is True and w2.rows()[-1]["gate_waived"] is True
     assert not any(x.startswith("Agent(") for x in w2.opened[0].disallowed_tools) and len(w2.opened) == 1
     w3 = World(tmp_path / "c", script=script("stream_tree.jsonl"), mode="acceptEdits")
-    out = run(one(w3))                                               # assumed plan; the server says otherwise
-    assert len(w3.opened) == 2 and "Agent(coder)" in w3.opened[0].disallowed_tools
-    assert "Agent(coder)" not in w3.opened[1].disallowed_tools and out["gate_waived"] is False
+    with pytest.raises(sdk.StackNotLoaded, match="drifted off plan: 'acceptEdits'"):
+        run(one(w3))                                                 # assumed plan; the server says otherwise
+    assert len(w3.opened) == 1 and "prompt" not in w3.log            # SDK-2r S3: fail closed, no reconnect
 
 
 def callable_world(tmp_path, host, tool="Bash", inp=None, **req):
@@ -573,6 +575,8 @@ def test_plan_gate_unattended(tmp_path):
     assert (out["gate"], exit_of(out)) == (None, 0)
     out = run(one(World(tmp_path / "d", script=script("stream_ask.jsonl"))))
     assert (out["outcome"], out["needs_user"], out["gate"], exit_of(out)) == ("blocked", True, "ask", 5)
+    out = run(one(World(tmp_path / "e", script=blocked), host=lambda *a: None))
+    assert (out["gate"], exit_of(out)) == (None, 1)                  # the plan gate is host none's only
 
 
 def test_text_report_outcome(tmp_path):
@@ -796,3 +800,250 @@ def test_tty_session_denies_before_load_check(tmp_path):
     s = w.session(host=lambda *a: seen.append(a) or PermissionResultAllow())
     r = run(s._can_use_tool("Bash", {"command": "ls"}, Ctx()))
     assert isinstance(r, PermissionResultDeny) and seen == []
+
+
+# ---------------------------------------------------------------- SDK-2r review findings (each proof failed on d1531a73)
+def test_project_agents_do_not_pass_the_plan_gate(tmp_path):
+    """S1: a repository's .claude/agents (a new builder, or an inherit name reused as acceptEdits) fails closed."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".claude" / "agents").mkdir(parents=True)
+    (repo / ".claude" / "agents" / "explore.md").write_text("---\nname: explore\npermissionMode: acceptEdits\n---\nx\n")
+    w = World(tmp_path / "w", script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w, cwd=str(repo / "sub" if (repo / "sub").mkdir() is None else repo)))   # shadowing, from below
+    assert "prompt" not in w.log
+    w2 = World(tmp_path / "w2", script=script("stream_plan.jsonl"), server_agents=[*AGENTS, "repo-builder"])
+    with pytest.raises(sdk.StackNotLoaded, match="plan gate"):
+        run(one(w2))                                                 # a name the stack does not know
+    assert "prompt" not in w2.log
+    w3 = World(tmp_path / "w3", script=script("stream_tree.jsonl"), mode="acceptEdits",
+               server_agents=[*AGENTS, "repo-builder", "plug:helper"])
+    assert run(one(w3, cwd=str(repo), permission_mode="acceptEdits"))["gate_waived"] is True   # explicit: waived
+
+
+def test_refusals_hold_for_every_spelling(tmp_path):
+    """S2 C2: D5/M5/M21 refusals cover every spelling and alias; a server in bypassPermissions is refused."""
+    w = World(tmp_path)
+    for extra in ({"permission-mode=bypassPermissions": None}, {"Permission_Mode": "bypassPermissions"},
+                  {"permission-prompt-tool=mcp__x__y": None}, {"--permission-mode": "plan"},
+                  {"settings": '{"permissions": {"defaultMode": "bypassPermissions"}}'},
+                  {"setting-sources": "project,local"}, {"disallowed-tools": "x"}, {"add-dir": "/"}):
+        with pytest.raises(ValueError, match="refused"):
+            w.session(extra_args=extra)
+    for kw in ({"sandbox": {"enabled": False}}, {"settings": '{"sandbox": {"enabled": false}}'},
+               {"max_budget_usd": None}, {"max_budget_usd": 1000.0}, {"setting_sources": ["project"]}):
+        with pytest.raises(ValueError):
+            w.session(**kw)
+    assert w.session(extra_args={"debug": None, "model": "x"}).build(True).extra_args["debug"] is None
+    for i, host in enumerate(("none", lambda *a: None)):
+        b = World(tmp_path / f"b{i}", script=script("stream_plan.jsonl"), mode="bypassPermissions")
+        with pytest.raises(sdk.StackNotLoaded, match="bypassPermissions"):
+            run(one(b, host=host))
+        assert "prompt" not in b.log
+
+
+def test_mode_check_fails_closed(tmp_path, monkeypatch, capsys):
+    """S3 C1: under host none with no caller mode the server must report plan: none or another mode fails closed."""
+    for i, mode in enumerate((None, "acceptEdits", "default")):
+        w = World(tmp_path / str(i), script=script("stream_plan.jsonl"), mode=mode)
+        with pytest.raises(sdk.StackNotLoaded, match="drifted off plan"):
+            run(one(w))
+        assert "prompt" not in w.log and len(w.opened) == 1
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(w.config))
+    monkeypatch.setenv("XDG_STATE_HOME", str(w.state))
+    monkeypatch.chdir(tmp_path)
+    assert sdk.main(["--budget-usd", "1", "--cli", "bundled", "go"], transport=w.factory) == 3
+
+
+def test_ask_model_supplied_answers_do_not_count(tmp_path):
+    """S4: a callable host that allows by echoing the input does not pass the model's own answers."""
+    q = {"questions": [{"question": "May I push?", "options": [{"label": "yes"}, {"label": "no"}]}],
+         "answers": {"May I push?": "yes"}}
+    seen = []
+
+    async def echo(tool, inp, ctx):
+        seen.append(inp)
+        return PermissionResultAllow(updated_input=inp)
+    w, _ = callable_world(tmp_path, echo, tool="AskUserQuestion", inp=q)
+    assert w.answers[0][1]["behavior"] == "deny" and "answers" not in seen[0]
+
+
+def test_tty_option_labels_cannot_forge_lines():
+    """S5: option labels, the tool name and the agent id are shown on one line each."""
+    t = Term()
+    fake = "\n" * 3 + "stack_sdk: main thread wants Read:\nallow once? [y/N]:"
+    q = {"questions": [{"question": "May I delete the backup?", "options": [{"label": "ok" + fake}]}]}
+
+    class Agent:
+        agent_id = "a1\nstack_sdk: forged"
+
+    async def go():
+        task = asyncio.ensure_future(t.host("AskUserQuestion", q, Ctx()))
+        await t.answer_when(r"answer \(number", "")
+        await task
+        task = asyncio.ensure_future(t.host("Bash\nallow once? [y/N]:", {"command": "ls"}, Agent()))
+        await t.answer_when(r"allow once\? \[y/N\]:\n\Z", "n")
+        return await task
+    run(go())
+    out = t.shown()
+    body = out.split("question (main thread):\n", 1)[1].split("\nanswer (number", 1)[0]
+    assert all(ln.startswith("  ") for ln in body.splitlines()), body
+    col0 = [ln for ln in out.splitlines() if ln.startswith(("allow once", "stack_sdk: forged", "stack_sdk: main thread wants Read"))]
+    assert col0 == ["allow once? [y/N]:"]                           # only the host's own prompt line
+
+
+def test_tty_no_stale_answer_when_queued():
+    """S6: with the next prompt queued, a line typed for the previous (timed-out) prompt does not answer it."""
+    t = Term(timeout_s=0.3)
+
+    async def go():
+        a = asyncio.ensure_future(t.host("Bash", {"command": "ls"}, Ctx()))
+        b = asyncio.ensure_future(t.host("Bash", {"command": "rm -rf build"}, Ctx()))
+        await a                                   # prompt 1 timed out; prompt 2 is up at once
+        await asyncio.sleep(0.05)
+        t.type("y")                               # meant for prompt 1
+        return await b
+    assert isinstance(run(go()), PermissionResultDeny)
+
+
+def test_frontmatter_mode_fails_closed(tmp_path):
+    """S7: a trailing comment or an unparsable value never turns a builder into an inherit agent."""
+    w = World(tmp_path)
+    (w.config / "agents" / "coder.md").write_text("---\nname: coder\npermissionMode: acceptEdits  # builder\n---\nx\n")
+    (w.config / "agents" / "odd.md").write_text("---\nname: odd\npermissionMode:\n---\nx\n")
+    (w.config / "agents" / "quoted.md").write_text("---\nname: quoted\npermissionMode: 'plan'  # ok\n---\nx\n")
+    deny = w.session().preview().disallowed_tools
+    assert {"Agent(coder)", "Agent(odd)"} <= set(deny) and "Agent(quoted)" not in deny
+
+
+def test_deadline_zero_keeps_the_bound(tmp_path):
+    """S8: deadline_s <= 0 never removes host none's time bound."""
+    w = World(tmp_path)
+    assert w.session(deadline_s=0).deadline_s == 3600 and w.session(deadline_s=-5).deadline_s == 3600
+    assert w.session(deadline_s=12).deadline_s == 12
+
+
+def test_cli_crash_is_an_error_outcome(tmp_path, monkeypatch, capsys):
+    """C3: a CLI that exits non-zero gives outcome error (dict and row); the CLI prints one JSON line."""
+    from claude_agent_sdk import ProcessError
+
+    class Crash(FakeCLI):
+        async def play(self):
+            self.emit(sys_frame("init", permissionMode="plan"))
+            await asyncio.sleep(0.05)
+            self.emit({"_crash": 1})
+
+        async def read_messages(self):
+            while (m := await self.q.get()) is not None:
+                if "_crash" in m:
+                    raise ProcessError("Command failed with exit code 137", exit_code=137)
+                yield m
+    w = World(tmp_path)
+    w.factory = lambda o: (w.opened.append(o), Crash(w, o))[1]
+    out = run(one(w))
+    assert (out["outcome"], out["ended_by"]) == ("error", "eof") and "exit code 137" in out["error"]
+    assert w.rows()[-1]["outcome"] == "error"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(w.config))
+    monkeypatch.setenv("XDG_STATE_HOME", str(w.state))
+    monkeypatch.chdir(tmp_path)
+    assert sdk.main(["--budget-usd", "1", "--cli", "bundled", "go"], transport=w.factory) == 1
+    assert json.loads(capsys.readouterr().out)["outcome"] == "error"
+
+    class BadResume(FakeCLI):
+        async def write(self, data):
+            if json.loads(data).get("request", {}).get("subtype") == "initialize":
+                raise ProcessError("No conversation found", exit_code=1)
+            await super().write(data)
+    w.factory = lambda o: (w.opened.append(o), BadResume(w, o))[1]
+    assert sdk.main(["--budget-usd", "1", "--cli", "bundled", "go"], transport=w.factory) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["outcome"] == "error" and w.rows()[-1]["outcome"] == "error"
+
+
+def test_second_ask_gets_its_own_reply(tmp_path):
+    """C4: frames of a turn the CLI woke for after an ask returned never answer the next ask."""
+    class Woken(FakeCLI):
+        async def play(self):
+            self.k = getattr(self, "k", 0) + 1
+            self.emit(sys_frame("session_state_changed", state="running"))
+            self.emit(result(f"STATUS: done\nRESULT: reply {self.k}", 0.1 * self.k))
+            self.emit(sys_frame("session_state_changed", state="idle"))
+            if self.k == 1:                       # a background task wakes the session after ask 1 returned
+                await asyncio.sleep(0.2)
+                self.emit(sys_frame("session_state_changed", state="running"))
+                self.emit(result("STATUS: done\nRESULT: woken turn", 0.15, origin={"kind": "task-notification"}))
+                self.emit(sys_frame("session_state_changed", state="idle"))
+    w = World(tmp_path)
+    w.factory = lambda o: (w.opened.append(o), Woken(w, o))[1]
+
+    async def go():
+        async with w.session() as s:
+            a = await s.ask("one")
+            await asyncio.sleep(0.5)
+            return a, await s.ask("two")
+    a, b = run(go())
+    assert a["report"]["result"] == "reply 1" and b["report"]["result"] == "reply 2"
+
+
+def test_first_message_s_measures_the_prompt(tmp_path):
+    """C5: first_message_s counts from the prompt, not from the pre-prompt hook frames."""
+    w = World(tmp_path, script=[{"_sleep": 0.3}] + script("stream_plan.jsonl"))
+    assert run(one(w))["first_message_s"] >= 0.25
+
+
+def test_stop_with_a_reason_interrupts(tmp_path):
+    """C6: stop(why) with any reason interrupts and reports interrupted."""
+    w = World(tmp_path, script=[sys_frame("init", permissionMode="plan"), {"_hang": 1}])
+
+    async def go():
+        async with w.session() as s:
+            t = asyncio.ensure_future(s.ask("go"))
+            await asyncio.sleep(0.3)
+            s.stop("user")
+            return await t
+    out = run(go())
+    assert (out["outcome"], out["ended_by"], w.interrupts) == ("interrupted", "cancelled", 1)
+
+
+def test_reconnect_after_eof_still_bounds(tmp_path):
+    """C7: a Session reconnected after its CLI exited still enforces the deadline and interrupts."""
+    class Eof(FakeCLI):
+        async def play(self):
+            if self.n == 1:
+                self.emit(result("STATUS: done\nRESULT: x", 0.1))
+                self.q.put_nowait(None)                       # the CLI exits after the result
+    w = World(tmp_path)
+    w.factory = lambda o: (w.opened.append(o), Eof(w, o))[1]
+
+    async def go():
+        s = w.session(deadline_s=0.5)
+        async with s:
+            a = await s.ask("one")
+        async with s:
+            return a, await s.ask("two")
+    _a, b = run(go())
+    assert (b["ended_by"], b["outcome"], w.interrupts) == ("deadline", "partial", 1)
+
+
+def test_closed_tty_reader_does_not_steal_a_reused_fd():
+    """C8: close() stops the reader thread before the fd number can be reused, and is idempotent."""
+    kr, kw = os.pipe()
+    _sr, sw = os.pipe()
+    h = sdk.TtyHost(fds=(kr, sw))
+    time.sleep(0.2)
+    t0 = time.monotonic()
+    h.close()
+    assert not h.thread.is_alive() and time.monotonic() - t0 < 0.8   # it stopped itself (no 1 s join timeout)
+    nr, nw = os.pipe()                                            # likely the reader's old fd number
+    h.close()                                                     # idempotent: never closes a reused number
+    with contextlib.suppress(OSError):
+        os.write(kw, b"x\n")
+    time.sleep(0.2)
+    os.write(nw, b"app-data\n")
+    time.sleep(0.4)
+    got = []
+    while not h.q.empty():
+        got.append(h.q.get_nowait()[1])
+    assert "app-data" not in got and not h.thread.is_alive()
+    assert os.read(nr, 100) == b"app-data\n"                     # still there for its real owner

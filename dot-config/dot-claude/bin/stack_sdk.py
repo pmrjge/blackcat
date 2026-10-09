@@ -3,9 +3,10 @@
 # requires-python = ">=3.10"
 # dependencies = ["claude-agent-sdk==0.2.163"]
 # [tool.uv]
-# exclude-newer = "2026-10-04T00:00:00Z"
+# exclude-newer = "2026-10-02T00:00:00Z"
 # ///
-"""claude-agent-stack for Agent SDK apps (optional; nothing loads it; hash-locked by stack_sdk.py.lock).
+"""claude-agent-stack for Agent SDK apps (optional; nothing loads it). The repo copy is hash-locked by
+stack_sdk.py.lock (`uv run --locked --script`); install.sh does not stage the lock yet (SDK-3).
 Session: the supported path (ClaudeSDKClient). It connects, checks that the stack loaded before any prompt
 (StackNotLoaded: the agents, the SessionStart hooks, agent_guard's session-start marker), answers permission
 requests through one host (none: unattended, deny by default, stops at the plan; tty; an app callable),
@@ -24,6 +25,7 @@ import os
 import queue
 import re
 import secrets
+import select
 import shutil
 import signal
 import sys
@@ -41,11 +43,15 @@ TYPE = re.compile(r"([\w-]+): |([\w-]+)\Z")     # label "<type>: <task>", or a b
 TERMINAL = frozenset({"completed", "failed", "stopped", "killed"})
 AGENT_TASKS = frozenset({"local_agent", "local_workflow"})      # the SDK's DEFERRING_TASK_TYPES
 REFUSED_EXTRA = ("permission-mode", "dangerously-skip-permissions", "allow-dangerously-skip-permissions",
-                 "permission-prompts", "permission-prompt-tool")          # D5: the host sets these
-REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name")  # D4, files are the truth
-POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode")
+                 "permission-prompts", "permission-prompt-tool",          # D5: the host sets these,
+                 "settings", "setting-sources", "agents", "tools", "allowed-tools", "disallowed-tools",
+                 "add-dir", "mcp-config", "plugin-dir")                   # the stack's files and options() the rest
+EXTRA_KEY = re.compile(r"[a-z][a-z0-9-]*")       # one spelling only: no '=', '_', upper case or leading dashes
+REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name", "sandbox",  # D4: files are the truth
+              "max_budget_usd", "setting_sources")                        # budget_usd= and sources= own these
+POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")
 CEILING_ENV, STATE_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"
-HOST_WAIT_S, LOAD_WAIT_S, INTERRUPT_S, GRACE_S, DEADLINE_NONE_S = 300.0, 20.0, 10.0, 2.0, 3600.0
+HOST_WAIT_S, LOAD_WAIT_S, INTERRUPT_S, GRACE_S, DEADLINE_NONE_S, GAP_S = 300.0, 20.0, 10.0, 2.0, 3600.0, 0.5
 RESULT_KEYS = ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "session_id",
                "total_cost_usd", "usage", "result", "permission_denials", "errors", "api_error_status",
                "terminal_reason", "stop_reason", "origin")
@@ -342,7 +348,10 @@ def stack_agents(config):
                 m = re.match(r"---\r?\n(.*?)\r?\n---", fh.read(), re.DOTALL)
         except (OSError, UnicodeDecodeError):
             m = None
-        fm = dict(re.findall(r"(?m)^(name|permissionMode):[ \t]*['\"]?([^'\"\n#]*?)['\"]?[ \t]*$", m.group(1))) if m else {}
+        fm = {}
+        for k, v in re.findall(r"(?m)^['\"]?(name|permissionMode)['\"]?[ \t]*:(.*)$", m.group(1)) if m else []:
+            v = re.sub(r"\s+#.*$", "", v).strip().strip("'\"").strip()
+            fm[k] = v or ("?" if k == "permissionMode" else "")      # a mode we cannot read is denied (S7)
         if fm.get("name"):
             out[fm["name"]] = fm.get("permissionMode") or None
         else:
@@ -351,6 +360,19 @@ def stack_agents(config):
         names = ", ".join(bad) or "none found"
         raise StackNotLoaded(f"agent files without a parsable name in {config}/agents: {names}")
     return out
+
+
+def project_agent_files(cwd, config):
+    """Every .claude/agents/*.md from cwd up to the repository root (or /): the CLI prefers them to
+    <config>/agents by name, so they could add or shadow agents behind the D3 deny list (SDK-2r S1)."""
+    out, d, user = [], os.path.realpath(cwd or os.getcwd()), os.path.realpath(os.path.join(config, "agents"))
+    while True:
+        a = os.path.join(d, ".claude", "agents")
+        if os.path.realpath(a) != user:
+            out += sorted(glob.glob(os.path.join(glob.escape(a), "*.md")))
+        if os.path.exists(os.path.join(d, ".git")) or os.path.dirname(d) == d:
+            return out
+        d = os.path.dirname(d)
 
 
 def session_start_hooks(config, source):
@@ -401,6 +423,11 @@ def clean_text(s, cap):
     return s if len(s) <= cap else f"{s[:cap]} [... {len(s) - cap} more chars]"
 
 
+def one_line(s, cap):
+    """clean_text on one line: for what is shown outside the '  | ' quote (options, tool, agent id)."""
+    return clean_text(re.sub(r"[\n\t]", " ", str(s)), cap)
+
+
 def keep_rules(updates, tool):
     """D3 callable: only session addRules (allow, deny, ask) whose rules name `tool`; nothing else."""
     from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
@@ -424,6 +451,8 @@ async def ask_callable(host, tool, inp, ctx, timeout_s=HOST_WAIT_S):
     AskUserQuestion needs the user's answers; updated_permissions filtered by keep_rules."""
     import anyio
     from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+    if tool == "AskUserQuestion" and isinstance(inp, dict):     # answers come from the host's user only (S4)
+        inp = {k: v for k, v in inp.items() if k != "answers"}
     try:
         with anyio.fail_after(timeout_s):
             r = host(tool, inp, ctx)
@@ -454,14 +483,17 @@ class TtyHost:
             fds = (fd, fd)
         self.rfd, self.wfd = fds
         self.timeout_s, self.seq, self.eof, self.q, self._lock = timeout_s, 0, False, queue.Queue(), None
-        threading.Thread(target=self._reader, name="stack_sdk-tty", daemon=True).start()
+        self.closed, self.thread = False, threading.Thread(target=self._reader, name="stack_sdk-tty", daemon=True)
+        self.thread.start()
 
     def _reader(self):
         buf = b""
-        while True:
+        while not self.closed:
             try:
+                if not select.select([self.rfd], [], [], 0.2)[0]:
+                    continue
                 chunk = os.read(self.rfd, 4096)
-            except OSError:
+            except (OSError, ValueError):
                 chunk = b""
             if not chunk:
                 self.eof = True
@@ -483,6 +515,8 @@ class TtyHost:
         import termios
 
         import anyio
+        self.seq += 1                                    # a gap: a late line for the previous prompt lands here
+        await anyio.sleep(GAP_S)                         # and is discarded, also when this prompt was queued (S6)
         self.seq += 1
         seq, end = self.seq, time.monotonic() + self.timeout_s
         with contextlib.suppress(OSError, termios.error):
@@ -506,13 +540,13 @@ class TtyHost:
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         self._lock = self._lock or anyio.Lock()
         deny = PermissionResultDeny(message="denied at the terminal")
-        who = clean_text(getattr(ctx, "agent_id", None) or "main thread", 80)
+        who = one_line(getattr(ctx, "agent_id", None) or "main thread", 80)
         async with self._lock:
             if tool == "AskUserQuestion":
                 answers = {}
                 for q in [q for q in (inp or {}).get("questions") or [] if isinstance(q, dict)]:
                     opts = [str((o or {}).get("label", "")) for o in q.get("options") or [] if isinstance(o, dict)]
-                    menu = "\n".join(f"  {i + 1}) {clean_text(o, 200)}" for i, o in enumerate(opts[:20]))
+                    menu = "\n".join(f"  {i + 1}) {one_line(o, 200)}" for i, o in enumerate(opts[:20]))
                     text = self.quote(q.get("question", ""), 1000)
                     ln = await self.line(f"\nstack_sdk: question ({who}):\n{text}\n{menu}\n"
                                          "answer (number or text, empty denies):")
@@ -526,10 +560,14 @@ class TtyHost:
                 ln = await self.line(f"\nstack_sdk: plan ({who}):\n{plan}\ntype {nonce} to approve; anything else denies:")
                 return PermissionResultAllow() if ln == nonce else deny
             shown = self.quote(json.dumps(inp, ensure_ascii=False, default=str), 2000)
-            ln = await self.line(f"\nstack_sdk: {who} wants {clean_text(tool, 100)}:\n{shown}\nallow once? [y/N]:")
+            ln = await self.line(f"\nstack_sdk: {who} wants {one_line(tool, 100)}:\n{shown}\nallow once? [y/N]:")
             return PermissionResultAllow() if (ln or "").lower() in ("y", "yes") else deny
 
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        self.thread.join(1.0)                            # the reader stops before its fd number can be reused
         for fd in {self.rfd, self.wfd}:
             with contextlib.suppress(OSError):
                 os.close(fd)
@@ -547,8 +585,8 @@ class Session:
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
                  deadline_s=None, cli=None, config_dir=None, forward_subagent_text=False, transport=None,
                  on_message=None, tty=None, load_timeout_s=LOAD_WAIT_S, row=True, **kw):
-        bad = [k for k in REFUSED_KW if kw.get(k) is not None] + [
-            k for k in (kw.get("extra_args") or {}) if str(k).lstrip("-") in REFUSED_EXTRA]
+        bad = [k for k in REFUSED_KW if k in kw] + [
+            k for k in (kw.get("extra_args") or {}) if not EXTRA_KEY.fullmatch(str(k)) or k in REFUSED_EXTRA]
         if bad or permission_mode == "bypassPermissions":
             raise ValueError("refused: %s (the host and the stack's files decide; bypassPermissions never)"
                              % (", ".join(map(str, bad)) or "bypassPermissions"))
@@ -566,14 +604,15 @@ class Session:
         self.env[STATE_ENV] = "1"
         self.agent, self.host, self.budget_usd, self.permission_mode = agent, host, budget_usd, permission_mode
         self.bg_wait_s, self.cli_path, self.transport, self.on_message = bg_wait_s, resolve_cli(cli), transport, on_message
-        self.deadline_s = DEADLINE_NONE_S if deadline_s is None and host == "none" else deadline_s
+        ok = isinstance(deadline_s, (int, float)) and deadline_s > 0     # S8: <= 0 never unbounds host none
+        self.deadline_s = deadline_s if ok or host != "none" else DEADLINE_NONE_S
         self.config = config_dir or config_root(self.env)
         self.extra, self.kw = dict(kw.pop("extra_args", None) or {}), kw
         self.forward_subagent_text, self.load_timeout_s, self.row = forward_subagent_text, load_timeout_s, row
         self.tty, self._own_tty = tty or (TtyHost() if host == "tty" else None), tty is None
         self._client = self._it = self._scope = self._stop = None
-        self.loaded = self.asking = self._eof = False
-        self.early, self.t0, self.agents, self.plan = [], None, {}, None
+        self.loaded = self.asking = self._eof = self.asked = False
+        self.early, self.t0, self.agents, self.failure = [], None, {}, None
 
     @property
     def client(self):
@@ -626,29 +665,32 @@ class Session:
         from claude_agent_sdk import ClaudeSDKClient
         self.check()
         self.agents = stack_agents(self.config)
-        plan = (self.permission_mode or "plan") == "plan"
+        plan, self.asked, self.failure = (self.permission_mode or "plan") == "plan", False, None
         try:
-            for attempt in (0, 1):
-                self.opts = self.build(plan)
-                self._client = ClaudeSDKClient(self.opts, transport=self.transport and self.transport(self.opts))
-                self.t0 = time.time()                    # immediately before connect(): the marker is newer
-                await self._client.connect()
-                info = await self._client.get_server_info() or {}
-                items = info.get("agents") if isinstance(info, dict) else None
-                have = {i.get("name") if isinstance(i, dict) else i for i in items or []
-                        if isinstance(i, (dict, str))} if isinstance(items, list) else set()
-                missing = sorted(set(self.agents) - {h for h in have if isinstance(h, str)})
-                if missing:
-                    raise StackNotLoaded(f"agents missing from server_info: {', '.join(missing[:20])}")
-                actual = info.get("current_permission_mode")
-                if self.host == "none" and self.permission_mode is None and (actual == "plan") != plan:
-                    if attempt:
-                        raise StackNotLoaded(f"permission mode moved: {actual!r}")
-                    plan = actual == "plan"              # reconnect once with the corrected deny list
-                    await self.disconnect()
-                    continue
-                break
-            self.plan = plan
+            self.opts = self.build(plan)
+            self._client = ClaudeSDKClient(self.opts, transport=self.transport and self.transport(self.opts))
+            self.t0 = time.time()                        # immediately before connect(): the marker is newer
+            await self._client.connect()
+            info = await self._client.get_server_info() or {}
+            items = info.get("agents") if isinstance(info, dict) else None
+            have = {i.get("name") if isinstance(i, dict) else i for i in items or []
+                    if isinstance(i, (dict, str))} if isinstance(items, list) else set()
+            have = {h for h in have if isinstance(h, str)}
+            missing = sorted(set(self.agents) - have)
+            if missing:
+                raise StackNotLoaded(f"agents missing from server_info: {', '.join(missing[:20])}")
+            actual = info.get("current_permission_mode")
+            if actual == "bypassPermissions":            # D5, whichever route set it (SDK-2r S2)
+                raise StackNotLoaded("the session runs in bypassPermissions: refused")
+            if self.host == "none" and plan:
+                if actual != "plan":                     # S3, C1: the gate fails closed, never reconnects without it
+                    raise StackNotLoaded(f"the permission mode drifted off plan: {actual!r} (pass permission_mode "
+                                         "explicitly to waive the plan gate: logged gate_waived)")
+                odd = sorted(h for h in have - set(self.agents) if ":" not in h)   # plugin agents keep no mode
+                odd += project_agent_files(self.kw.get("cwd"), self.config)
+                if odd:                                  # S1: no deny rule can cover agents from elsewhere
+                    raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: "
+                                         + ", ".join(map(str, odd[:10])))
             await self._load_check()
             self.loaded = True
         except BaseException:
@@ -667,7 +709,8 @@ class Session:
             m = await self._recv(end - time.monotonic())
             if m is None:
                 raise StackNotLoaded(f"SessionStart hooks: {len(done)} of {need} answered in "
-                                     f"{self.load_timeout_s:g} s (include_hook_events)")
+                                     f"{self.load_timeout_s:g} s (include_hook_events)" +
+                                     (f"; {self.failure}" if self.failure else ""))
             self.early.append(m)
             d = wire(m)
             if d.get("type") != "system" or d.get("subtype") not in ("hook_started", "hook_response") or \
@@ -706,6 +749,8 @@ class Session:
                 m, ok = await self._it.__anext__(), True
         except StopAsyncIteration:
             self._eof = True
+        except Exception as e:  # noqa: BLE001 - the CLI exited non-zero or the stream broke: end of stream (C3)
+            self._eof, self.failure = True, f"{type(e).__name__}: {e}"[:300]
         finally:
             if not ok:
                 self._it = None                          # a cancelled generator is finished
@@ -715,7 +760,7 @@ class Session:
 
     def stop(self, why="signal"):
         """End the current ask (SIGTERM/SIGHUP in the CLI): interrupt, then the caller disconnects."""
-        self._stop = why
+        self._stop = "signal" if why == "signal" else "cancelled"   # both interrupt and give interrupted (C6)
         if self._scope is not None:
             self._scope.cancel()
 
@@ -730,6 +775,9 @@ class Session:
         self.early, r.state, ended_by, self.asking = [], None, "cancelled", True
         try:
             with anyio.CancelScope() as self._scope:
+                if self.asked:
+                    await self._settle()                 # C4: a turn the CLI woke for since the last ask
+                self.asked, r.t0, r.first = True, time.monotonic(), None      # C5: timed from the prompt
                 await self._client.query(prompt)
                 ended_by = await self._read(r)
             ended_by = self._stop or ended_by if self._scope.cancel_called else ended_by
@@ -744,9 +792,18 @@ class Session:
                    cli_path=self.cli_path, sdk_version=getattr(sdk, "__version__", None))
         if ended_by in ("bg_wait_ceiling", "deadline"):
             out["inflight_at_end"] = inflight           # what the ceiling or the deadline cut
+        if self.failure:
+            out["error"] = self.failure
         if self.row:
             out["row"] = write_row(out, self.env)
         return out
+
+    async def _settle(self):
+        """Read frames that arrived after the previous ask returned up to idle (bounded by bg_wait_s), so
+        they never answer the next prompt."""
+        stale, end = Reducer(), time.monotonic() + self.bg_wait_s
+        while (m := await self._recv(0.05 if stale.state in (None, "idle") else end - time.monotonic())) is not None:
+            stale.feed(wire(m))
 
     async def _read(self, r):
         deadline = time.monotonic() + self.deadline_s if self.deadline_s else None
@@ -794,7 +851,7 @@ class Session:
 
     async def disconnect(self):
         import anyio
-        c, self._client, self._it, self.loaded = self._client, None, None, False
+        c, self._client, self._it, self.loaded, self._eof = self._client, None, None, False, False
         if c is not None:
             with anyio.CancelScope(shield=True):
                 await c.disconnect()
@@ -897,6 +954,12 @@ def main(argv=None, transport=None):
         return 4
     except (asyncio.CancelledError, KeyboardInterrupt):
         print(json.dumps({"outcome": "interrupted", "ended_by": "signal"}))
+        return 1
+    except Exception as e:  # noqa: BLE001 - the SDK or the CLI failed (a crash, a bad --resume): one JSON line (C3)
+        out = {"outcome": "error", "host": a.host, "agent": a.agent, "entrypoint": "sdk-py"}
+        if s is not None:
+            write_row(out, s.env)
+        print(json.dumps(dict(out, error=f"{type(e).__name__}: {e}"[:300])))
         return 1
     print(json.dumps(out, default=str))
     return exit_code(out)
