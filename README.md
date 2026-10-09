@@ -1203,10 +1203,6 @@ puts back files, `~/.zshrc`/`~/.bashrc`, MCP entries and plugins the install dis
 added and puts back what it replaced), delete the line ending in `# claude-agent-stack` from your shell
 rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `wandb`).
 
-### Codex CLI
-
-`dot-config/dot-codex_config/` ports the stack to the OpenAI Codex CLI (profile `codex`, an optional IDE mode and an optional machine-wide tier). The only entry point is `./install.sh --codex [args]` (for example `./install.sh --codex --codex-home DIR`); it leaves the Claude install and `~/.claude` untouched, and installing it is your step. What it installs, the user steps, every flag, and what is enforced and what is advisory: [dot-config/dot-codex_config/README.md](dot-config/dot-codex_config/README.md); the design: [dot-config/dot-codex_config/DESIGN.md](dot-config/dot-codex_config/DESIGN.md).
-
 ## Usage
 
 ### First run
@@ -1660,7 +1656,6 @@ Repository layout (the installed trees are unchanged):
 
 ```
 dot-config/dot-claude/        mirrors ~/.claude (agents, skills, hooks, settings.json, ...)
-dot-config/dot-codex_config/  the Codex CLI port (installed through ./install.sh --codex)
 dot-config/dot-equilibrium/   the Equilibrium experiment and harness
 install.sh  lib/  tests/  tools/  docs/  hand_off/
 ```

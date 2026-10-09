@@ -30,6 +30,10 @@ one (stack_limits.model_mismatch: a /override-agent run; counted in refresh.mode
             h = sqrt((w h_ship)^2 + ((1 - w) h_new)^2), w = n_ship / (n_ship + n_new), around the
             combined med (without a new band, h_new = h_ship sqrt(n_ship / n_new), the same spread):
             a band narrows as n grows; method "combined"
+  bayes     with STACK_BAYES=on and SCHED_BAYES_LIVE (promotion, docs/BAYES.md 3.3) only: the validated `sched`
+            block of limits/bayes.json for the proposals' evidence and this seed (load_bayes_sched) replaces
+            the values, counts and band of the types and pools it names (method "bayes", its fit_id); else,
+            or on any invalid block, the combination above exactly
 Bounded step: every value (turns S/M/L, ctx a/b, static_cc, sec_per_call, band lo/hi) moves at most
 x STEP (default 1.5, STACK_SCHED_REFRESH_STEP) per refresh from the model in force (the active file
 when it was refreshed from the same shipped model, else the shipped one); repeated refreshes
@@ -214,8 +218,152 @@ def _halfwidth(q, side):
     return abs(math.log(x / med))
 
 
-def combine(shipped, new, collected_sessions, n_rows):
-    """The target model (see the module docstring)."""
+# Bayes estimates (docs/BAYES.md 2.2 and B; WP4): the `sched` block of limits/bayes.json, written by the
+# detached fitter and untrusted here. Used only with STACK_BAYES=on and SCHED_BAYES_LIVE, which changes only
+# by a reviewed promotion commit with the user's yes (BAYES.md 3.3, plan WP6); any failure is today's path.
+SCHED_BAYES_LIVE = False
+SCHED_GATES = ("turns", "spc", "ctx_ab", "static_cc")
+# each gate's source model (BAYES.md 1.3); its gate is recomputed from models.<id>.diag (2.1 rule 6)
+SCHED_MODEL = {"turns": "turns-nb2s-h4", "spc": "spc-ln-h4", "ctx_ab": "ctx_ab-kq-h2", "static_cc": "static_cc-ln-h2"}
+SCHED_QTY = {"turns": ("S", "M", "L"), "sec_per_call": ("p50", "p90"), "ctx": ("a", "b")}
+SCHED_COUNTS = ("n_seg", "n_agents", "n_first")
+SCHED_KEYS = tuple(SCHED_QTY) + ("static_cc", "band") + SCHED_COUNTS
+SCHED_BAND = ("level", "method", "n_ref", "turns", "sec_per_call", "ctx")
+_UNSET = object()
+
+
+class SchedInvalid(ValueError):
+    pass
+
+
+def _pos(x):
+    """A finite number > 0, not a bool (section 2.2: every number of the block)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) and x > 0
+
+
+def _need(ok, why):
+    if not ok:
+        raise SchedInvalid(why)
+
+
+def _exact(d, keys, why):
+    _need(isinstance(d, dict) and set(d) == set(keys), why + ": keys")
+
+
+def _sched_entry(e, typed):
+    """One `types.<t>` (typed) or `pools.<p>` entry, checked in full; SchedInvalid otherwise."""
+    _exact(e, SCHED_KEYS + (("status",) if typed else ()), "entry")
+    for k, subs in SCHED_QTY.items():
+        _exact(e[k], subs, k)
+        _need(all(_pos(e[k][s]) for s in subs), k)
+    t, spc = e["turns"], e["sec_per_call"]
+    _need(t["S"] <= t["M"] <= t["L"], "turns: S <= M <= L")
+    _need(spc["p50"] <= spc["p90"], "sec_per_call: p50 <= p90")
+    _need(_pos(e["static_cc"]), "static_cc")
+    _need(all(type(e[k]) is int and e[k] >= 0 for k in SCHED_COUNTS), "counts")
+    _need(not typed or e["status"] in ("supported", "provisional"), "status")
+    b = e["band"]
+    _exact(b, SCHED_BAND, "band")
+    _need(b["method"] == "bayes" and _pos(b["level"]) and b["level"] < 1 and _pos(b["n_ref"]), "band")
+    for q in ("turns", "sec_per_call", "ctx"):
+        _exact(b[q], ("lo", "med", "hi"), "band " + q)
+        lo, med, hi = b[q]["lo"], b[q]["med"], b[q]["hi"]
+        _need(_pos(lo) and _pos(med) and _pos(hi), "band " + q)
+        _need(lo <= med <= hi, f"band {q}: lo <= med <= hi")
+
+
+def _sched_extra(sc):
+    """resume_ctx and fixer, optional; checked in full when present."""
+    rc, fx = sc.get("resume_ctx"), sc.get("fixer")
+    if "resume_ctx" in sc:
+        _exact(rc, ("alpha", "gamma", "lo", "hi"), "resume_ctx")
+        _need(_pos(rc["alpha"]) and _pos(rc["gamma"]), "resume_ctx")
+        _need(all(isinstance(rc[s], list) and len(rc[s]) == 2 and all(_pos(x) for x in rc[s]) for s in ("lo", "hi"))
+              and all(a <= b for a, b in zip(rc["lo"], rc["hi"])), "resume_ctx lo/hi")
+    if "fixer" in sc:
+        _exact(fx, ("reread", "lo", "hi", "level", "n"), "fixer")
+        _need(all(_pos(fx[k]) for k in ("reread", "lo", "hi", "level")) and fx["level"] < 1
+              and fx["lo"] <= fx["reread"] <= fx["hi"] and type(fx["n"]) is int and fx["n"] >= 0, "fixer")
+
+
+def _sched_checked(doc, evidence_id, seed_sha, seed):
+    """The validated block of a parsed bayes.json, None when it has none; SchedInvalid otherwise."""
+    _need(isinstance(doc, dict), "not an object")
+    sv, code, eid, fid = doc.get("schema_version"), doc.get("code"), doc.get("evidence_id"), doc.get("fit_id")
+    _need(type(sv) is int and sv == 1, "schema_version")
+    _need(isinstance(code, str) and code.startswith("stack_bayes/"), "code")
+    _need(isinstance(eid, str) and L.HEX64_RE.match(eid) is not None and eid == evidence_id, "evidence_id")
+    _need(isinstance(seed_sha, str) and doc.get("seed_sha") == seed_sha == seed["sha"], "seed_sha")
+    _need(isinstance(fid, str) and L.HEX16_RE.match(fid) is not None, "fit_id")
+    sc = doc.get("sched")
+    if sc is None:
+        return None
+    _need(isinstance(sc, dict) and {"model_gate", "types", "pools"} <= set(sc)
+          and set(sc) <= {"model_gate", "types", "pools", "resume_ctx", "fixer"}, "sched: keys")
+    _exact(sc["model_gate"], SCHED_GATES, "model_gate")
+    _need(all(sc["model_gate"][g] is True for g in SCHED_GATES), "model_gate")
+    models = doc.get("models")
+    _need(isinstance(models, dict) and all(isinstance(models.get(SCHED_MODEL[g]), dict)
+                                           and L.model_gate(models[SCHED_MODEL[g]]) for g in SCHED_GATES),
+          "model_gate: recomputed from models.<id>.diag")
+    out = {"fit_id": fid}
+    for group, known in (("types", set(L._types(seed))), ("pools", set(seed["pools"]))):
+        G = sc[group]
+        _need(isinstance(G, dict), group)
+        for name, e in G.items():
+            _need(name in known, f"{group}: unknown {str(name)[:60]}")
+            _need(not L.is_fixed_guard(name), f"{group}: fixed guard {str(name)[:60]}")
+            _sched_entry(e, group == "types")
+        out[group] = copy.deepcopy(G)
+    _need(bool(out["types"] or out["pools"]), "sched: empty")
+    _sched_extra(sc)
+    for k in ("resume_ctx", "fixer"):
+        if k in sc:
+            out[k] = copy.deepcopy(sc[k])
+    return out
+
+
+def load_bayes_sched(path, evidence_id, seed_sha, seed=None, doc=_UNSET):
+    """The validated `sched` block of bayes.json at `path` (docs/BAYES.md 2.2, B): {"fit_id", "types",
+    "pools"[, "resume_ctx", "fixer"]}, or None when the file or the block is absent, for other evidence
+    (the proposals' evidence_id) or another seed, or invalid anywhere (whole block: finite positive
+    numbers, S <= M <= L, lo <= med <= hi, seed types and pools only, no fixed-guard name; each source
+    model's gate recomputed from its models.<id>.diag by stack_limits.model_gate). Parsing is
+    stack_limits' (size cap, NaN/Infinity tokens refused). `seed`: the loaded seed (default: load_seed());
+    `doc`: an already parsed document. Never raises."""
+    try:
+        if doc is _UNSET:
+            doc, why = L._read_bayes(path)
+            if doc is None:
+                if why != "absent":
+                    L.log(f"bayes.json ignored (sched): {why}")
+                return None
+        return _sched_checked(doc, evidence_id, seed_sha, seed if seed is not None else L.load_seed())
+    except Exception as exc:  # noqa: BLE001 - untrusted file: any failure is today's path
+        L.log(f"bayes.json ignored (sched): {exc if isinstance(exc, SchedInvalid) else type(exc).__name__}")
+        return None
+
+
+def bayes_sched():
+    """load_bayes_sched on limits/bayes.json for the proposals' evidence id and the seed in force, when
+    STACK_BAYES=on and SCHED_BAYES_LIVE; None otherwise. Never raises."""
+    try:
+        if not SCHED_BAYES_LIVE or L.bayes_mode() != "on":
+            return None
+        seed = L.load_seed()
+        props, _why = L.load_proposals(seed)
+        if not props:
+            return None
+        return load_bayes_sched(L.bayes_path(), props["evidence_id"], seed["sha"], seed=seed)
+    except Exception as exc:  # noqa: BLE001
+        L.log(f"bayes.json ignored (sched): {type(exc).__name__}")
+        return None
+
+
+def combine(shipped, new, collected_sessions, n_rows, bayes=None):
+    """The target model (see the module docstring). `bayes`: a load_bayes_sched() block; its types and
+    pools replace the combined values, counts and band (method "bayes", with its fit_id), the rest of the
+    entry stays; status is recomputed from its counts. None: today's combination exactly."""
     J = copy.deepcopy(shipped)
     for group in ("types", "pools"):
         src, add = shipped.get(group) or {}, (new or {}).get(group) or {}
@@ -225,6 +373,12 @@ def combine(shipped, new, collected_sessions, n_rows):
                 J[group][t] = combine_entry(src[t], add.get(t))
             else:
                 J[group][t] = copy.deepcopy(add[t])
+        if bayes:
+            for t, e in bayes[group].items():
+                v = J[group].setdefault(t, {})
+                v.update(copy.deepcopy({k: e[k] for k in SCHED_KEYS}))
+                v["band"]["fit_id"] = bayes["fit_id"]
+            J[group] = {t: J[group][t] for t in sorted(J[group])}
     for t, v in J["types"].items():
         v["status"] = "supported" if (v.get("n_seg") or 0) >= D.MIN_SEG and (v.get("n_agents") or 0) >= D.MIN_AGENTS \
             else "provisional"
@@ -245,6 +399,9 @@ def combine(shipped, new, collected_sessions, n_rows):
     J["sessions"] = sorted(set(shipped.get("sessions") or []) | set(collected_sessions))
     J["refresh"] = {"base_generated": shipped.get("generated"), "rows": n_rows,
                     "sessions_collected": len(collected_sessions)}
+    if bayes:
+        J["refresh"]["bayes"] = {"method": "bayes", "fit_id": bayes["fit_id"], "types": sorted(bayes["types"]),
+                                 "pools": sorted(bayes["pools"])}
     return J
 
 
@@ -323,7 +480,7 @@ def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.
     if len(seg):
         new = D.fit(seg, fm, soft, seed=0, B=B)
     sessions = sorted(seg.session.unique()) if len(seg) else []
-    target = combine(shipped, new, sessions, len(seg))
+    target = combine(shipped, new, sessions, len(seg), bayes_sched())
     J = rounded(bounded(base, target, step))
     J["generated"] = now_iso()
     J["refresh"].update(refreshed=J["generated"], step=step, base=("active" if base is active else "shipped"),

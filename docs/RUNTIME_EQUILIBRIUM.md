@@ -411,11 +411,6 @@ in payload)` (a `checks:` line after the prose line, and `checks.trailer_only` /
   keeps `<sid>/eq/` for the session's life only (results are copied to the project).
 - **No-push**: unchanged; the WALL has no git or forge path (`WALL_DESIGN.md:183, 243-244`); members' git is read-only.
 - **Web taint**: eq members cannot read the web, so they never taint the leader; the leader holds no memory tool.
-- **Codex port** (`dot-config/dot-codex_config/`, out of scope, listed): the rules template carries the same sentence
-  (`dot-config/dot-codex_config/templates/rules.md:26`); `convert_agents.py` asserts its rows equal `agent_guard.POLICY`
-  (`dot-config/dot-codex_config/lib/convert_agents.py:44-45`), so adding the agent changes that contract (exclude it or port it);
-  `codex_guard.py` would need the eq rules on `spawn_agent`/SubagentStop; params are model-specific, so every Codex class
-  is unvalidated until a Codex calibration.
 
 ---
 
@@ -618,8 +613,7 @@ it. The shape of the AskUserQuestion PostToolUse payload is **[unverified]** (§
   "L2–L3 spawn only for a missing capability or a check" clause of the same line. Measured +85 characters: the rules file
   becomes 11,535 against its gate of 0.95 × 12,198 = 11,588 (`tests/prompt_budget.py:107`; §10.2).
 - The same clause in: `CONFIG.md:133` ("Layer rules", after "L2–L3 spawn only for a missing capability or a fired review
-  trigger"); `dot-config/dot-claude/skills/prompt-and-brief-design/references/delegation.md:18` (the L2–L3 row of the layer table);
-  later `dot-config/dot-codex_config/templates/rules.md:26`.
+  trigger"); `dot-config/dot-claude/skills/prompt-and-brief-design/references/delegation.md:18` (the L2–L3 row of the layer table).
 - `blackcat.md` Route section, one line (+214 characters; body 4,712 → 4,927 of 5,200, measured): `- A problem of a class
   the guard lists as validated for equilibrium (proof, checkable patch, review, estimate) where a verified or agreed
   answer matters → equilibrium; never research or design unless the user asks.` The guard adds the validated list to

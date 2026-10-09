@@ -16,13 +16,15 @@ Hook entry points (settings.json; both read the hook's JSON on stdin and exit 0 
                             (new session, stdio on /dev/null), unless one runs already
   stack_usage.py end        SessionEnd: write the session's end marker; the collector sees it, scans
                             one last time, writes the limit proposals (stack_limits.propose, when
-                            importable) and refreshes the candidate model, then exits. With no collector
+                            importable), runs the Bayes fit (bayes_fit: stack_bayes.py, rate-limited,
+                            shadow only) and refreshes the candidate model, then exits. With no collector
                             running (it idled out), one is started for that final scan. Nothing there
                             changes any limit (S6 U4)
 CLI:
   stack_usage.py runs [--session ID] [--json]   agent-run view (segments aggregated per agent)
   stack_usage.py status                         one line (doctor.sh)
   stack_usage.py refresh [--online] [--force]   refit the active model now (stack_sched_refresh.py)
+  stack_usage.py bayes [--force]                the Bayes fit now (stack_bayes.py; --force: no rate limit)
   stack_usage.py propose [--model F]            soft-limit / maxTurns drift; prints only
   stack_usage.py scan --session ID --subagents DIR [--final]   one scan, no daemon (tests, catch-up)
   stack_usage.py run --session ID --subagents DIR [--owner-pid N]   the collector itself
@@ -55,6 +57,9 @@ Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
   usage/sessions/<id>/        collector.lock, collector.json (pid, owner, heartbeat, exit reason),
                               state.json (byte offsets and parser state per transcript), end (marker)
   usage/refresh.json          the last refresh: time, trigger, result
+  usage/bayes.json.rec        one JSON line per Bayes fit attempt or skip (status, evidence id, rc, secs,
+                              the fitter's summary line, fit_id and model gates), the last BAYES_REC_MAX;
+                              usage/bayes.lock serializes fits; <state>/bayes-cache/ the fit's compile caches
   sched_model.json            the ACTIVE scheduler model (written by stack_sched_refresh.py)
 
 Segments are cut exactly as tests/derive_thresholds.py does (read_records + segments_of): an API
@@ -138,6 +143,9 @@ F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
 COMPACT_RE = re.compile(r"^This session is being continued from a previous conversation")
 TURN_LIMIT_RE = re.compile(r"turn limit", re.I)
+# the tool call that ends a subagent's run with its report (input `message`); the transcript then ends on its
+# tool result, which is no turn-limit cut (stack_report.py reads the same message)
+HANDBACK_TOOL = "SubagentHandback"
 TEXT_HEAD = 300           # derive_thresholds matches only the first 300 characters of a user message
 LIVE_S = 600
 
@@ -176,7 +184,7 @@ READ_CHUNK = 8 << 20      # bytes read per transcript per scan (a large backlog 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:      # stack_io.py beside this file, also when loaded by path
     sys.path.insert(0, HERE)
-from stack_io import read_json, write_json_atomic  # noqa: E402,F401 - U.read_json is used by stack_sched_refresh
+from stack_io import read_json, write_atomic, write_json_atomic  # noqa: E402,F401 - U.read_json: stack_sched_refresh
 
 
 def knob(name, default):
@@ -278,11 +286,24 @@ def _new_seg(a, idx=None):
                 "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None,
                 # tool counts, the segment's written files (sha256 prefixes, dropped with the segment), commits
                 "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False,
+                # lhb: the last call's hand-back (HANDBACK_TOOL) block id, else False; dlv/dsc: a hand-back of
+                # this segment was delivered ("success":true) and the STATUS code of the last one delivered
+                "lhb": False, "dlv": False, "dsc": None,
                 # the distinct model ids its calls reported (two are enough to say `mixed`)
                 "models": []}
     a["nseg"] += 1
     if a["prev"]:
         a["cur"]["prev_peak"] = a["prev"]["peak"]
+
+
+def end_kind(a):
+    """How the current segment ends: "end" (a text-only last call, or a last call that hands back: the run's
+    report, whether or not its tool result is written yet), "tool" (a tool call without its result yet),
+    "tr" (a tool result: cut there, the turn-limit ending once the transcript is final), or None."""
+    end = a["last_kind"]
+    if end in ("tool", "tr") and a["cur"] is not None and a["cur"].get("lhb"):
+        return "end"
+    return end
 
 
 def _finish_seg(a, out):
@@ -291,7 +312,7 @@ def _finish_seg(a, out):
     if cur is None:
         return
     if cur["n"]:
-        out.append(seg_row_values(cur, "complete", bool(cur["tl"]), a["last_kind"], a["main"]))
+        out.append(seg_row_values(cur, "complete", bool(cur["tl"]), end_kind(a), a["main"]))
         if not a["main"]:
             a["prev"] = {"peak": cur["peak"], "lts": cur["lts"]}
     a["prev_tl"] = bool(cur["tl"])
@@ -314,7 +335,7 @@ def _on_blocks(cur, w, content):
             if isinstance(txt, str) and txt.strip():
                 w["txt"] = True
                 mt = STATUS_RE.search(txt)
-                if mt:
+                if mt and not w.get("hb"):        # a streamed repeat of the text never overrides the hand-back
                     w["sc"] = STATUS_CODE[mt.group(1)]
             continue
         if b.get("type") != "tool_use":
@@ -340,6 +361,31 @@ def _on_blocks(cur, w, content):
                         cur["fwc"] = w["i"]
         elif name == "Bash" and COMMIT_RE.search(str(inp.get("command", ""))):
             cur["gc"] += 1
+        elif name == HANDBACK_TOOL:
+            # the hand-back message is the run's final reply: its STATUS line wins over the call's text
+            w["hb"] = bid
+            msg = inp.get("message")
+            if isinstance(msg, str) and msg.strip():
+                w["txt"] = True
+                mt = STATUS_RE.search(msg)
+                w["sc"] = STATUS_CODE[mt.group(1)] if mt else None
+
+
+def _delivered(hb, content):
+    """Whether a tool-result line holds the result of hand-back `hb` (its block id) and that result reports the
+    report delivered: the JSON text {"success": true, ...}."""
+    for b in content:
+        if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+            continue
+        if isinstance(hb, str) and not hb.startswith("@") and b.get("tool_use_id") != hb:
+            continue
+        try:
+            doc = json.loads(text_of(b.get("content")).strip() or "null")
+        except ValueError:
+            continue
+        if isinstance(doc, dict) and doc.get("success") is True:
+            return True
+    return False
 
 
 def _on_call_line(a, r, m, u, out):
@@ -421,7 +467,7 @@ def _on_call_line(a, r, m, u, out):
     if cur["fwc"] == w["i"] and w["wr"]:
         cur["cfw"] = ctx                    # the first repo-writing call's context
     if cur["lkey"] == key:
-        cur["lsc"], cur["ltxt"] = w["sc"], w["txt"]
+        cur["lsc"], cur["ltxt"], cur["lhb"] = w["sc"], w["txt"], w.get("hb") or False
         t = epoch(ts)
         if t is not None:
             cur["lts"] = t
@@ -453,8 +499,8 @@ def feed_line(a, line, out):
         c = m.get("content") if isinstance(m, dict) else None
         if not is_tool_result(c):
             txt = text_of(c)[:TEXT_HEAD]
-            if a["cur"] is None or (RESUME_RE.match(txt) and a["last_kind"] in ("end", "tr")):
-                if a["cur"] is not None and a["last_kind"] == "tr" and TURN_LIMIT_RE.search(txt):
+            if a["cur"] is None or (RESUME_RE.match(txt) and end_kind(a) in ("end", "tr")):
+                if a["cur"] is not None and end_kind(a) == "tr" and TURN_LIMIT_RE.search(txt):
                     a["cur"]["tl"] = True
                 _finish_seg(a, out)
                 _new_seg(a)
@@ -464,6 +510,11 @@ def feed_line(a, line, out):
             return
         if a["cur"] is None:
             _new_seg(a)
+        cur = a["cur"]
+        if cur.get("lhb") and _delivered(cur["lhb"], c):
+            # the caller holds this report: what the run writes after it (a background task's wake-up) reaches
+            # no one, so its STATUS stays the segment's code; a later delivered hand-back replaces it
+            cur["dlv"], cur["dsc"] = True, cur["lsc"]
         a["last_kind"] = "tr"
         a["last_evt"] = None
 
@@ -500,12 +551,14 @@ def feed_main_line(a, line, out):
 
 def _status_code(cur, status, tl, end):
     """0 done, 1 partial or failed, 2 blocked; empty while the segment is open or when it ended on a tool call.
-    The STATUS line of the segment's last call wins; a text-only last call without one is a clean finish
-    (0); a segment cut by the turn limit is at least partial."""
+    The STATUS line of the last delivered hand-back wins, else that of the segment's last call; a text-only
+    last call without one is a clean finish (0); a segment cut by the turn limit is at least partial."""
     if status == "partial":
         return ""
     code = None
-    if end == "end" and cur["ltxt"]:
+    if cur.get("dlv"):
+        code = cur["dsc"] if cur.get("dsc") is not None else 0
+    elif end == "end" and cur["ltxt"]:
         code = cur["lsc"] if cur["lsc"] is not None else 0
     if tl and code != 2:
         code = 1
@@ -555,7 +608,7 @@ def current_row(a, live):
     cur = a["cur"]
     if cur is None or not cur["n"]:
         return None
-    end = a["last_kind"]
+    end = end_kind(a)
     if a["main"]:                 # the last window is open while the transcript is growing
         return seg_row_values(cur, "partial" if live else "complete", False, end, True)
     status = "partial" if (end in ("tool", "tr") and live) else "complete"
@@ -1482,7 +1535,8 @@ def propose_limits():
 
 def run(sid, folder, owner=None, poll=None, idle=None, wait_lock=None):
     """The collector loop. Returns the exit reason. Exit order: final scan (rows appended), propose
-    (proposals.json), the uv refresh (the candidate scheduler model). wait_lock: a successor
+    (proposals.json), the Bayes fit (limits/bayes.json, rate-limited: bayes_fit), the uv refresh (the
+    candidate scheduler model, which reads the fit's sched block). wait_lock: a successor
     (hook_start's hand-off) tries for collector.lock this many seconds; else one try."""
     if not enabled():
         return "disabled"
@@ -1548,6 +1602,7 @@ def run(sid, folder, owner=None, poll=None, idle=None, wait_lock=None):
         write_json_atomic(os.path.join(sd, "collector.json"), meta)
     if reason in ("session end", "owner gone", "idle"):
         propose_limits()
+        bayes_fit(trigger=reason)                 # limits/bayes.json for the proposals just written
         refresh(trigger=reason, session=sid)      # the refit takes this session's snapshot soft limits
     return reason
 
@@ -1754,6 +1809,285 @@ def refresh(trigger="manual", online=False, force=False, session=None):
     return res
 
 
+# ---------------------------------------------------------------- the Bayes fit (stack_bayes.py, WP3b)
+# docs/BAYES.md 2 and 2.1: the detached fitter writes limits/bayes.json, which stack_limits' apply reads in
+# shadow (STACK_BAYES=shadow by default, BAYES_LIVE empty: nothing acts) and stack_sched_refresh after a
+# promotion. Run at a collector's exit, between propose() and the refresh, with the tools venv's python
+# (the opt-in Bayes lock, install.sh --with-bayes; without pymc it is skipped:no-pymc).
+BAYES_TIMEOUT_S = 900.0        # wall-clock cap of one fit (plan row 3b; WP3b: 348 s warm, 8 chains x 4000)
+BAYES_MIN_GAP_S = 6 * 3600.0   # at most one fit per 6 h, and one per evidence id (an attempt: ok or failed)
+BAYES_NICE = 10
+BAYES_REC_MAX = 400            # lines kept in usage/bayes.json.rec (one per attempt or skip)
+BAYES_REC_BYTES = 256 << 10
+EQ_LIVE_S = 2 * 3600.0         # an equilibrium run without ended.json whose store changed this recently is live
+EQ_SCAN_MAX = 4096
+BAYES_RC = {0: "ok", 3: "skipped:no-pymc", 4: "skipped:no-rows"}
+BAYES_ENV_DROP_PREFIXES = ("PYTENSOR", "NUMBA_", "AESARA", "THEANO")
+HEX64_RE = re.compile(r"^[0-9a-f]{64}\Z")
+SUMMARY_RE = re.compile(r"^bayes: [ -~]{0,280}\Z")
+
+
+def config_dir():
+    return os.path.dirname(HERE)
+
+
+def bayes_python():
+    """The tools venv's interpreter (install.sh: $C/venvs/tools; the Bayes lock goes into it with
+    --with-bayes), at a fixed path under the config dir: never a PATH lookup."""
+    return os.path.join(config_dir(), "venvs", "tools", "bin", "python")
+
+
+def bayes_rec_path():
+    return os.path.join(usage_dir(), "bayes.json.rec")
+
+
+def accel_lock_path():
+    """The accelerator lock: a job that uses the Mac's GPU/ANE (or this fit's CPU share) holds an flock on
+    it; the fit is skipped while anyone holds it (one accelerator job per device)."""
+    return os.path.join(state_root(), "accel.lock")
+
+
+def bayes_env(root=None):
+    """refresh_env() without any PYTENSOR*/NUMBA_* knob of the session, plus the fit's compile caches
+    inside the state directory (stack_bayes.cache_env sets the same values): <state>/bayes-cache."""
+    env = {k: v for k, v in refresh_env().items() if not k.startswith(BAYES_ENV_DROP_PREFIXES)}
+    base = os.path.join(root or state_root(), "bayes-cache")
+    env["PYTENSOR_FLAGS"] = "base_compiledir=%s,cxx=,mode=NUMBA" % os.path.join(base, "pytensor")
+    env["NUMBA_CACHE_DIR"] = os.path.join(base, "numba")
+    return env
+
+
+def flock_held(path):
+    """Whether another open file description holds an flock on `path` (a missing file: no). Never creates it."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except OSError as exc:
+        return exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK)
+    finally:
+        os.close(fd)
+
+
+def eq_run_live(now=None):
+    """Whether an equilibrium run may be live (<state>/<session>/eq/<run>/, the guard's store): no
+    ended.json, its state.json phase not result/cleaned, and the store written in the last EQ_LIVE_S.
+    Conservative: past EQ_SCAN_MAX entries it answers yes."""
+    now = time.time() if now is None else now
+    root, n = state_root(), 0
+    try:
+        sessions = os.listdir(root)
+    except OSError:
+        return False
+    for s in sessions:
+        d = os.path.join(root, s, "eq")
+        if os.path.islink(d) or not os.path.isdir(d):
+            continue
+        try:
+            runs = os.listdir(d)
+        except OSError:
+            continue
+        for run in runs:
+            n += 1
+            if n > EQ_SCAN_MAX:
+                return True
+            rd = os.path.join(d, run)
+            if not EQ_RUN_RE.match(run) or os.path.islink(rd) or not os.path.isdir(rd):
+                continue
+            if os.path.lexists(os.path.join(rd, "ended.json")):
+                continue
+            if (read_json(os.path.join(rd, "state.json")) or {}).get("phase") in ("result", "cleaned"):
+                continue
+            try:
+                newest = max([os.lstat(rd).st_mtime] + [os.lstat(os.path.join(rd, f)).st_mtime
+                                                        for f in os.listdir(rd)])
+            except OSError:
+                continue
+            if now - newest < EQ_LIVE_S:
+                return True
+    return False
+
+
+def read_bayes_recs():
+    """The records of usage/bayes.json.rec (its last BAYES_REC_BYTES), oldest first; bad lines dropped."""
+    try:
+        with open(bayes_rec_path(), "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - BAYES_REC_BYTES))
+            raw = fh.read()
+    except OSError:
+        return []
+    out = []
+    for line in raw.decode("utf-8", "replace").splitlines()[(1 if size > BAYES_REC_BYTES else 0):]:
+        try:
+            r = json.loads(line)
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(r, dict):
+            out.append(r)
+    return out
+
+
+def _bayes_record(res):
+    recs = read_bayes_recs()[-(BAYES_REC_MAX - 1):] + [res]
+    write_atomic(bayes_rec_path(), "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n"
+                                           for r in recs).encode("utf-8"))
+
+
+def _is_attempt(r):
+    s = r.get("status")
+    return isinstance(s, str) and (s == "ok" or s.startswith("failed"))
+
+
+def _proposals_evidence():
+    doc = read_json(os.path.join(state_root(), "limits", "proposals.json"), limit=64 << 20) or {}
+    eid = doc.get("evidence_id")
+    return eid if isinstance(eid, str) and HEX64_RE.match(eid) else None
+
+
+def _bayes_nice():
+    try:
+        os.nice(BAYES_NICE)
+    except OSError:
+        pass
+
+
+def _bayes_child(cmd, env, timeout, keep_fds=()):
+    """(returncode, stdout bytes, None | "timeout" | "signal"). Its own session and process group, niced;
+    the fds in keep_fds stay open in it (usage/bayes.lock: a fit whose collector was SIGKILLed keeps the
+    lock until it ends, so no second fit starts beside it). On the timeout, or a SIGTERM to this process
+    while it runs, the whole group is killed and reaped (returncode None) and the SIGTERM handler in place
+    before is called when it is a function (the collector's: stop after this exit), then restored (the
+    `bayes` CLI, default handler: the fit ends recorded failed:signal and the command returns). An
+    ignored SIGTERM stays ignored."""
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         env=env, cwd="/", close_fds=True, pass_fds=tuple(keep_fds), start_new_session=True,
+                         preexec_fn=_bayes_nice)
+    why = {}
+
+    def kill(reason):
+        why.setdefault("k", reason)
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except OSError:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+    prev, hooked = None, False
+
+    def on_term(signum, frame):
+        kill("signal")
+        if callable(prev):
+            prev(signum, frame)
+
+    try:
+        prev = signal.getsignal(signal.SIGTERM)
+        if prev is not signal.SIG_IGN:
+            signal.signal(signal.SIGTERM, on_term)
+            hooked = True
+    except ValueError:                  # not the main thread: no handler, the timeout still holds
+        pass
+    try:
+        try:
+            out, _ = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill("timeout")
+            out, _ = p.communicate()
+    finally:
+        if hooked:
+            signal.signal(signal.SIGTERM, prev)
+    k = why.get("k")
+    return (None if k else p.returncode), (b"" if k else out or b""), k
+
+
+def _bayes_doc_info():
+    """fit_id and per-model gates (stack_limits.model_gate, recomputed from diag) of limits/bayes.json."""
+    doc = read_json(os.path.join(state_root(), "limits", "bayes.json"), limit=4 << 20) or {}
+    fid = doc.get("fit_id")
+    info = {"fit_id": fid if isinstance(fid, str) and re.match(r"^[0-9a-f]{16}\Z", fid) else None, "gates": None}
+    models = doc.get("models")
+    if isinstance(models, dict):
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        try:
+            import stack_limits
+            gate = stack_limits.model_gate
+        except Exception:  # noqa: BLE001 - the record only
+            return info
+        info["gates"] = {k: bool(isinstance(m, dict) and gate(m)) for k, m in sorted(models.items())
+                         if isinstance(k, str) and re.match(r"^[a-z0-9][a-z0-9_.:-]{0,63}\Z", k)}
+    return info
+
+
+def bayes_fit(trigger="manual", force=False, now=None):
+    """Run stack_bayes.py fit (docs/BAYES.md 2: limits/bayes.json) and record the attempt in
+    usage/bayes.json.rec. Skipped: STACK_BAYES=off (nothing recorded); another fit holds usage/bayes.lock
+    (nothing recorded); no proposals; the same evidence id as the last attempt, or one less than
+    BAYES_MIN_GAP_S ago (unless force); an equilibrium run live or the accelerator lock held; no tools venv
+    python (skipped:no-pymc) or no stack_bayes.py. The child: `<venv python> -I -B stack_bayes.py fit`, env
+    bayes_env(), cwd /, niced, its own process group, holding the bayes.lock fd too, killed at
+    BAYES_TIMEOUT_S (failed:timeout) or on a SIGTERM to the collector (failed:signal). Only its own summary line
+    ("bayes: ...") is kept from its output. Never raises; returns the record."""
+    now = time.time() if now is None else now
+    res = {"ts": round(now, 3), "trigger": str(trigger)[:40], "status": None, "rc": None, "evidence_id": None,
+           "secs": None, "summary": None}
+    try:
+        if os.environ.get("STACK_BAYES", "shadow").strip().lower() == "off":
+            return dict(res, status="skipped:off")
+        os.makedirs(usage_dir(), mode=0o700, exist_ok=True)
+        with Locked(os.path.join(usage_dir(), "bayes.lock"), nb=True) as lk:
+            if not lk.ok:
+                return dict(res, status="skipped:locked")
+            res["status"] = _bayes_run(res, force, now, lock_fd=lk.fh.fileno())
+            _bayes_record(res)
+    except Exception as exc:  # noqa: BLE001 - a detached job's housekeeping: never fail the collector
+        res["status"] = "failed:%s" % type(exc).__name__
+    return res
+
+
+def _bayes_run(res, force, now, lock_fd=None):
+    eid = _proposals_evidence()
+    res["evidence_id"] = eid
+    if eid is None:
+        return "skipped:no-proposals"
+    last = next((r for r in reversed(read_bayes_recs()) if _is_attempt(r)), None)
+    if last and not force:
+        if last.get("evidence_id") == eid:
+            return "skipped:same-evidence"
+        ts = last.get("ts")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool) and 0 <= now - ts < BAYES_MIN_GAP_S:
+            return "skipped:rate"
+    if eq_run_live(now):
+        return "skipped:eq-run"
+    if flock_held(accel_lock_path()):
+        return "skipped:accel-lock"
+    py, script = bayes_python(), os.path.join(HERE, "stack_bayes.py")
+    if not (os.path.isfile(py) and os.access(py, os.X_OK)):
+        return "skipped:no-pymc"
+    if not os.path.isfile(script):
+        return "skipped:no-fitter"
+    t0 = time.monotonic()
+    # -B: -I implies -E, so refresh_env's PYTHONDONTWRITEBYTECODE is ignored; no pycs in the hooks folder
+    rc, out, killed = _bayes_child([py, "-I", "-B", script, "fit"], bayes_env(), BAYES_TIMEOUT_S,
+                                   keep_fds=() if lock_fd is None else (lock_fd,))
+    res["rc"], res["secs"] = rc, round(time.monotonic() - t0, 1)
+    lines = [ln for ln in out.decode("utf-8", "replace").splitlines() if SUMMARY_RE.match(ln)]
+    res["summary"] = lines[-1] if lines else None
+    if killed:
+        return "failed:" + killed
+    status = BAYES_RC.get(rc, "failed:exit %d" % rc)
+    if status == "ok":
+        res.update(_bayes_doc_info())
+    return status
+
+
 # ---------------------------------------------------------------- status and proposals
 def collectors():
     """[(session, running, heartbeat)] of every collector folder."""
@@ -1789,8 +2123,10 @@ def status_line():
         model = "no active model yet (the shipped sched_model.json is used)"
     ref = read_json(os.path.join(usage_dir(), "refresh.json")) or {}
     last = "last refresh: %s" % (ref.get("status") or "never")
-    return "usage collector: %d running, %d segment rows from %d sessions; %s; %s" % (
-        len(running), len(rows), len(sessions), model, last)
+    brec = read_bayes_recs()
+    bayes = "last bayes fit: %s" % ((brec[-1].get("status") if brec else None) or "never")
+    return "usage collector: %d running, %d segment rows from %d sessions; %s; %s; %s" % (
+        len(running), len(rows), len(sessions), model, last, bayes)
 
 
 def frontmatter(agents_dir):
@@ -1910,11 +2246,14 @@ def main(argv):
     if cmd == "refresh":
         print(json.dumps(refresh("manual", online="--online" in argv, force="--force" in argv)))
         return 0
+    if cmd == "bayes":
+        print(json.dumps(bayes_fit("manual", force="--force" in argv)))
+        return 0
     if cmd == "propose":
         print("\n".join(propose(_arg(argv, "--model"), _arg(argv, "--agents"))))
         return 0
     sys.stderr.write("usage: stack_usage.py start|end (hooks) | runs [--session ID] [--json] | status | "
-                     "refresh [--online] [--force] | propose [--model F] [--agents DIR] | "
+                     "refresh [--online] [--force] | bayes [--force] | propose [--model F] [--agents DIR] | "
                      "scan --session ID --subagents DIR [--final] | run --session ID --subagents DIR\n")
     return 2
 

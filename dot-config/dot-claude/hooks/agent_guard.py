@@ -6476,7 +6476,7 @@ GIT_CONFIG_NOSET = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--g
 GIT_CONFIG_VALUE_OPTS = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
 ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
 ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
-# git configuration from the environment (read like `git -c`), as in codex_guard.py
+# git configuration from the environment (read like `git -c`)
 GIT_ENV_CONFIG_RE = re.compile(r"(?:GIT_CONFIG_KEY_\d+|GIT_CONFIG_PARAMETERS)\+?=")
 GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
 # ext:: URLs run a command as the transport (git-remote-ext); git refuses them unless one of these
@@ -6517,10 +6517,19 @@ HELP_BOOL_OPTS = {"--fill", "--fill-first", "--fill-verbose", "--draft", "--web"
                   "-s", "-m", "-r", "-d", "-f", "-w", "-y", "-a", "-c"}
 # words after which the next word is still a command name (`exec git-push`, `env X=1 cmd`)
 PREFIX_WORDS = {"exec", "command", "builtin", "nohup", "time", "env", "sudo", "doas", "xargs",
-                "timeout", "nice", "stdbuf", "noglob", "then", "do", "else", "elif", "if",
+                "timeout", "gtimeout", "nice", "stdbuf", "noglob", "caffeinate", "chronic", "flock",
+                "arch", "taskpolicy", "busybox", "watch", "then", "do", "else", "elif", "if",
                 "while", "until", "!", "{"}
+SHELL_KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "!", "{"}  # never a path
+# words a doc command (`sudo man git push`) may follow and still be the program: no options, no
+# operands, no wrapper this guard only learned to read past (watch, flock, chronic ...)
+DOC_PREFIX_WORDS = SHELL_KEYWORDS | {"exec", "command", "builtin", "nohup", "time", "env", "sudo",
+                                     "doas", "xargs", "timeout", "nice", "stdbuf", "noglob"}
+SLOT_WRAPPERS = {"timeout", "gtimeout", "flock"}   # an operand (duration, lock file) before the command
 SEP_RE = re.compile(r"[;&|()\n]+\Z")                  # shlex tokens that end a simple command
-REDIR_OP_RE = re.compile(r"[<>]+&?\Z|&>+\Z")
+# redirection operators as the lexer gives them, zsh's noclobber overrides (>|, >>|, &>|, >&|,
+# >>&|, &>>|) included; `>!` lexes as `>` and `!`: _zsh_clobber_words
+REDIR_OP_RE = re.compile(r"[<>]+&?\|?\Z|&>+\|?\Z")
 # fast path: a command that names none of these (after dropping quotes, backslashes and
 # expansions: g''it, g${X}it) and holds no escape that could spell one ($'\x67it', printf
 # '\147it') is not checked further
@@ -6597,7 +6606,7 @@ CODE_LITERAL_RE = re.compile(r"'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^'\n]*)'|\"([^\"
 # decoded pipeline into a shell (base64 -d | sh)
 OPAQUE_HINT_RE = re.compile(r"\$[\w{(@*!#?-]\S*\s+(?:push|send-pack)\b|\b(?:pwsh|powershell)\b|"
                             r"\|\s*(?:\S*/)?(?:sh|bash|zsh|dash|ksh|fish|source|\.)(?:\s|$)|"
-                            r"\benv\s[^;&|\n]*-S", re.I)
+                            r"\benv\s[^;&|\n]*-\w*S", re.I)          # -S, -iS, --split
 # a pipeline into a shell whose text starts as a literal (echo, printf, <<<) and is transformed
 # on the way (base64 -d, rev, tr, sed ...) runs commands nobody can read here: refused.
 # Downloads and files (curl | bash, gunzip -c x.gz | sh) are scripts, out of sight like any file.
@@ -6613,6 +6622,12 @@ ANSI_ESC = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n"
 SUBST_MARK = "\x00S%d\x00"                            # NULs never survive into a shell command
 SUBST_MARK_RE = re.compile("\x00S(\\d+)\x00")
 MAX_NEST, MAX_SCANS, MAX_FORGE_WORDS, DEADLINE_S = 8, 2000, 12, 8.0
+MAX_RUNNER_STARTS = 32         # watch/flock command starts rescanned; more: fail closed
+BIND_LOOPS = ("for", "select")  # rebind their variable: noted only at main's command position
+MAX_WRAPPER_ARGS = 64          # wrapper words, options, values before a command word; more: fail
+                               # closed (each one is checked as a command: quadratic past that)
+MAX_SLOT_WRITERS = 1           # write commands in value slots whose operands are checked; more:
+                               # fail closed (`nice -n rm -n rm ...`: each check reads every word)
 MAX_COMMAND, MAX_HEREDOCS_PER_LINE = 1000000, 64   # characters of code (heredoc bodies apart)
 # closer -> (opener, closer) keywords, to find the compound command a heredoc on `done` feeds
 COMPOUND_OPENERS = {"done": (r"(?:while|until|for|select)", "done"), "fi": ("if", "fi"),
@@ -6652,8 +6667,7 @@ class _TooComplex(Exception):
 
 
 # git options whose value git hands to the shell as a command, per subcommand: (short options,
-# long options); long names match by any unique prefix (git's parse-options). Ported from
-# codex_guard.py GIT_COMMAND_OPTS.
+# long options); long names match by any unique prefix (git's parse-options).
 GIT_COMMAND_OPTS = {
     "fetch": ("", ("--upload-pack",)), "pull": ("", ("--upload-pack",)),
     "clone": ("u", ("--upload-pack",)), "ls-remote": ("u", ("--upload-pack", "--exec")),
@@ -7161,6 +7175,23 @@ def _plain_args(args):
             k += 1 if re.search(r"&\d+\Z", a) else 2
         elif a.isdigit() and k + 1 < len(args) and REDIR_OP_RE.match(args[k + 1]):
             k += 1
+        else:
+            out.append(a)
+            k += 1
+    return out
+
+
+def _no_out_redirects(args):
+    """args without output redirections and their targets (`> f`, `2>/dev/null`, `2>&1`): a
+    write command's operands. The scan checks each redirection target on its own."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        if a.isdigit() and k + 1 < len(args) and ">" in args[k + 1] \
+                and REDIR_OP_RE.match(args[k + 1]):
+            k += 1
+        elif ">" in a and REDIR_OP_RE.match(a):
+            k += 2
         else:
             out.append(a)
             k += 1
@@ -7869,6 +7900,40 @@ def _skip_redirections(words, k, end):
     return k
 
 
+def _zsh_clobber_words(words):
+    """zsh's reading of `words` where an output redirection is followed by a word starting with
+    `!` (`>! F`, `>>! F`, `&>! F`, `>&! F`, `2>! F`, `>!F`): zsh takes `>!` as `>|` and F as the
+    target, bash writes to `!` (or `!F`) and keeps F as a word of the command; the lexer gives
+    `>`, `!`, `F` (or `>`, `!F`) for both. That reading (`>|`, `F`), or None when there is no such
+    word: callers check both."""
+    out, k, n = [], 0, len(words)
+    while k < n:
+        w = words[k]
+        if ">" in w and REDIR_OP_RE.match(w) and w[-1:] != "|" and k + 1 < n \
+                and words[k + 1][:1] == "!":
+            out.append(w + "|")
+            out += [words[k + 1][1:]] if words[k + 1] != "!" else []
+            k += 2
+        else:
+            out.append(w)
+            k += 1
+    return out if out != words else None
+
+
+def _state_of(obj):
+    """obj's attributes, each list, dict or set copied: what _restore_state puts back."""
+    return {k: v.copy() if isinstance(v, (list, dict, set)) else v for k, v in vars(obj).items()}
+
+
+def _restore_state(obj, saved):
+    """obj's attributes back to `saved` (from _state_of), keeping the scan budget spent since."""
+    budget = vars(obj).get("budget")
+    vars(obj).clear()
+    vars(obj).update(saved)
+    if budget is not None:
+        obj.budget = budget
+
+
 def _base(word):
     return word.rsplit("/", 1)[-1]
 
@@ -8079,6 +8144,13 @@ class _Scan(object):
             what = what[:197] + "..."
         return (kind, what) if kind in self.want else None
 
+    def overflow(self, what):
+        """A hit of a kind this scan reports, for a command too large to check: fail closed
+        (hit("opaque", ...) is None for the push-only, protect and secrets scans)."""
+        kind = next((k for k in ("opaque", "push", "protect", "secrets", "forge", "index",
+                                 "install") if k in self.want), None)
+        return self.hit(kind, what) if kind else None
+
     def scan(self, command, depth=0):
         """First remote write in a shell command: (kind, what), or None."""
         if not isinstance(command, str):
@@ -8120,7 +8192,14 @@ class _Scan(object):
                 found = found or self.scan(inner, depth + 1)
             if found:
                 return found
-        return self.scan_words(self.words(text), depth, _restorer(substs))
+        words, restore = self.words(text), _restorer(substs)
+        alt = _zsh_clobber_words(words)        # `git >! F push`: bash's reading, then zsh's
+        saved = _state_of(self) if alt else None
+        found = self.scan_words(words, depth, restore)
+        if found or not alt:
+            return found
+        _restore_state(self, saved)            # (cd, NAME+=x: each reading from the same start)
+        return self.scan_words(alt, depth, restore)
 
     def run_output(self, inner, depth):
         """What a substitution prints, read as commands: its multi-word words (echo 'git push')
@@ -8161,6 +8240,18 @@ class _Scan(object):
             ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
         covered = stdin_done = stmt_start = argv_done = 0  # covered, stdin_done, argv_done: words already re-scanned
         cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
+        # wrap: the prefix word (env, sudo, timeout, ...) before the command word; wrap_val: its
+        # last option takes the next word as its value; wrap_dur: timeout's duration is still due
+        wrap, wrap_val, wrap_dur = None, False, False
+        doc_ok = True                          # only X=1 and plain DOC_PREFIX_WORDS so far
+        last_here = False                      # the previous word was at command position
+        redir = False                          # the previous word was a redirection before it
+        # main_pos: main's command position (X=1, its prefix words and an option right after
+        # one). cd, pushd, for and select are noted (they move $PWD, bind a variable) only there:
+        # behind a wrapper that runs a separate program (timeout 30, nice -n 5, sudo -u u,
+        # /usr/bin/env) they bind nothing in this shell, and past a leading redirection main never
+        # noted them either. nwrap, nslot: wrapper words and value-slot write checks so far
+        main_pos, nwrap, nslot = True, 0, 0
         env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
@@ -8168,19 +8259,58 @@ class _Scan(object):
             if SEP_RE.match(w):
                 if w not in ("|", "|&", "(", ")"):
                     stmt_start, xargs_seen = i + 1, False
-                cmd_pos, head = True, None
+                cmd_pos, head, wrap, wrap_val, wrap_dur = True, None, None, False, False
+                last_here, doc_ok, redir, main_pos = False, True, False, True
+                nwrap = nslot = 0
                 continue
             base, found, end = _base(w), None, ends[i + 1]
             if "\x00" in w:                    # $(which python3) -c ...: the program it names
                 m = re.match(r"\$\((?:which|command -v|type -p|whence -p)\s+(\S+)\)\Z", restore(w))
                 base = _base(m.group(1)) if m else base
             here_cmd = cmd_pos
-            if here_cmd and head is None and not (ASSIGN_RE.match(w) or w in PREFIX_WORDS):
+            # keep: w precedes the command word (X=1, a prefix word, or a wrapper's option, option
+            # value or timeout duration: `sudo -u u CMD`, `timeout -s KILL 30 CMD`). An option value
+            # or duration stays checked as a command too: a flag the table counts as taking a value
+            # then costs a false positive, never a missed command word.
+            keep = False
+            # a wrapper spelled by path or found at run time: /usr/bin/env, $(which timeout)
+            pw = base if w != base and base in PREFIX_WORDS - SHELL_KEYWORDS else w
+            prev_here, last_here = last_here, cmd_pos
+            main_here = main_pos
+            main_pos = (main_pos and (bool(ASSIGN_RE.match(w)) or w in DOC_PREFIX_WORDS or (
+                w[:1] == "-" and i > 0 and words[i - 1] in DOC_PREFIX_WORDS))) or w in EXEC_OPTS
+            if cmd_pos:
+                if redir:                      # a redirection's target (`>/dev/null git-push`,
+                    keep, redir = True, False  # `2>&1 rm ...`): the command word is still due
+                elif REDIR_OP_RE.match(w) or (w.isdigit() and i + 1 < end
+                                              and REDIR_OP_RE.match(words[i + 1])):
+                    keep, redir = True, bool(REDIR_OP_RE.match(w))
+                elif pw in PREFIX_WORDS - SHELL_KEYWORDS:  # even in a value slot: fail closed
+                    keep, wrap, wrap_val, wrap_dur = True, pw, False, pw in SLOT_WRAPPERS
+                elif wrap_val:                 # an option there keeps its own meaning too
+                    keep, wrap_val = True, w[:1] == "-" and _wrapper_takes_value(wrap, w)
+                elif ASSIGN_RE.match(w):
+                    keep = True
+                elif pw in PREFIX_WORDS:
+                    keep, wrap, wrap_dur = True, pw, False
+                elif w[:1] == "-" and wrap is not None:
+                    keep, wrap_val = True, _wrapper_takes_value(wrap, w)
+                elif wrap_dur:
+                    keep, wrap_dur = True, False
+            if here_cmd and head is None and not keep:
                 head = base
-            cmd_pos = (cmd_pos and (bool(ASSIGN_RE.match(w)) or w in PREFIX_WORDS
-                                    or (w[:1] == "-" and i > 0 and words[i - 1] in PREFIX_WORDS))
-                       ) or w in EXEC_OPTS
-            if head in DOC_COMMANDS:           # man git push, which gh, help push
+            if keep and not ASSIGN_RE.match(w):
+                nwrap += 1
+                if nwrap > MAX_WRAPPER_ARGS:   # `nice -n rm -n rm ...`, `watch -n -n ...`
+                    return self.overflow("a wrapper with too many arguments to check")
+            if keep and not (ASSIGN_RE.match(w) or w in DOC_PREFIX_WORDS):
+                doc_ok = False                 # an option, value, operand or other wrapper
+            if not keep:
+                wrap, wrap_val, wrap_dur = None, False, False
+            cmd_pos = keep or w in EXEC_OPTS
+            # man git push, which gh: only right after X=1 and plain prefix words; past a wrapper's
+            # options, values or operands the doc word may be a value (`arch -arm64e find which`)
+            if head in DOC_COMMANDS and doc_ok and not REDIR_OP_RE.match(w):
                 continue
             if base in ("xargs", "parallel"):
                 xargs_seen = True
@@ -8206,8 +8336,7 @@ class _Scan(object):
                 if env_cfg is None:
                     env_cfg = _env_config(words, restore)
                 found = self.git(words, i, end, xargs_seen, depth, restore, env_cfg)
-            elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) \
-                    and self.was_command(words, i - 1):
+            elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) and prev_here:
                 found = self.hit("opaque", "%s %s" % (restore(words[i - 1]), w))
             elif _expansion(base) and _base(EXPANSION_RE.sub("", SUBST_MARK_RE.sub("", w))) \
                     in PROGRAMS:
@@ -8218,15 +8347,24 @@ class _Scan(object):
                 found = self.secrets_bash_x(base, words, i + 1, end, restore)
             if not found and self.want & R2_KINDS:
                 found = _r2_scan(self, w, base, words, i, end, restore, here_cmd)
-            if "protect" in self.want and here_cmd:
+            if "protect" in self.want and here_cmd and (main_here or base not in BIND_LOOPS):
                 self.note_binders(base, words, i, end, restore)
             if not found and "protect" in self.want:
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
                 elif here_cmd and base in ("cd", "pushd"):
-                    found = self.note_cd([restore(x) for x in words[i + 1:end]])
+                    found = self.note_cd([restore(x) for x in words[i + 1:end]]) if main_here \
+                        else None
                 elif here_cmd and base in PROTECT_WRITE_CMDS:
-                    found = self.protect_command(base, [restore(x) for x in words[i + 1:end]])
+                    nslot += keep
+                    if nslot > MAX_SLOT_WRITERS:
+                        return self.overflow("a wrapper with too many arguments to check")
+                    # the operands as given and without output redirections (`cp x <protected>
+                    # >/dev/null`: /dev/null is no operand); both, as a quoted '>' lexes like
+                    # the operator (`rm -r '>' <dir>`)
+                    args = [restore(x) for x in words[i + 1:end]]
+                    found = self.protect_command(base, args) or \
+                        self.protect_command(base, _no_out_redirects(args))
                     if not found and xargs_seen:   # ls ~/.claude/hooks | xargs rm: operands on stdin
                         for x in words[stmt_start:end]:
                             found = found or self.protect_hit(restore(x), "xargs %s" % base,
@@ -8242,16 +8380,22 @@ class _Scan(object):
                     found = self.scan(restore(words[i + 1]), depth + 1)
             lbase = base.lower()
             if not found and base == "env":    # env -S 'git push': one string, split into words
-                for k in range(i + 1, end):
-                    x = words[k]
-                    if x in ("-S", "--split-string") or x.startswith("--split-string="):
-                        val = x.split("=", 1)[1] if "=" in x else " ".join(words[k + 1:end])
-                        found = self.scan(restore(val), depth + 1)
-                        break
-                    if x.startswith("-S") and len(x) > 2:
-                        found = self.scan(restore(x[2:] + " " + " ".join(words[k + 1:end])),
-                                          depth + 1)
-                        break
+                # (-S S, -iSS, --split=S, --split S) that env reads as its own arguments again,
+                # options and -S included: S and the rest are rescanned after an `env`, so a -S
+                # that was another option's value (`env -u -iS -S '...'`) or one inside S
+                # (`env -S '-i git push'`, `env -iS -S '...'`) is read at the next level
+                # main's own rescan first, as main read it (it may note a cd or a for); the
+                # rescan after an `env` only adds hits: its notes are undone
+                text = _main_env_split(words, i + 1, end)
+                found = self.scan(restore(text), depth + 1) if text is not None else None
+                k = next((k for k in range(i + 1, end) if _env_split_value(words[k]) is not None),
+                         None)
+                if not found and k is not None:
+                    saved = _state_of(self)
+                    found = self.scan(restore(" ".join(
+                        ["env", _env_split_value(words[k])] + words[k + 1:end])), depth + 1)
+                    if not found:
+                        _restore_state(self, saved)
             if not found and lbase in ("start-process", "saps"):    # PowerShell
                 args = [restore(x) for x in words[i + 1:end]
                         if not x.lower().startswith(("-argumentlist", "-filepath", "-wait",
@@ -8276,8 +8420,22 @@ class _Scan(object):
                 covered, rest = end, [restore(x) for x in words[i + 1:end]]
                 if base in SHELLS:
                     found = self.shell(base, rest, depth)
-                elif lbase in STRING_RUNNERS:
-                    found = self.scan(" ".join(rest), depth + 1) if rest else None
+                elif lbase in STRING_RUNNERS:  # watch -n 5 'CMD', flock /tmp/l -c 'CMD'
+                    starts = _wrapper_cmd_starts(lbase, rest) if lbase in ("watch", "flock") else [0]
+                    if len(starts) > MAX_RUNNER_STARTS:    # watch -n 5 -n 5 ...: fail closed
+                        return self.overflow("%s with too many arguments to check" % lbase)
+                    for j in starts if rest else []:
+                        if found:
+                            break
+                        self.budget -= 1       # each start is a scan, bounded like one
+                        if self.budget < 0 or time.monotonic() > self.deadline:
+                            return self.overflow("a command too large to check in time")
+                        # start 0 is main's rescan; the later ones only add hits (a `cd` or
+                        # `for` read there moves nothing: its notes are undone)
+                        saved = _state_of(self) if j else None
+                        found = self.scan(" ".join(rest[j:]), depth + 1)
+                        if saved is not None and not found:
+                            _restore_state(self, saved)
                 elif base == "alias":
                     for x in rest:
                         found = found or self.scan(x.partition("=")[2], depth + 1)
@@ -8319,14 +8477,6 @@ class _Scan(object):
         heads = [_stage_head(st) for st in stages if st]
         literal = bool(heads) and (heads[0] in LITERAL_SOURCES or "<<<" in words[a:i])
         return literal and any(h not in PASS_THROUGH for h in heads if h)
-
-    @staticmethod
-    def was_command(words, j):
-        """words[j] is the command name of its simple command (after separators, X=1, env ...)."""
-        k = j - 1
-        while k >= 0 and (ASSIGN_RE.match(words[k]) or words[k] in PREFIX_WORDS):
-            k -= 1
-        return k < 0 or bool(SEP_RE.match(words[k]))
 
     def shell(self, base, rest, depth):
         """sh/bash/zsh/pwsh ...: the -c (-Command) string, the positional arguments it expands
@@ -10286,15 +10436,20 @@ class _ReadOnly(object):
         except ValueError:
             return (command[:120], "has unbalanced quotes")
         restore = _restorer(substs)
-        seg, piped = [], False
-        for w in words + [";"]:
-            if SEP_RE.match(w):
-                found = self.simple([restore(x) for x in seg], piped, depth) if seg else None
-                if found:
-                    return found
-                seg, piped = [], w in ("|", "|&")
-            else:
-                seg.append(w)
+        alt = _zsh_clobber_words(words)        # `echo x >! F`: bash's reading, then zsh's
+        saved = _state_of(self) if alt else None
+        for reading in [words] + ([alt] if alt else []):
+            if reading is alt:
+                _restore_state(self, saved)    # (cd, NAME=x: each reading from the same start)
+            seg, piped = [], False
+            for w in reading + [";"]:
+                if SEP_RE.match(w):
+                    found = self.simple([restore(x) for x in seg], piped, depth) if seg else None
+                    if found:
+                        return found
+                    seg, piped = [], w in ("|", "|&")
+                else:
+                    seg.append(w)
         return None
 
     def heredoc(self, owner, body, quoted, depth):
@@ -11679,6 +11834,94 @@ TOOLSMITH_VALUE_OPTS = {"timeout": {"-s", "-k", "--signal", "--kill-after"},
                         "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
                         "nice": {"-n", "--adjustment"}, "env": {"-u", "--unset", "-C", "--chdir", "-P"},
                         "sudo": {"-u", "-g", "-C", "-h", "-p", "-U"}, "exec": {"-a"}}
+# options that take a value, per prefix word, for the shell scan's command position
+# (_Scan.scan_words): the two tables above plus the other ones of sudo, doas, env, flock, arch,
+# taskpolicy, watch and xargs. A missing
+# entry hides the command word behind it (`sudo -X val cp ...`); an extra one only costs a
+# false positive (the value is checked as a command too).
+WRAPPER_VALUE_OPTS = {w: set(RO_WRAPPERS.get(w, ())) | TOOLSMITH_VALUE_OPTS.get(w, set())
+                      for w in PREFIX_WORDS}
+WRAPPER_VALUE_OPTS["sudo"] |= {"-D", "-R", "-T", "-r", "-t", "-a", "-c", "--user", "--group",
+                               "--chdir", "--chroot", "--close-from", "--host", "--prompt",
+                               "--other-user", "--role", "--type", "--command-timeout",
+                               "--auth-type", "--login-class"}
+WRAPPER_VALUE_OPTS["doas"] |= {"-u", "-C", "-a"}
+WRAPPER_VALUE_OPTS["env"] |= {"-a", "--argv0", "-S", "--split-string"}
+WRAPPER_VALUE_OPTS["flock"] |= {"-w", "--wait", "--timeout", "-E", "--conflict-exit-code", "-c",
+                                "--command"}
+WRAPPER_VALUE_OPTS["arch"] |= {"-arch", "-e", "-d"}
+WRAPPER_VALUE_OPTS["taskpolicy"] |= {"-d", "-g", "-c", "-t", "-l", "-S", "-m", "-j", "-p", "-P"}
+WRAPPER_VALUE_OPTS["watch"] |= {"-n", "--interval", "-q", "--equexit", "-s", "--shotsdir"}
+WRAPPER_VALUE_OPTS["xargs"] |= {"-I", "-J", "-L", "-n", "-P", "-s", "-d", "-E", "-a", "-R", "-S",
+                                "--max-args", "--max-procs", "--delimiter", "--arg-file",
+                                "--max-chars", "--process-slot-var"}
+
+
+def _wrapper_takes_value(wrap, opt):
+    """The next word is the value of wrapper `wrap`'s option word `opt`: `-u`, a unique prefix of a
+    long one (`--sig`, as getopt_long reads it; an ambiguous one counts too), or a cluster of
+    short flags that ends in one (`sudo -Eu u`, `env -iu X`, `xargs -0n 1`); `-uX`/`--user=X`
+    carry their value."""
+    opts = WRAPPER_VALUE_OPTS.get(wrap, ())
+    if opt in opts:
+        return True
+    if wrap == "arch":                         # -arm64e, -x86_64: one word each, no clusters
+        return False
+    if opt[:2] == "--":
+        return "=" not in opt and len(opt) > 2 and any(o.startswith(opt) for o in opts)
+    if len(opt) < 3:
+        return False
+    first = next((k for k in range(1, len(opt)) if "-" + opt[k] in opts), None)
+    return first == len(opt) - 1
+
+
+def _wrapper_cmd_starts(wrap, args):
+    """Where the command may start in `args`, the words after wrapper `wrap` (watch, flock, ...):
+    0, every option value (-c's string) and the first word past the wrapper's own options and
+    flock's lock file. A value is a candidate too, so a wrongly listed value fails closed; an
+    option in a value slot (`watch -n -n ...`) is none."""
+    starts, k, val, slot = [0], 0, False, wrap in SLOT_WRAPPERS
+    while k < len(args):
+        a = args[k]
+        if val:
+            val = a[:1] == "-" and _wrapper_takes_value(wrap, a)
+            if a[:1] != "-" or a == "-":
+                starts.append(k)
+        elif a[:1] == "-" and a != "-":
+            val = _wrapper_takes_value(wrap, a)
+        elif slot:                             # flock's lock file
+            slot = False
+        else:
+            starts.append(k)
+            break
+        k += 1
+    return list(dict.fromkeys(starts))
+
+
+def _main_env_split(words, a, b):
+    """The text main rescanned for env's -S among words[a:b]: at its first -S, -SV, --split-string
+    or --split-string=V word, V (or the next words) and the words after it (V alone for
+    --split-string=V); None without one."""
+    for k in range(a, b):
+        x = words[k]
+        if x in ("-S", "--split-string") or x.startswith("--split-string="):
+            return x.split("=", 1)[1] if "=" in x else " ".join(words[k + 1:b])
+        if x.startswith("-S") and len(x) > 2:
+            return x[2:] + " " + " ".join(words[k + 1:b])
+    return None
+
+
+def _env_split_value(opt):
+    """The text env's -S/--split-string option word `opt` carries ("" when it is the next word),
+    in any spelling getopt accepts: -S, -SV, a short cluster whose first value-taking option is S
+    (-iS, -vSV), --split-string[=V] and its unique prefixes (--split=V); else None."""
+    if opt[:2] == "--":
+        name, _, val = opt.partition("=")
+        return val if len(name) > 2 and "--split-string".startswith(name) else None
+    if opt[:1] != "-" or len(opt) < 2:
+        return None
+    k = next((k for k in range(1, len(opt)) if opt[k] in "SuCPa"), None)
+    return opt[k + 1:] if k is not None and opt[k] == "S" else None
 
 
 def wrapper_invoked(command):

@@ -1,5 +1,0 @@
-prefix_rule(
-    pattern = ["git", "push"],
-    decision = "forbidden",
-    justification = "probe P8: git push is forbidden",
-)

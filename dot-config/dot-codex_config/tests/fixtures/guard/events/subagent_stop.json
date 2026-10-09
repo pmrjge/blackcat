@@ -1,4 +1,0 @@
-{"session_id": "s-1", "turn_id": "turn-1", "transcript_path": null, "agent_transcript_path": null,
- "cwd": "/", "hook_event_name": "SubagentStop", "model": "gpt-6-luna", "permission_mode": "default",
- "stop_hook_active": false, "agent_id": "agent-1", "agent_type": "coder",
- "last_assistant_message": "STATUS: done"}

@@ -1377,6 +1377,8 @@ def _norm_block(blk, unit):
         _bad("block qtab.x")
     if not isinstance(blk.get("at_bound"), bool):
         _bad("block at_bound")
+    if not blk["at_bound"] and max([T, Traw, pi[1]] + x) >= cap:
+        _bad("block at the cap without at_bound")        # the writer clamps there and flags it (WP3b)
     cnt = {k: blk.get(k) for k in ("n", "n_cens", "agents", "sessions")}
     if not all(_count(v) for v in cnt.values()) or cnt["n_cens"] > cnt["n"]:
         _bad("block counts")
@@ -1752,6 +1754,8 @@ def bayes_grid_block(entry, hyper, var, spec):
            "status": "supported" if sup else "pooled",
            "diag": {"rhat": None, "ess_bulk": None, "ess_tail": None, "mcse_rel": None,
                     "edge_mass": info["edge_mass"]}}
+    # T = ceil2(T_raw) can round up to exactly CTX_MAX: a value at the cap is flagged (section 2.1 rule 4)
+    blk["at_bound"] = max([blk["T"], blk["T_raw"], blk["pi90"][1]] + blk["qtab"]["x"]) >= CTX_MAX
     return _valid_block(blk, spec["unit"])
 
 

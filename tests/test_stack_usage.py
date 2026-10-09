@@ -656,6 +656,109 @@ def test_status_code_rules(st, tmp_path):
     assert r[(SID, "sdone", 0)]["status"] == "complete" and r[(SID, "sdone", 0)]["status_code"] == "0"
 
 
+HB_OK = '{"success":true,"message":"Report delivered to your caller."}'
+
+
+def handback(mid, k, message, text=None):
+    """A call that ends the run with SubagentHandback (its tool result follows in the transcript)."""
+    content = ([txt(text)] if text else []) + [tu("hb_" + mid, "SubagentHandback", message=message)]
+    return call(mid, k, content=content)
+
+
+def hb_result(k, mid, text=HB_OK):
+    """The tool result of hand-back `mid` as Claude Code writes it (a list of text blocks)."""
+    return {"type": "user", "timestamp": ts(k), "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "hb_" + mid, "content": [{"type": "text", "text": text}]}]}}
+
+
+def test_a_handback_ending_is_no_turn_limit_and_its_message_is_the_status(st, tmp_path):
+    """Since the hand-back tool (2026-10-04) a finished run's transcript ends on the SubagentHandback tool
+    result: that is the run's report, not a turn-limit cut (the collector flagged ~75% of agent rows)."""
+    sub = subdir(tmp_path)
+    cases = {
+        "hdone": [user("go", 0), call("d1", 1), result(2), handback("d2", 3, "STATUS: done\nRESULT: x"),
+                  result(4, HB_OK)],
+        "hpart": [user("go", 0), call("p1", 1), result(2), handback("p2", 3, "Below.\nSTATUS: partial"),
+                  result(4, HB_OK)],
+        "hblock": [user("go", 0), call("b1", 1), result(2),
+                   handback("b2", 3, "STATUS: blocked\nNEXT: ASK USER", text="STATUS: done"), result(4, HB_OK)],
+        "hclean": [user("go", 0), call("c1", 1), result(2), handback("c2", 3, "in · 2026-10-09\nok"), result(4, HB_OK)],
+        # the transcript ends before the hand-back's tool result is written
+        "hnores": [user("go", 0), call("n1", 1), result(2), handback("n2", 3, "STATUS: done")],
+        # a refused hand-back, then the run goes on and is cut on a Bash result: a turn-limit ending
+        "hcut": [user("go", 0), handback("x1", 1, "STATUS: done"), result(2, "refused"), call("x2", 3), result(4)],
+        "tlcut": [user("go", 0), call("t1", 1), result(2)]}
+    hb = handback("s2", 3, "STATUS: blocked", text="STATUS: done")         # streamed over two lines
+    hb2 = dict(hb, message=dict(hb["message"], usage=dict(hb["message"]["usage"], output_tokens=90)))
+    cases["hstream"] = [user("go", 0), call("s1", 1), result(2), hb, hb2, result(4, HB_OK)]
+    for aid, ls in cases.items():
+        write_agent(sub, aid, ls)
+    r = scan_final(tmp_path)
+    got = {aid: (r[(SID, aid, 0)]["status"], r[(SID, aid, 0)]["turn_limited"], r[(SID, aid, 0)]["status_code"])
+           for aid in cases}
+    assert got == {"hdone": ("complete", "0", "0"), "hpart": ("complete", "0", "1"),
+                   "hblock": ("complete", "0", "2"), "hclean": ("complete", "0", "0"),
+                   "hnores": ("complete", "0", "0"), "hcut": ("complete", "1", "1"),
+                   "tlcut": ("complete", "1", "1"), "hstream": ("complete", "0", "2")}
+    # while the transcript is fresh: a hand-back ending is complete already, a tool-result ending still open
+    U.scan_once(SID, str(sub), final=False)
+    r = rows_by_key()
+    assert [r[(SID, aid, 0)]["status"] for aid in ("hdone", "hnores", "tlcut")] == ["complete", "complete", "partial"]
+
+
+def test_text_after_a_delivered_handback_keeps_the_handback_status(st, tmp_path):
+    """A background-task notice can wake a run after its hand-back was delivered: the text-only reply that
+    follows reaches no one, so the delivered report's STATUS stays the segment's code."""
+    sub = subdir(tmp_path)
+    note = "[SYSTEM NOTIFICATION - NOT USER INPUT] background task done"
+    write_agent(sub, "dl", [user("go", 0), call("a1", 1), result(2), handback("a2", 3, "STATUS: partial"),
+                            hb_result(4, "a2"), user(note, 5),
+                            call("a3", 6, tool=False, text="The suite passed; my report already went.")])
+    # a second hand-back delivered after the wake-up is what the caller holds last: it wins
+    write_agent(sub, "d2", [user("go", 0), handback("b1", 1, "STATUS: partial"), hb_result(2, "b1"),
+                            user(note, 3), call("b2", 4), result(5), handback("b3", 6, "STATUS: blocked"),
+                            hb_result(7, "b3"),
+                            user(note, 8), call("b4", 9, tool=False, text="noted")])
+    # a refused hand-back delivers nothing: the text after it is the reply
+    write_agent(sub, "rf", [user("go", 0), handback("c1", 1, "STATUS: partial"),
+                            hb_result(2, "c1", '{"success":false,"message":"Nothing was sent"}'),
+                            call("c2", 3, tool=False, text="STATUS: blocked")])
+    r = scan_final(tmp_path)
+    got = {aid: (r[(SID, aid, 0)]["turn_limited"], r[(SID, aid, 0)]["status_code"]) for aid in ("dl", "d2", "rf")}
+    assert got == {"dl": ("0", "1"), "d2": ("0", "2"), "rf": ("0", "2")}
+
+
+def test_derive_thresholds_reads_a_handback_ending_as_an_end(tmp_path):
+    pytest.importorskip("pandas")
+    pytest.importorskip("numpy")
+    sys.path[:0] = [str(ROOT / "tests")]
+    import derive_thresholds as DT
+    p = tmp_path / "agent-dt.jsonl"
+    p.write_text("".join(json.dumps(x) + "\n" for x in [
+        user("go", 0), call("a1", 1), result(2), handback("a2", 3, "STATUS: done"), result(4, HB_OK)]))
+    q = tmp_path / "agent-dr.jsonl"           # a resume after a hand-back that mentions the turn limit
+    q.write_text("".join(json.dumps(x) + "\n" for x in [
+        user("go", 0), handback("b1", 1, "STATUS: done"), result(2, HB_OK),
+        user("Another Claude session sent a message while you were working: the turn limit?", 3),
+        call("b2", 4), result(5)]))
+    assert DT.segments_of(DT.read_records(str(p)))[-1]["end"] == "end"
+    segs = DT.segments_of(DT.read_records(str(q)))
+    assert [s["turn_limit"] for s in segs] == [False, False] and segs[-1]["end"] == "tr"
+
+
+def test_a_resumed_handback_segment_is_no_turn_limit(st, tmp_path):
+    """The segment a resume closes (_finish_seg) reads the hand-back the same way, and a resume message that
+    mentions the turn limit does not flag a segment that ended on its hand-back."""
+    lines = [user("go", 0), call("a1", 1), result(2), handback("a2", 3, "STATUS: partial"), result(4, HB_OK),
+             user("Another Claude session sent a message while you were working: past the turn limit?", 400),
+             call("b1", 401), result(402), handback("b2", 403, "STATUS: done"), result(404, HB_OK)]
+    write_agent(subdir(tmp_path), "rs", lines)
+    r = scan_final(tmp_path)
+    s0, s1 = r[(SID, "rs", 0)], r[(SID, "rs", 1)]
+    assert (s0["turn_limited"], s0["status_code"]) == ("0", "1")
+    assert (s1["turn_limited"], s1["after_limit"], s1["status_code"]) == ("0", "0", "0")
+
+
 def test_main_rows_windows_and_session_row(st, tmp_path):
     def human(k, pid=None, **kw):
         return dict(user("prompt %d" % k, k), promptId=pid, **kw)

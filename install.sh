@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Claude Code multi-agent stack — installer for macOS (Apple Silicon first).
 #   ./install.sh                 core install
-#   ./install.sh --codex [ARGS]  install the Codex port (dot-config/dot-codex_config) instead: its only
-#                                 entry point. Seen anywhere among the arguments, it is taken first:
-#                                 nothing below runs (no macOS check, snapshot or question here), and
-#                                 every other argument goes to the Codex installer as given; its options
-#                                 are its own (./install.sh --codex --help lists them)
 #   ./install.sh --with-ml       also create the ML venv ($C/venvs/ml: PyTorch, Transformers, PEFT,
 #                                 scikit-learn/XGBoost/LightGBM, MLX + mlx-lm on Apple Silicon; several GB)
 #   ./install.sh --with-lsp      also install missing language servers (pyright, typescript-language-server,
@@ -143,22 +138,6 @@ for v in $(compgen -e); do
   [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v"; SANDBOX_DROPPED="$SANDBOX_DROPPED $v" ;; esac
 done
 [ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
-# ---- --codex: the Codex port's installer (dot-config/dot-codex_config/install.sh), its only entry
-# point. Taken before anything Claude-side (option checks, the macOS check, the main-branch rule, the
-# source snapshot, any question); only the sandbox cache variables above are dropped first. Every
-# other argument goes to it unchanged and in order; STACK_CODEX_VIA_TOP=1 tells it this script
-# started it (run directly, it names ./install.sh --codex and stops).
-CODEX=0; CODEX_ARGS=()
-for a in ${1+"$@"}; do
-  if [ "$a" = --codex ]; then CODEX=1; else CODEX_ARGS+=("$a"); fi
-done
-if [ "$CODEX" = 1 ]; then
-  CODEX_INSTALL="$HERE/dot-config/dot-codex_config/install.sh"
-  [ -f "$CODEX_INSTALL" ] || { echo "install.sh: --codex: $CODEX_INSTALL is missing" >&2; exit 2; }
-  export STACK_CODEX_VIA_TOP=1
-  exec bash "$CODEX_INSTALL" ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"}
-fi
-unset CODEX CODEX_ARGS a
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
@@ -1544,9 +1523,10 @@ stage_script 644 hooks/toolsmith_policy.py
 # scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
 # two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
 # guard reads; its seed: the floors, ceilings and starting values; stack_bayes_grid.py: the Bayes grid
-# tier stack_limits.py loads by path from beside it)
+# tier stack_limits.py loads by path from beside it; stack_bayes.py: the detached Bayes fitter the
+# collector runs at its exit with the tools venv's python, skipped without the opt-in Bayes lock)
 for f in stack_usage.py stack_sched.py stack_limits.py stack_fanout.py; do stage_script 755 "hooks/$f"; done
-for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fanout_wire.py stack_bayes_grid.py; do stage_script 644 "hooks/$f"; done
+for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fanout_wire.py stack_bayes_grid.py stack_bayes.py; do stage_script 644 "hooks/$f"; done
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$SNAP_ROOT/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
@@ -2181,7 +2161,7 @@ for rel in skills_replaced:
 STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/output_shrink.py", "hooks/stack_report.py", "hooks/stack_progress.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_bayes_grid.py", "hooks/stack_fanout.py",
-                 "hooks/stack_fanout_wire.py",
+                 "hooks/stack_fanout_wire.py", "hooks/stack_bayes.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree", "bin/stack-run",

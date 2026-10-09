@@ -184,7 +184,7 @@ def test_an_unlisted_asset_fails_the_checksum_list(wiki):
 def test_slug_follows_github():
     assert wc.slug("Side effect of the instructor deny rule") == "side-effect-of-the-instructor-deny-rule"
     assert wc.slug("`RESET_TO_MAIN.sh`: back to \"only main\", safely") == "reset_to_mainsh-back-to-only-main-safely"
-    assert wc.slug("Codex (planned)") == "codex-planned"
+    assert wc.slug("Wiki (planned)") == "wiki-planned"
     assert wc.slug("Layers, depth and fan-out") == "layers-depth-and-fan-out"
 
 

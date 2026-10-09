@@ -276,7 +276,7 @@ def test_review_regressions(command, kind):
 
 
 # T15 F1 (audit 73eec41..main): option values git hands to a shell or a transport, ext:: URLs and
-# configuration from the environment run commands; each is scanned (ported from codex_guard.py).
+# configuration from the environment run commands; each is scanned.
 GIT_COMMAND_VALUES = [
     "git fetch --upload-pack='git push origin main;git-upload-pack' .",
     "git pull --upload-pack='git push origin main;git-upload-pack' .",
@@ -348,7 +348,7 @@ def test_git_command_values_are_scanned(command):
     assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
 
 
-# the same option families without a push (dot-config/dot-codex_config/tests/test_guard_nopush.py reads this list too)
+# the same option families without a push
 GIT_COMMAND_VALUES_SAFE = [
     "git fetch origin", "git ls-remote origin", "git difftool HEAD~1", "git filter-branch --help",
     "git clone https://github.com/a/b", "git fetch --upload-pack=git-upload-pack origin",

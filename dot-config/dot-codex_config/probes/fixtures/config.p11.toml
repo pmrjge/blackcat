@@ -1,3 +1,0 @@
-# P11 config.toml: hooks live in config.toml itself (the --ide-default shape), no profile.
-cli_auth_credentials_store = "file"
-
