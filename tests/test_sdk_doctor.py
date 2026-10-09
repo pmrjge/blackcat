@@ -88,7 +88,8 @@ def test_all_present_reads_both_versions_without_importing_the_sdk(tmp_path):
     line = doctor(tmp_path, conf_with(tmp_path), b)
     assert line == "  ok    sdk: pin %s, lock ok, uv ok, cli system v2.1.287 / bundled v2.1.286" % PIN
     argv = log.read_text().splitlines()
-    assert all("--offline" in a for a in argv) and any(a.startswith("uv lock --script ") and "--check" in a for a in argv)
+    assert all("--offline" in a for a in argv)
+    assert any(a.startswith("uv lock --script ") and "--check" in a for a in argv)
 
 
 def test_a_stale_or_missing_lock_warns(tmp_path):

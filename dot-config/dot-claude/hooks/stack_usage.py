@@ -128,7 +128,7 @@ COLUMNS = COLUMNS_EQ + ENTRY_COLS
 HEADERS = (COLUMNS, COLUMNS_EQ, COLUMNS_V3)   # every runs3 header this collector reads; the first is the one it writes
 EMPTY_ROW = {c: "" for c in COLUMNS}         # an unmeasured field is an empty cell, never 0
 STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
-                  "stack_commit", "src", "model", "eq_run", "eq_role", "entrypoint")   # every other column: a number (or empty)
+                  "stack_commit", "src", "model", "eq_run", "eq_role", "entrypoint")   # the rest: numbers (or empty)
 REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
@@ -170,7 +170,7 @@ NODE_HEAD_RE = re.compile(r"^\s*([A-Z]{1,3}[0-9]{1,3}[a-z]?)(?![A-Za-z0-9_])")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 EQ_RUN_RE = re.compile(r"^[0-9a-f]{8}\Z")
 EQ_ROLES = ("leader", "member")
-# Claude Code's `entrypoint` on transcript lines (cli, sdk-py, sdk-ts, sdk-cli, claude-vscode, ...): a short lowercase word
+# Claude Code's `entrypoint` on transcript lines (cli, sdk-py, sdk-ts, claude-vscode, ...): a short lowercase word
 ENTRYPOINT_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}\Z")
 ENTRY_HEAD = 256 << 10    # bytes of the main transcript read for an entrypoint when the state predates the column
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
