@@ -784,7 +784,7 @@ places:
 | A Claude account with Claude Code access | — | [setup docs](https://code.claude.com/docs/en/setup) | required | — |
 | uv | no minimum is checked; the checksummed tarball fallback is 0.12.20 | astral.sh's installer, else the checksummed release tarball into `~/.local/bin` | required (installed if missing) | `lib/devtools.sh` (`UV_VERSION`) |
 | Node.js with `npx` | ≥ 22.5 | nvm v0.40.8, then `nvm install 24` | required (installed if missing; still missing, the installer stops) | `lib/devtools.sh`, `doctor.sh` |
-| magg | 1.2.1 | installed by `install.sh` (`uv tool install`) | required (`doctor.sh` FAILs without) | `install.sh` (`MAGG_VERSION`) |
+| magg | 1.3.0 | installed by `install.sh` (`uv tool install`) | required (`doctor.sh` FAILs without) | `install.sh` (`MAGG_VERSION`) |
 | sci and tools venvs (Python 3.13, hash-locked) | `requirements/sci.txt`, `requirements/tools.txt` | installed by `install.sh` under `~/.claude/venvs/` | required (`doctor.sh` FAILs without) | `install.sh` step 2 |
 | Homebrew | — | installed by step 2 when missing (its official installer, on a terminal only: it asks for your password) | optional; installs the plain programs below in one batch | `lib/devtools.sh` |
 | huetension | 0.3.0 | installed by `install.sh` | optional (designer's colour server) | `install.sh` |
@@ -950,7 +950,7 @@ The full list, with sources and the optional toolchains, is in [Requirements (ma
 | jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | brew batch when missing |
 | elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | installed by step 2 (`STACK_INSTALL_LEAN`; elan from Homebrew's sha256-pinned `elan-init` bottle, the official `elan-init.sh` only without Homebrew; the project, about 8 GB, at `~/lean/stack_mathlib` only on a terminal or with `STACK_INSTALL_LEAN_MATHLIB=1`; your own `LEAN_PROJECT_PATH` project is used as it is); you set `LEAN_PROJECT_PATH` in `stack.env`; the plugin is enabled only when `lake` exists |
 | Homebrew | One batch for every missing formula, one for every missing cask | installed when missing (on a terminal) |
-| magg 1.2.1, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned, checksummed) |
+| magg 1.3.0, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned; huetension checksummed, magg and its dependencies by version pin and the `--exclude-newer` cooldown) |
 | ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | brew batch, else warned |
 | just | The instructor's recipes (`tools/instructor/justfile`) | brew batch when missing |
 | The toolchain groups (Rust, Haskell, Julia, Scala, Java, LaTeX, C++ tools, Go, dev tools; PostgreSQL and MongoDB off) | The language and domain agents | installed when missing; `STACK_INSTALL_<GROUP>=0` skips one |
@@ -1425,7 +1425,7 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | data-engineer | `DATABASE_URI` |
 | mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | data-engineer | `MDB_MCP_CONNECTION_STRING` |
 | mobilebuild | `mobilebuildmcp@2.7.1`, Sentry off | mobile-engineer | Xcode |
-| magg | `magg` 1.2.1 via `bin/magg-private` | mcp-broker | the catalog keys |
+| magg | `magg` 1.3.0 via `bin/magg-private`, backend init timeout 300 s | mcp-broker | the catalog keys |
 
 **User scope (5 remote, session-wide).** Only agents whose `tools:` line names a server can call it.
 
