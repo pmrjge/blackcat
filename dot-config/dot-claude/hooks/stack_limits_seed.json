@@ -3,7 +3,7 @@
  "pools": {
   "analyst": ["code-reviewer", "plan-reviewer", "planner", "proof-checker", "researcher", "security-auditor"],
   "artifact": ["browser-operator", "cg-artist", "designer", "doc-specialist", "image-director", "motion-designer", "rigger-animator", "sculptor-painter", "writer"],
-  "builder": ["biochem-engineer", "build-fixer", "claude-code-engineer", "coder", "cuda-engineer", "data-engineer", "data-scientist", "devops-engineer", "dl-engineer", "embedded-engineer", "frontend-engineer", "game-engineer", "go-engineer", "haskell-engineer", "hpc-engineer", "julia-engineer", "jvm-engineer", "llm-engineer", "main-coder", "mathematician", "ml-engineer", "mlx-engineer", "mobile-engineer", "ninja-coder", "node-engineer", "procedural-3d-ui", "python-engineer", "quantum-engineer", "robotics-engineer", "rust-engineer", "security-engineer", "test-engineer", "vfx-td"],
+  "builder": ["biochem-engineer", "build-fixer", "claude-code-engineer", "coder", "cuda-engineer", "data-engineer", "data-scientist", "devops-engineer", "dl-engineer", "embedded-engineer", "frontend-engineer", "game-engineer", "git-engineer", "go-engineer", "haskell-engineer", "hpc-engineer", "julia-engineer", "jvm-engineer", "llm-engineer", "main-coder", "mathematician", "ml-engineer", "mlx-engineer", "mobile-engineer", "ninja-coder", "node-engineer", "procedural-3d-ui", "python-engineer", "quantum-engineer", "robotics-engineer", "rust-engineer", "security-engineer", "test-engineer", "vfx-td"],
   "coordinator": ["equilibrium", "orchestrator"],
   "lookup": ["claude-code-guide", "explore", "mcp-broker", "oracle", "scout", "toolsmith"],
   "verifier": ["verifier"]
@@ -29,6 +29,7 @@
   "hard.agent.explore": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.frontend-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.game-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
+  "hard.agent.git-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.go-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.haskell-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.hpc-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
@@ -88,6 +89,7 @@
   "soft.agent.explore": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 450000, "unit": "ctx"},
   "soft.agent.frontend-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.game-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
+  "soft.agent.git-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.go-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.haskell-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.hpc-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
@@ -148,6 +150,7 @@
   "turns.explore": {"ceiling": 40, "floor": 10, "kind": "hard", "seed": 40, "unit": "turns"},
   "turns.frontend-engineer": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
   "turns.game-engineer": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
+  "turns.git-engineer": {"ceiling": 80, "floor": 20, "kind": "hard", "seed": 80, "unit": "turns"},
   "turns.go-engineer": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
   "turns.haskell-engineer": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
   "turns.hpc-engineer": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
