@@ -580,9 +580,9 @@ class TtyHost:
 
 # ---------------------------------------------------------------- Session (D1-D3, D5-D10)
 class Session:
-    """`async with Session(...) as s: out = await s.ask(prompt)`. host: "none" (unattended; agent-sdk.md "Hosts"), "tty"
-    or a callable can_use_tool(tool, input, context); cli: None (`claude` on PATH), "bundled" or a path; the rest goes
-    to options(). `client`, the raw ClaudeSDKClient, is an escape hatch: its stop_task fires no hook; agent_guard
+    """`async with Session(...) as s: out = await s.ask(prompt)`. host: "none" (unattended, agent-sdk.md "Hosts":
+    ExitPlanMode denied and, under plan, every builder agent and Workflow), "tty" or a callable can_use_tool(tool,
+    input, context); cli: None (`claude` on PATH), "bundled" or a path; the rest goes to options(). `client`, the raw ClaudeSDKClient, is an escape hatch: its stop_task fires no hook; agent_guard
     releases the child at the next Agent/SendMessage from meta.json stoppedByUser (reap_host_stopped)."""
 
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
@@ -686,8 +686,9 @@ class Session:
             await self._client.connect()
             info = await self._client.get_server_info() or {}
             items = info.get("agents") if isinstance(info, dict) else None
-            have = {n for i in (items if isinstance(items, list) else ())
-                    for n in [i.get("name") if isinstance(i, dict) else i] if isinstance(n, str)}
+            have = {i.get("name") if isinstance(i, dict) else i for i in items or []
+                    if isinstance(i, (dict, str))} if isinstance(items, list) else set()   # unhashable: fails closed
+            have = {h for h in have if isinstance(h, str)}
             missing = sorted(set(self.agents) - have)
             if missing:
                 raise StackNotLoaded(f"agents missing from server_info: {', '.join(missing[:20])}")

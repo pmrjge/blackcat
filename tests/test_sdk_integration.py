@@ -29,7 +29,7 @@ PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # (~120 lines: reader thread, nonce, gap, wrapping, sanitising), the reducer shared by Session, run() and
 # parse_stream (~150), the load check with its plan-gate checks (project agents, worktrees, add_dirs) and the
 # extra_args allowlist, and the end-of-run loop. Still one file: install.sh stages bin/ files by name. The
-# behaviour-neutral refactor of 2026-10-10 (tests/sdk_differential.py) brought it to 987: the cap is that plus 8.
+# behaviour-neutral refactor of 2026-10-10 (tests/sdk_differential.py) brought it to 988: the cap is that plus 7.
 CAP = 995
 SDK_ENV = {"CLAUDE_CODE_ENTRYPOINT": "sdk-py", "CLAUDE_AGENT_SDK_VERSION": "0.2.163"}
 
