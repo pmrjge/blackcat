@@ -457,7 +457,11 @@ def test_B1_T6_censoring_table_per_family():
         (3, _r(turn_limited=1), True, True), (3, _r(hit_turn=1), True, True),
         (4, _r(hit_soft=1), True, True), (4, _r(hit_hard_agent=1), True, True),
         (4, _r(hit_hard_session=1), True, True),
-        (5, _r(window=2), True, True),
+        (5, _r(window=2), False, False),                  # WP5 5b, option (c): a clean finish is exact
+        (5, _r(window=2, hit_hard_prompt=None), True, True),                          # one own hit_* empty
+        (5, _r(window=2, status_code=1), True, True), (5, _r(window=2, status_code=2), True, True),
+        (5, _r(window=2, status_code=None, sv=2), True, True),
+        (5, _r(window=2, status_code=1, **nohits), True, True),
         (6, _r(status_code=1, api_calls=30.0, ctx=5e6, **nohits), True, True),          # >= 0.5 x limit
         (6, _r(status_code=1, api_calls=10.0, ctx=1e6, **nohits), False, False),        # below
         (6, _r(status_code=1, api_calls=30.0, ctx=1e6, **nohits), True, False),
@@ -468,6 +472,7 @@ def test_B1_T6_censoring_table_per_family():
         (0, _r(), False, False),
     ]
     win = {("s1", 2)}
+    assert not L.censor_flags(_r(window=2, status_code=1), "turns", 40, set())  # row 5 censors only by the join
     for line, row, t_flag, c_flag in rows:
         assert L.censor_flags(row, "turns", 40, win) is t_flag, (line, "turns", row)
         assert L.censor_flags(row, "ctx", 8e6, win) is c_flag, (line, "ctx", row)
@@ -852,19 +857,24 @@ def test_B1_T18_only_live_json_is_schema_2(st):
 
 
 # ---------------------------------------------------------------- B1-T19 the main-window join
+_T19_CODES = (0, 1, 2, "")       # a window's four coder rows: clean finish, partial, blocked, empty (schema 2)
+
+
 def _csv_rows(hit_col):
-    """Two sessions: R (window 2, no hit) first, then S whose window-2 main row hit; three coder rows a
-    window. Only S's window 2 is censored by the join (R has the same window number)."""
+    """Two sessions: R (window 2, no hit) first, then S whose window-2 main row hit; four coder rows a
+    window, own hit_* measured 0, status_code 0, 1, 2 and empty (a schema-2 row, so A.3 row 9 is off). Only
+    S's window 2 is censored by the join (R has the same window number), and there only the rows that are
+    not a clean finish (WP5 5b, option (c)): without the join every one of them is observed (rows 7, 8)."""
     from test_stack_limits import row as mk                       # the S6 row builder
     rows = []
     for sess, t0, hit_w in (("R", T0, None), ("S", T0 + 1000, 2)):
         for w in (1, 2):
             rows.append(mk(sess, "main", typ="blackcat", seg=w, ts=t0 + 100 * w, is_main=1, window_ctx=5e7,
                            **({hit_col: 1} if w == hit_w else {"hit_soft": 0, "hit_hard_prompt": 0})))
-            for a in range(3):
+            for a, code in enumerate(_T19_CODES):
                 rows.append(mk(sess, f"a{w}{a}", typ="coder", ctx=4e6, api=20, ts=t0 + 100 * w + a + 1, window=w,
-                               schema_version=3, status_code=0, hit_soft=0, hit_turn=0, hit_hard_agent=0,
-                               hit_hard_prompt=0, hit_hard_session=0))
+                               schema_version=2 if code == "" else 3, status_code=code, hit_soft=0, hit_turn=0,
+                               hit_hard_agent=0, hit_hard_prompt=0, hit_hard_session=0))
     return rows
 
 
@@ -877,9 +887,10 @@ def test_B1_T19_a_main_window_hit_censors_that_windows_agent_rows_only(st, hit_c
     doc = L.build_proposals(SEED, [str(p)], regime="", live=L.live_from_seed(SEED), now=NOW, models={}, hyper=None)
     for v in ("turns.coder", "soft.agent.coder", "hard.agent.coder"):
         b = doc["vars"][v]["b"]
-        assert len(b["y"]) == 12
-        assert b["cens"] == [0] * 6 + [0, 0, 0, 1, 1, 1], (v, b)  # sorted by ts: R, then S window 1, window 2
-        assert b["resume"] == [0] * 12 and b["sess"] == [0] * 6 + [1] * 6
+        assert len(b["y"]) == 16
+        # sorted by ts: R (8 rows), then S window 1, then S window 2: the clean finish observed, the rest censored
+        assert b["cens"] == [0] * 12 + [0, 1, 1, 1], (v, b)
+        assert b["resume"] == [0] * 16 and b["sess"] == [0] * 8 + [1] * 8
 
 
 # ---------------------------------------------------------------- S1, S2 shadow
@@ -1122,16 +1133,22 @@ def test_cli_views_print_method_T_pi90_p_hit_and_would(st, capsys):
 
 def test_B1_T14_backtest_script_runs_on_the_fixture(tmp_path):
     """tests/b1_backtest.py (the verifier's B1-T14, WP5) runs on the fixture under the hook interpreter and
-    writes its summary; the fixture has too few sessions for the 3-fold rule, so its verdict is REJECT."""
-    out = tmp_path / "bt.json"
-    p = subprocess.run([PY, str(ROOT / "tests" / "b1_backtest.py"), "--sims", "200", "--strata", "ntrain",
-                        "--min-train-sessions", "1", "--out", str(out)], capture_output=True, text=True, timeout=300,
-                       env=dict(os.environ, B1_REPO=str(ROOT), PYTHONDONTWRITEBYTECODE="1"))
-    assert p.returncode in (0, 1), p.stderr
-    doc = json.loads(out.read_text())
-    assert set(doc["families"]) == {"soft.agent", "hard.agent", "turns"} and len(doc["folds"]) == 3
-    sa = doc["families"]["soft.agent"]
-    assert sa["supported"]["n"] > 0 and sa["checks"]["folds"] is False and p.returncode == 1
+    writes its summary; the fixture scores 3 folds, but with --min-train-sessions 1 only 2 of them are eligible
+    (train on >= 2 sessions, A.11.3), so every family is REJECT (folds) under either gating stratum (A.11.4)."""
+    for support in ("production", "any"):
+        out = tmp_path / f"bt-{support}.json"
+        p = subprocess.run([PY, str(ROOT / "tests" / "b1_backtest.py"), "--sims", "200", "--strata", "ntrain",
+                            "--min-train-sessions", "1", "--support", support, "--out", str(out)], capture_output=True,
+                           text=True, timeout=300, env=dict(os.environ, B1_REPO=str(ROOT), PYTHONDONTWRITEBYTECODE="1"))
+        assert p.returncode in (0, 1), p.stderr
+        doc = json.loads(out.read_text())
+        assert set(doc["families"]) == {"soft.agent", "hard.agent", "turns"} and len(doc["folds"]) == 3
+        assert doc["support"] == support
+        for fam, res in doc["families"].items():
+            assert (res["verdict"], res["reason"], res["checks"]["folds"]) == ("REJECT", "folds", False), fam
+            assert res["informative"]["folds_any"] <= 2 and res["informative"]["folds_production"] <= 2
+        sa = doc["families"]["soft.agent"]
+        assert sa["strata"]["any"]["supported"]["n"] > 0 and p.returncode == 1 and p.stdout.rstrip().endswith("REJECT")
 
 
 # ---------------------------------------------------------------- review fixes (S7)
