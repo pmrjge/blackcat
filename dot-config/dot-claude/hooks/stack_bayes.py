@@ -7,8 +7,11 @@ numpy), niced, under usage/bayes.lock and <state>/accel.lock, with a 900 s timeo
 id and once per 6 h:
 
   <config>/venvs/tools/bin/python -I stack_bayes.py fit [--out FILE] [--chains N] [--draws N] [--tune N]
-                                                        [--seed N] [--no-sched] [--timeout S]
+                                                        [--seed N] [--no-sched] [--timeout S] [--regime HEX16]
   <config>/venvs/tools/bin/python -I stack_bayes.py check        exit 0 when the Bayes stack imports, else 3
+
+--regime (BAYES.md A.11.3, the fold driver): the regime the fit treats as current, in place of proposals.json's
+`regime` or stack_limits.current_regime(); 16 lowercase hex digits, else the fit fails before it starts.
 
 `fit` ends itself after --timeout seconds (FIT_TIMEOUT_S: the collector's 900 s plus 30 s): SIGALRM with its
 default action, which the kernel carries out whatever the sampler's threads are doing, so a fit orphaned by a
@@ -35,6 +38,9 @@ Rules this file adds to the contract (WP2 findings, BAYES.md 2.1 rule 4 and A.4)
   one seed;
 - 8 chains x 4000 draws after 2000 tuning (WP2: 4 x 3000 left the supported blocks' MCSE at the gate;
   WP3b on the WP2 copy: 8 x 3000 left 10/57 hard.agent blocks above 2 %, 8 x 4000 1/57, in 348 s vs 276 s).
+- the drift check (BAYES.md 2.1 rule 7, A.12; WP5 5c): a posterior predictive check of the last 5 sessions'
+  rows per model (turns; ctx for soft.agent and hard.agent), randomized PITs, two-sided KS with a
+  session-clustered Monte Carlo p, and a sticky breach carried through the bayes.json on disk.
 
 Exit 0 written; 3 skipped:no-pymc (a dependency does not import: nothing written, no traceback); 4
 skipped:no-rows; 1 failed (nothing written). The last stdout line is the summary "bayes: ...".
@@ -80,6 +86,17 @@ MODEL_ID = {"turns": "turns-nb2s-h4", "ctx": "ctx-ln-h4", "spc": "spc-ln-h4", "s
 ZERO_AVOID = ("tau_t", "tau_s", "tau_ts")
 SCHED_GATES = {"turns": "turns", "spc": "spc", "ctx_ab": "ctx_ab", "static_cc": "static_cc"}
 MIN_SEG, MIN_AGENTS = 5, 3          # derive_sched_model's support (stack_sched_refresh recomputes it)
+# the drift check (BAYES.md A.12)
+DRIFT_FAMILIES = {"turns": ("turns",), "ctx": ("soft.agent", "hard.agent")}    # model -> families (one PIT set)
+DRIFT_SESSIONS = 5                  # the last 5 sessions of the window with a row of the model
+DRIFT_MIN_ROWS, DRIFT_MIN_UNCENS, DRIFT_MIN_SESSIONS = 20, 10, 3
+DRIFT_ALPHA = 0.01                  # breach when the clustered KS p < 0.01
+DRIFT_B = 999                       # Monte Carlo replicates: p = (1 + #{D* >= D}) / (B + 1) >= 0.001
+DRIFT_DRAWS = 400                   # posterior draws (evenly thinned) that average the predictive CDF
+DRIFT_GRID = 2049                   # log-scale grid of a log-normal predictive CDF (linear interpolation)
+DRIFT_EPS = 1e-10                   # an NB CDF table ends where the mixture CDF reaches 1 - eps
+DRIFT_STREAM = 0xD21F7              # the drift RNG: default_rng((sampler seed, DRIFT_STREAM, model index))
+SUMMARY_MAX = 287                   # stack_usage.SUMMARY_RE keeps a summary line of "bayes: " + at most 280 chars
 EXTRA_COLS = {"wall_s": 1e8, "first_cc": L.CTX_MAX, "first_ctx": L.CTX_MAX, "ctx_at_first_write": L.CTX_MAX,
               "prev_peak": L.CTX_MAX}
 
@@ -809,17 +826,273 @@ def sched_counts(recs, keep):
             "n_first": sum(1 for r in seg if r["seg"] == 0)}
 
 
+# ---------------------------------------------------------------- the drift check (BAYES.md 2.1 rule 7, A.12)
+def drift_rows(frame, last=DRIFT_SESSIONS):
+    """(rows, sessions): the model's rows (the frame the model saw: quantity > 0, with `cens`) of the last
+    `last` sessions, sessions ordered by their first row (ts, then id), rows in session order then (ts, id,
+    seg). Only sessions with a row of the model count."""
+    first = {}
+    for r in frame:
+        s = r["session"]
+        first[s] = min(first.get(s, r["ts"]), r["ts"])
+    order = sorted(first, key=lambda s: (first[s], s))
+    keep = order[-last:] if last > 0 else []
+    rank = {s: i for i, s in enumerate(keep)}
+    rows = sorted((r for r in frame if r["session"] in rank),
+                  key=lambda r: (rank[r["session"]], r["ts"], r["id"], r["seg"]))
+    return rows, keep
+
+
+def drift_enough(n, n_cens, sessions):
+    """A.12's minimum: >= 20 rows, >= 10 of them uncensored, from >= 3 sessions."""
+    return n >= DRIFT_MIN_ROWS and n - n_cens >= DRIFT_MIN_UNCENS and sessions >= DRIFT_MIN_SESSIONS
+
+
+def ks_stat(u):
+    """Two-sided KS distance of each row of `u` (..., n) from U(0, 1)."""
+    u = np.sort(np.asarray(u, float), axis=-1)
+    n = u.shape[-1]
+    i = np.arange(1, n + 1)
+    return np.maximum((i / n - u).max(axis=-1), (u - (i - 1) / n).max(axis=-1))
+
+
+def mc_pvalue(D, Dstar):
+    """(1 + #{D* >= D}) / (B + 1): the Monte Carlo p of D against the clustered replicates D* (B,)."""
+    Dstar = np.asarray(Dstar, float)
+    return float((1 + np.count_nonzero(Dstar >= D - 1e-12)) / (Dstar.size + 1))
+
+
+def pit_of(lo, hi, u):
+    """Randomized PIT lo + u (hi - lo): an exact log-normal row has lo = hi = F(y); an exact NB row
+    [F(y - 1), F(y)]; a censored row [F(y-), 1] with F(y-) = P(Y < y)."""
+    return lo + u * (hi - lo)
+
+
+def nb_bounds(Fx, y, cens):
+    """(lo, hi) of the PIT of NB rows: Fx[k] = P(Y - 1 <= k), k = 0..K (clamped at K beyond it), y >= 1
+    integer counts. Exact: [F(y - 1), F(y)] = [Fx[y - 2], Fx[y - 1]]; censored at y (A.3): [F(y - 1), 1],
+    F(y-) = P(Y < y) = F(y - 1), so the atom P(Y = y) is kept (the fitter's log P(Y >= y))."""
+    K = Fx.size - 1
+    y = np.asarray(y, np.int64)
+    hi = Fx[np.clip(y - 1, 0, K)]
+    lo = np.where(y >= 2, Fx[np.clip(y - 2, 0, K)], 0.0)
+    return lo, np.where(cens, 1.0, hi)
+
+
+def ln_bounds(Fy, cens):
+    """(lo, hi) of the PIT of log-normal rows: Fy = F(y); censored at y: [F(y), 1] (F(y-) = F(y))."""
+    return Fy, np.where(cens, 1.0, Fy)
+
+
+def nb_table(m, a, tn, kneed, eps=DRIFT_EPS, kmax=KMAX):
+    """The new-session predictive CDF Fx[k] = P(Y - 1 <= k), k = 0..K, of one (type, resume, regime): the
+    mean over draws of Y - 1 ~ NB(exp(m_d + tn_d W), a_d), W ~ N(0, 1) by 7-node Gauss-Hermite (PredNB).
+    It runs to k >= kneed and stops where the mixture CDF reaches 1 - eps (at most max(kmax, kneed))."""
+    from stack_bayes_grid import GH_W, GH_X
+    gx, gw = np.asarray(GH_X), np.asarray(GH_W)
+    a2 = np.asarray(a, float)[:, None]
+    logmu = np.asarray(m, float)[:, None] + np.asarray(tn, float)[:, None] * gx[None, :]
+    lse = np.logaddexp(np.log(a2), logmu)
+    lp = a2 * (np.log(a2) - lse)
+    lq = logmu - lse
+    cdf = np.exp(lp)
+    nd = a2.shape[0]
+    out = []
+    for k in range(max(kmax, int(kneed)) + 1):
+        F = min(float((cdf @ gw).sum()) / nd, 1.0)
+        out.append(F)
+        if k >= kneed and F >= 1.0 - eps:
+            break
+        lp = lp + np.log1p((a2 - 1.0) / (k + 1.0)) + lq
+        cdf = cdf + np.exp(lp)
+    return np.array(out)
+
+
+def ln_table(m, sd, x_lo, x_hi, grid=DRIFT_GRID):
+    """(xs, F) of one (type, resume, regime)'s new-session predictive CDF of log Y on a grid that covers the
+    draws' +-12 sd and [x_lo, x_hi]: F(x) = mean over draws of Phi((x - m_d) / sd_d)."""
+    lo = min(float(np.min(m - 12 * sd)), x_lo)
+    hi = max(float(np.max(m + 12 * sd)), x_hi)
+    xs = np.linspace(lo, hi, grid)
+    F = ndtr((xs[:, None] - m[None, :]) / sd[None, :]).mean(axis=1)
+    return xs, np.maximum.accumulate(np.clip(F, 0.0, 1.0))
+
+
+def _thin(post, name, idx):
+    v = _v(post, name)
+    return v.reshape((-1,) + v.shape[2:])[idx]
+
+
+def drift_params(post, kind, ix, rows, draws=DRIFT_DRAWS):
+    """Per thinned draw and row: m (the row's location: its type, its resume offset rho when seg > 0, its own
+    regime's offset tau_g z_g), scale (sigma of the type for "ln", alpha for "nb"), and the new session's
+    effect split as in the model, tau_s (shared by the session's rows) and tau_ts (by its rows of one type)."""
+    shape = _v(post, "a0").shape
+    N = shape[0] * shape[1]
+    idx = np.unique(np.linspace(0, N - 1, min(N, draws)).round().astype(int))
+    zero = np.zeros(idx.size)
+    j, g = ix.ti(rows), ix.gi(rows)
+    res = np.array([float(r["resume"]) for r in rows])
+    m = _thin(post, "eta_type", idx)[:, j]
+    if "rho" in post:
+        m = m + _thin(post, "rho", idx)[:, None] * res[None, :]
+    if "z_g" in post:
+        m = m + _thin(post, "tau_g", idx)[:, None] * _thin(post, "z_g", idx)[:, g]
+    scale = np.exp(_thin(post, "log_alpha_t" if kind == "nb" else "log_sigma_t", idx)[:, j])
+    ts = _thin(post, "tau_s", idx) if "tau_s" in post else zero
+    tts = _thin(post, "tau_ts", idx) if "tau_ts" in post else zero
+    return m, scale, ts, tts
+
+
+def drift_check(post, kind, ix, frame, seed, B=DRIFT_B, draws=DRIFT_DRAWS):
+    """A.12's check of one model: (entry or None, stats). entry = {"ks_p", "sessions", "breach"} when the
+    minimum holds, else None; stats (n, n_cens, sessions, D) go to the log and the summary line only.
+
+    PIT per row from the new-session predictive F (draws averaged, the session effect integrated):
+    log-normal exact F(y); NB exact U(F(y - 1), F(y)); censored U(F(y-), 1). p is a session-clustered
+    Monte Carlo: each replicate takes one posterior draw, one effect per session (tau_s) and per session and
+    type (tau_ts), a y* per row from its predictive given them; a censored row stays censored at its point c
+    when y* >= c, else it is exact; every PIT is recomputed with the same F and D* taken. Seeded by `seed`."""
+    rows, sess = drift_rows(frame)
+    cens = np.array([bool(r["cens"]) for r in rows], bool)
+    st = {"n": len(rows), "n_cens": int(cens.sum()), "sessions": len(sess), "D": None}
+    if not drift_enough(st["n"], st["n_cens"], st["sessions"]):
+        return None, st
+    rng = np.random.default_rng(seed)
+    ycol = "api_calls" if kind == "nb" else "ctx"
+    y = np.array([float(r[ycol]) for r in rows])
+    if kind == "nb":
+        y = np.maximum(np.rint(y), 1.0).astype(np.int64)
+    m, scale, ts, tts = drift_params(post, kind, ix, rows, draws)
+    nd, n = m.shape
+    # replicates: one draw each; the session and session x type effects; y* from the row's predictive
+    sidx = {s: i for i, s in enumerate(sess)}
+    s_i = np.array([sidx[r["session"]] for r in rows])
+    pairs = sorted({(r["session"], r["type"]) for r in rows})
+    pidx = {p: i for i, p in enumerate(pairs)}
+    p_i = np.array([pidx[(r["session"], r["type"])] for r in rows])
+    u_obs = rng.random(n)
+    d_b = rng.integers(0, nd, size=B)
+    w = ts[d_b][:, None] * rng.standard_normal((B, len(sess)))[:, s_i] \
+        + tts[d_b][:, None] * rng.standard_normal((B, len(pairs)))[:, p_i]
+    loc = m[d_b] + w
+    if kind == "nb":
+        a = scale[d_b]
+        mu = np.exp(np.minimum(loc, 40.0))
+        lam = np.minimum(rng.gamma(a, mu / a), 1e12)
+        yr = rng.poisson(lam).astype(np.int64) + 1
+        rcens = cens[None, :] & (yr >= y[None, :])
+    else:
+        ly = np.log(y)
+        xr = loc + scale[d_b] * rng.standard_normal((B, n))
+        rcens = cens[None, :] & (xr >= ly[None, :])
+    u_rep = rng.random((B, n))
+    lo, hi = np.empty(n), np.empty(n)
+    lo_r, hi_r = np.empty((B, n)), np.empty((B, n))
+    combos = {}
+    for i, r in enumerate(rows):
+        combos.setdefault((r["type"], r["resume"], r["regime"]), []).append(i)
+    for key in sorted(combos):
+        ic = np.array(combos[key])
+        i0 = ic[0]
+        if kind == "nb":
+            tn = np.sqrt(ts ** 2 + tts ** 2)
+            Fx = nb_table(m[:, i0], scale[:, i0], tn, int(y[ic].max()) - 1)
+            lo[ic], hi[ic] = nb_bounds(Fx, y[ic], cens[ic])
+            ye = np.where(rcens[:, ic], y[ic][None, :], yr[:, ic])
+            lo_r[:, ic], hi_r[:, ic] = nb_bounds(Fx, ye, rcens[:, ic])
+        else:
+            sd = np.sqrt(scale[:, i0] ** 2 + ts ** 2 + tts ** 2)
+            xs, F = ln_table(m[:, i0], sd, float(ly[ic].min()), float(ly[ic].max()))
+            lo[ic], hi[ic] = ln_bounds(np.interp(ly[ic], xs, F), cens[ic])
+            xe = np.where(rcens[:, ic], ly[ic][None, :], xr[:, ic])
+            lo_r[:, ic], hi_r[:, ic] = ln_bounds(np.interp(xe, xs, F), rcens[:, ic])
+    pit = pit_of(lo, hi, u_obs)
+    D = float(ks_stat(pit))
+    p = mc_pvalue(D, ks_stat(pit_of(lo_r, hi_r, u_rep)))
+    st.update(D=D, p=p, pit=pit)
+    return {"ks_p": p, "sessions": len(sess), "breach": bool(p < DRIFT_ALPHA)}, st
+
+
+def drift_entry(check, gate_ok, prev):
+    """The sticky breach (A.12) of one family: `check` the fit's own entry or None (under the minimum),
+    `gate_ok` the family model's gate (rule 6), `prev` the previous file's entry when it is a breach.
+    - the check ran and the gate passes: its own entry (only this clears a breach, with ks_p >= 0.01);
+    - the gate fails: its own entry when it breaches, else the previous breach carried, else none;
+    - under the minimum: the previous breach carried, else none."""
+    if check is not None and (gate_ok or check["breach"]):
+        return dict(check)
+    if prev is not None and prev.get("breach") is True:
+        return dict(prev)
+    return None
+
+
+def drift_block(checks, gates, prev):
+    """bayes.json `drift` from the checks per model ({"turns"|"ctx": entry or None}), the model gates
+    ({model id: bool}) and the previous file's breached entries ({family: entry})."""
+    out = {}
+    for name, fams in DRIFT_FAMILIES.items():
+        ok = bool(gates.get(MODEL_ID[name]))
+        for fam in fams:
+            e = drift_entry(checks.get(name), ok, prev.get(fam))
+            if e is not None:
+                out[fam] = {"ks_p": float(e["ks_p"]), "sessions": int(e["sessions"]), "breach": bool(e["breach"])}
+    return out
+
+
+def previous_breaches(path, seed):
+    """{family: entry} of the breached drift entries of the bayes.json at `path` when it passes the readers'
+    rules 1, 3 and 4 against the current seed (stack_limits._bayes_doc_checked, its fit_id check included);
+    rule 2's seed_sha is waived, so a new seed does not end the chain, while a seed that dropped a variable or
+    type the file names still refuses it (rule 3). {} when the file is absent or refused. An unexpected error
+    propagates: the fit fails and the file on disk, with its breach, stays."""
+    doc, _why = L._read_bayes(path)
+    if not isinstance(doc, dict):
+        return {}
+    try:
+        L._bayes_doc_checked(dict(doc, seed_sha=seed["sha"]), seed)
+    except L._BayesInvalid:
+        return {}
+    out = {}
+    for fams in DRIFT_FAMILIES.values():
+        for fam in fams:
+            e = (doc.get("drift") or {}).get(fam)
+            if isinstance(e, dict) and e.get("breach") is True:
+                out[fam] = {"ks_p": e["ks_p"], "sessions": e["sessions"], "breach": True}
+    return out
+
+
+def drift_summary(dstats):
+    """The summary line's drift part: per model D, n/n_cens, p (or `min` under the minimum)."""
+    parts = []
+    for name in DRIFT_FAMILIES:
+        s = dstats.get(name) or {}
+        if s.get("D") is None:
+            parts.append(f"{name} n {s.get('n', 0)}/{s.get('n_cens', 0)} min")
+        else:
+            parts.append(f"{name} D {s['D']:.3f} n {s['n']}/{s['n_cens']} p {s['p']:.3f}")
+    return " ".join(parts)
+
+
 # ---------------------------------------------------------------- the fit
 def _now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def load_inputs(seed):
+def regime_ok(regime):
+    """--regime's form: a regime hash as the rows carry it (stack_limits.HEX16_RE: 16 lowercase hex)."""
+    return isinstance(regime, str) and bool(L.HEX16_RE.match(regime))
+
+
+def load_inputs(seed, regime=None):
+    """(models, paths, rows, stats, proposals, current regime). `regime` (--regime) replaces the lookup
+    (proposals' regime, else stack_limits.current_regime(): the checkout's and the environment's)."""
     models = L.agent_models()
     paths = L.csv_paths()
     rows, stats = L.read_rows(paths, models=models)
     props, _why = L.load_proposals(seed)
-    regime = (props or {}).get("regime") or L.current_regime()
+    if regime is None:
+        regime = (props or {}).get("regime") or L.current_regime()
     return models, paths, rows, stats, props, regime
 
 
@@ -832,7 +1105,10 @@ def fit(cfg, out, log=print):
     import nutpie
     import scipy
     seed = L.load_seed()
-    models, paths, rows, stats, props, cur_reg = load_inputs(seed)
+    if cfg.get("regime") is not None and not regime_ok(cfg["regime"]):
+        return EXIT_FAIL, "bayes: failed: --regime is not 16 lowercase hex digits"
+    prev_drift = previous_breaches(out, seed)          # the sticky breach: the file on disk at fit start
+    models, paths, rows, stats, props, cur_reg = load_inputs(seed, cfg.get("regime"))
     eid = L.evidence_id(rows)
     limit_of = L._limits_in_force(seed)
     keys = {(r["session"], r["id"], r["seg"]) for r in rows if r["scope"] == "agent"}
@@ -890,6 +1166,14 @@ def fit(cfg, out, log=print):
     hyper, vars_, sched, reg_note = assemble(posts, frames, ix, seed, cur_reg, p_resume, rng, pv,
                                              n_ref_ab, gates, recs, sched_ok)
     post_s = time.perf_counter() - t_post
+    t_drift = time.perf_counter()
+    checks, dstats = {}, {}
+    for k, (name, kind) in enumerate((("turns", "nb"), ("ctx", "ln"))):
+        checks[name], dstats[name] = drift_check(posts[name], kind, ix, frames[name], (cfg["seed"], DRIFT_STREAM, k))
+    drift = drift_block(checks, gates, prev_drift)
+    drift_s = time.perf_counter() - t_drift
+    log(f"drift: {drift_summary(dstats)} -> {json.dumps(drift, sort_keys=True)} "
+        f"(carried in: {','.join(sorted(prev_drift)) or 'none'}) {drift_s:.1f} s")
     versions = {"python": sys.version.split()[0], "pymc": pm.__version__, "pytensor": pytensor.__version__,
                 "nutpie": nutpie.__version__, "arviz": az.__version__, "numpy": np.__version__,
                 "scipy": scipy.__version__}
@@ -906,7 +1190,7 @@ def fit(cfg, out, log=print):
            "models": {k: {"gate": gates[k], "diag": {kk: d[kk] for kk in (
                "rhat_max", "ess_bulk_min", "ess_tail_min", "divergences", "ebfmi_min", "constant", "nan")}}
                for k, d in diags.items()},
-           "hyper": hyper, "drift": {}, "vars": vars_, "sched": sched}
+           "hyper": hyper, "drift": drift, "vars": vars_, "sched": sched}
     doc = json.loads(json.dumps(doc))                   # plain floats, no numpy scalars
     why = self_check(doc, seed, eid)
     if why:
@@ -919,11 +1203,14 @@ def fit(cfg, out, log=print):
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2 ** 20 if sys.platform == "darwin" else 2.0 ** 10)
     except (ImportError, OSError):
         rss = 0.0
-    return EXIT_OK, ("bayes: fit %s rows %d agent_rows %d sessions %d models %d/%d gated blocks %d accepted %d "
-                     "sched %s nuts_s %.0f post_s %.0f total_s %.0f rss_mib %.0f" % (
-                         fit_id, len(rows), len(recs), len(ix.sessions), sum(gates.values()), len(gates), len(vars_),
-                         len(acc), "%d/%d" % (len(sched["types"]), len(sched["pools"])) if sched else "none",
-                         nuts_s, post_s, total, rss))
+    line = ("bayes: fit %s rows %d agent_rows %d sessions %d models %d/%d gated blocks %d accepted %d "
+            "sched %s nuts_s %.0f post_s %.0f total_s %.0f rss_mib %.0f" % (
+                fit_id, len(rows), len(recs), len(ix.sessions), sum(gates.values()), len(gates), len(vars_),
+                len(acc), "%d/%d" % (len(sched["types"]), len(sched["pools"])) if sched else "none",
+                nuts_s, post_s, total, rss))
+    breached = ",".join(sorted(f for f, e in drift.items() if e["breach"])) or "none"
+    tail = f" drift {drift_summary(dstats)} breach {breached} drift_s {drift_s:.1f}"
+    return EXIT_OK, line + tail[:max(0, SUMMARY_MAX - len(line))]
 
 
 def assemble(posts, frames, ix, seed, cur_reg, p_resume, rng, pv, n_ref_ab, gates, recs, sched_ok=True, qd_fn=None):
@@ -1124,11 +1411,15 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--no-sched", action="store_true")
     ap.add_argument("--timeout", type=int, default=FIT_TIMEOUT_S)
+    ap.add_argument("--regime", default=None)
     a = ap.parse_args(argv)
     if a.cmd != "fit":
         return _main(a)
     if not 1 <= a.timeout <= TIMEOUT_MAX_S:
         print("bayes: failed: timeout out of range", flush=True)
+        return EXIT_FAIL
+    if a.regime is not None and not regime_ok(a.regime):
+        print("bayes: failed: --regime is not 16 lowercase hex digits", flush=True)
         return EXIT_FAIL
     prev = arm_deadline(a.timeout)
     try:
@@ -1152,7 +1443,8 @@ def _main(a):
     for d in cache_dirs():
         os.makedirs(d, mode=0o700, exist_ok=True)
     out = a.out or L.bayes_path()
-    cfg = {"chains": a.chains, "draws": a.draws, "tune": a.tune, "seed": a.seed, "no_sched": a.no_sched}
+    cfg = {"chains": a.chains, "draws": a.draws, "tune": a.tune, "seed": a.seed, "no_sched": a.no_sched,
+           "regime": a.regime}
     try:
         rc, line = fit(cfg, out, log=lambda s: print(s, file=sys.stderr, flush=True))
     except Exception as exc:  # noqa: BLE001 - detached: one line, the type only (no row data in the record)

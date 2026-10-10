@@ -839,11 +839,14 @@ def forked_skill_agents(name, cwd, conf=None):
 # The child-side backstop (review F2): an --add-dir or /add-dir folder's .claude/agents can redefine a safe
 # name with permissionMode acceptEdits, and hooks never see add_dirs. So a spawn the plan gate allowed in plan
 # mode leaves a marker plan/<tool_use_id>; budget mode refuses every tool call of a subagent whose meta.json
-# toolUseId has one while its own permission_mode says it writes. Fail-open: no meta, no toolUseId or no
-# reported mode passes. It assumes a subagent's PreToolUse permission_mode is its own mode (unverified).
+# toolUseId has one while its own permission_mode says it writes. A Skill call allowed in plan mode leaves
+# plan/skill-<tool_use_id> instead: a forked skill's child has no toolUseId in its meta.json (probe E3c1, CLI
+# 2.1.287, 2026-10-09), so such a child is refused while any skill- marker exists. Fail-open: no meta.json or
+# no reported mode passes. A subagent's PreToolUse permission_mode is its own mode (probe E3b, 2026-10-09).
 PLAN_DIR = "plan"
 PLAN_CHILD_MODES = ("plan", "default")
 PLAN_MARKERS_MAX = 1024
+SKILL_MARK = "skill-"
 
 
 def mark_plan_spawn(d, tid):
@@ -874,8 +877,16 @@ def plan_child_reason(ev):
     folder = os.path.join(state_root(), safe(ev.get("session_id"), "nosession"), PLAN_DIR)
     if not os.path.isdir(folder):
         return None
-    tid = spawn_meta(ev, ident(aid)).get("toolUseId")
-    if not isinstance(tid, str) or not tid.strip() or not os.path.exists(os.path.join(folder, safe(tid.strip()))):
+    meta = spawn_meta(ev, ident(aid))               # a dict ({} when absent or not an object: stack_io.read_json)
+    tid = meta.get("toolUseId")
+    if isinstance(tid, str) and tid.strip():        # an Agent child: its own spawn's marker
+        hit = os.path.exists(os.path.join(folder, safe(tid.strip())))
+    else:                                           # a forked skill's child: meta.json without toolUseId (E3c1)
+        try:
+            hit = bool(meta) and any(n.startswith(SKILL_MARK) for n in os.listdir(folder))
+        except OSError:
+            hit = False
+    if not hit:
         return None
     return ("Plan mode: this agent was dispatched while planning but runs in '%s' (a definition of its type, "
             "e.g. from an --add-dir folder, sets that mode), so it runs no tool. Stop now: reply in one line "
@@ -895,8 +906,11 @@ def on_skill(ev, d):
             deny("Plan mode: the skill '%s' forks into '%s' (context: fork) while planning: %s. %s"
                  % (name.strip()[:80], a[:80], why, PLAN_APPROVE))
     # a definition the guard cannot read (an --add-dir or nested <subdir>/.claude/skills one) may still fork into
-    # a builder: the child-side backstop, assuming the fork's meta.json toolUseId is this call's (unverified)
-    mark_plan_spawn(d, ev.get("tool_use_id"))
+    # a builder: the child-side backstop. The fork's meta.json carries no toolUseId (probe E3c1), so the marker is
+    # skill-<tool_use_id> and plan_child_reason takes any such marker for a child without one
+    tid = ev.get("tool_use_id")
+    if tid:
+        mark_plan_spawn(d, SKILL_MARK + str(tid))
 
 
 def canonical_tool(name):
@@ -6955,7 +6969,8 @@ ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
 # fast path for the "secrets" scan kind (below): checked only when that kind is requested. Not
 # word-bounded (unlike TRIGGER_RE): over-matching only causes an extra full parse, never a miss.
 SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|install_state|doctor\.sh|credential|"
-                                r"security|CLAUDE_CODE_MCP_SERVER_NAME")
+                                r"security|CLAUDE_CODE_MCP_SERVER_NAME|"
+                                r"CLAUDE_BG_|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_")
 SECRETS_PROGRAMS = {"mcp-headers", "with-stack-env"}
 INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 # fast path for the "protect" scan kind: a redirect character or one of the write-capable
@@ -7367,6 +7382,24 @@ INSTALL_REASON = ("Blocked by the stack's supply-chain rule (`%s`): install.sh i
                   "`--print-managed-settings`, `--diff` alone and a scratch install (HOME and CLAUDE_CONFIG_DIR "
                   "both under a temp dir) are fine.")
 MCP_NAME_VAR = "CLAUDE_CODE_MCP_SERVER_NAME"
+# The claude CLI's environment channel (probe E2a, CLI 2.1.287, 2026-10-09): CLAUDE_CODE_SESSION_KIND=bg with
+# CLAUDE_BG_SESSION_PERMISSION_RULES adds session allow rules that hold under --permission-prompts none (hooks
+# still run first); the CLI's text names CLAUDE_CODE_SANDBOXED and CLAUDE_BG_WORKSPACE_TRUSTED as trust switches
+# (unverified); CLAUDE_RELAUNCH_SESSION_ADD_DIRS adds session directories whatever the session kind (the CLI's
+# text, security review 2026-10-09). "envchan" (in the secrets scan) denies a command that assigns or exports
+# one: NAME=value at command position (also after env, sudo, ...), NAME or NAME=value after export/declare/
+# typeset/local/readonly/read/mapfile/getopts, printf -v NAME, launchctl setenv NAME, and a value that is NAME
+# (declare -n R=NAME, V=NAME for a later "$V"). Text that only mentions NAME (echo, grep 'NAME=') passes. Literal
+# names only: one built at run time elsewhere, a sourced file or interpreter code is not seen.
+ENV_CHANNEL_RE = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_\w*")
+ENV_CHANNEL_BINDERS = {"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray",
+                       "getopts", "printf", "launchctl"}
+ENV_CHANNEL_REASON = ("Blocked by the stack's environment-channel rule: `%s` sets a variable from which the "
+                      "claude CLI takes permission rules, session directories or workspace trust "
+                      "(CLAUDE_CODE_SESSION_KIND, CLAUDE_BG_*, CLAUDE_CODE_SANDBOXED, CLAUDE_RELAUNCH_*), "
+                      "also inside bash -c, eval or $(...). Permissions "
+                      "come from the settings files and the permission host only: if a session needs another "
+                      "rule, ask the user.")
 FORGE_HOSTS = ("github.com", "api.github.com", "uploads.github.com", "gitlab.com", "codeberg.org",
                "bitbucket.org", "api.bitbucket.org", "gitea.com")
 NET_CLIENTS = {"curl", "wget", "http", "https", "xh", "xhs"}
@@ -7877,6 +7910,8 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
         if "secrets" in want and name == MCP_NAME_VAR:
             return scan.hit("secrets", "%s=... (headersHelper mode prints the real header)"
                             % MCP_NAME_VAR)
+        if "envchan" in want and here_cmd and (ENV_CHANNEL_RE.fullmatch(name) or ENV_CHANNEL_RE.fullmatch(val)):
+            return scan.hit("envchan", restore(w))          # NAME=v cmd, env/sudo NAME=v cmd, V=NAME (a later "$V")
         if "install" in want:                  # in order, so `T=$(mktemp -d) HOME=$T ./install.sh`
             env = scan.__dict__.setdefault("_r2_env", {})
             env[name] = _r2_tmp_ok(val, env)
@@ -7934,7 +7969,20 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
             if is_shell:
                 st["_r2_run"] = st.get("_r2_run") or _r2_shell_runs(scan, base, args)
             found = _r2_data_and_run(scan, "install.sh used as data and run by a shell")
+    if not found and "envchan" in want and base in ENV_CHANNEL_BINDERS:
+        found = _env_channel(base, [restore(x) for x in words[i + 1:end]])
     return scan.hit(*found) if found else None
+
+
+def _env_channel(base, args):
+    """("envchan", what) when a binder's operand names a channel variable (ENV_CHANNEL_RE): NAME, NAME=value or
+    REF=NAME (declare -n REF=NAME; V=NAME for a later "$V"), else None."""
+    if base == "printf":                       # printf -v NAME, printf -vNAME; its other operands are text
+        args = [b for a, b in zip(args, args[1:]) if a == "-v"] + [a[2:] for a in args if a.startswith("-v")]
+    elif base == "launchctl":                  # launchctl setenv NAME VALUE: every later GUI app's env
+        args = args[1:2] if args[:1] == ["setenv"] else []
+    return next((("envchan", "%s %s" % (base, a)) for a in args
+                 if any(ENV_CHANNEL_RE.fullmatch(x) for x in a.split("=", 1))), None)
 
 
 def _shell_words(command):
@@ -8568,6 +8616,12 @@ class _Scan(object):
                                  "install") if k in self.want), None)
         return self.hit(kind, what) if kind else None
 
+    def limit(self, what):
+        """A command past a scan limit (nesting, size, time): opaque; the secrets scan wants no "opaque", so
+        there it is a "limit" hit (fail closed: `eval` x9 or 1 MB of padding hid a secrets/envchan hit; the
+        hook denies it with GUARD_FAIL_REASON, not SECRETS_REASON)."""
+        return ("limit", self.overflow(what)[1]) if "secrets" in self.want else self.hit("opaque", what)
+
     def scan(self, command, depth=0):
         """First remote write in a shell command: (kind, what), or None."""
         if not isinstance(command, str):
@@ -8584,15 +8638,15 @@ class _Scan(object):
             return None                        # names no git/gh/tea/fj/mcp-headers/..., even obfuscated
         self.budget -= 1
         if depth > MAX_NEST or self.budget < 0:
-            return self.hit("opaque", "a command nested too deeply to check")
+            return self.limit("a command nested too deeply to check")
         if time.monotonic() > self.deadline:
-            return self.hit("opaque", "a command too large to check in time")
+            return self.limit("a command too large to check in time")
         try:
             text, heredocs, substs = _lex(command, self.deadline)
         except _TooComplex as exc:
-            return self.hit("opaque", str(exc))
+            return self.limit(str(exc))
         if len(text) > MAX_COMMAND:            # shlex below is not interruptible (~3 s a MB)
-            return self.hit("opaque", "a command too large to check in time")
+            return self.limit("a command too large to check in time")
         for inner, cmd_pos in substs:
             found = self.scan(inner, depth + 1)
             if not found and cmd_pos:          # its output is run: `$(echo 'git push')`
@@ -8601,7 +8655,7 @@ class _Scan(object):
                 return found
         for owner, body, quoted in heredocs:
             if time.monotonic() > self.deadline:
-                return self.hit("opaque", "a command too large to check in time")
+                return self.limit("a command too large to check in time")
             found = self.scan(body, depth + 1) if _heredoc_runs_code(owner) else None
             if not found and "protect" in self.want and _heredoc_interpreter(owner):
                 found = self.protect_code(body)      # python3 - <<'EOF' ... os.remove(...)
@@ -8624,7 +8678,7 @@ class _Scan(object):
         try:
             text, heredocs, substs = _lex(inner, self.deadline)
         except _TooComplex as exc:
-            return self.hit("opaque", str(exc))
+            return self.limit(str(exc))
         restore = _restorer(substs)
         words = [restore(w) for w in self.words(text)]
         found = self.each_phrase(words, depth)
@@ -8672,7 +8726,7 @@ class _Scan(object):
         env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
-                return self.hit("opaque", "a command too large to check in time")
+                return self.limit("a command too large to check in time")
             if SEP_RE.match(w):
                 if w not in ("|", "|&", "(", ")"):
                     stmt_start, xargs_seen = i + 1, False
@@ -12168,8 +12222,8 @@ def secrets_leak_in(command, ev=None):
     doctor.sh — else None. Shares the same shell lexer and shell/eval/here-doc unwrapping as
     remote_write_in, so `bash -c "mcp-headers exa --reveal"` etc. are caught the same way
     `git push` is. The redacted default forms (`mcp-headers exa`, `with-stack-env --print-env`)
-    pass."""
-    return _Scan(("secrets", "install"), ev=ev).scan(command)
+    pass. Kind "envchan": the command sets a variable of the CLI's environment channel (ENV_CHANNEL_RE)."""
+    return _Scan(("secrets", "install", "envchan"), ev=ev).scan(command)
 
 
 def forge_write_in(command):
@@ -12575,7 +12629,9 @@ def no_push_main(raw):
         deny(FORGE_REASON % what if kind == "forge" else
              OPAQUE_REASON % what if kind == "opaque" else
              INDEX_REASON % what if kind == "index" else
+             GUARD_FAIL_REASON % what if kind == "limit" else
              SECRETS_REASON % what if kind == "secrets" else
+             ENV_CHANNEL_REASON % what if kind == "envchan" else
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     try:                                      # the installer rule: absolute, fail closed
