@@ -1042,13 +1042,15 @@ def drift_block(checks, gates, prev):
 
 def previous_breaches(path, seed):
     """{family: entry} of the breached drift entries of the bayes.json at `path` when it passes the readers'
-    rules 1, 3 and 4 (stack_limits._bayes_doc_checked: also its fit_id and seed_sha); {} when it is absent or
-    refused. An unexpected error propagates: the fit fails and the file on disk, with its breach, stays."""
+    rules 1, 3 and 4 against the current seed (stack_limits._bayes_doc_checked, its fit_id check included);
+    rule 2's seed_sha is waived, so a new seed does not end the chain, while a seed that dropped a variable or
+    type the file names still refuses it (rule 3). {} when the file is absent or refused. An unexpected error
+    propagates: the fit fails and the file on disk, with its breach, stays."""
     doc, _why = L._read_bayes(path)
-    if doc is None:
+    if not isinstance(doc, dict):
         return {}
     try:
-        L._bayes_doc_checked(doc, seed)
+        L._bayes_doc_checked(dict(doc, seed_sha=seed["sha"]), seed)
     except L._BayesInvalid:
         return {}
     out = {}

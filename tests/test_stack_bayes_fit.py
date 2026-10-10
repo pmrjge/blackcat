@@ -1526,3 +1526,34 @@ def test_regime_option_replaces_the_lookup(st, sampler, monkeypatch, capsys):
     assert B.main(["fit", "--regime", R]) == B.EXIT_OK and called[0]["regime"] == R
     assert B.main(["fit"]) == B.EXIT_OK and called[1]["regime"] is None
     assert real_fit({"regime": "zz"}, str(out))[0] == B.EXIT_FAIL
+
+
+def test_the_pit_uses_the_rows_own_regime_offset():
+    """A.12 (review F2): a row's F carries its own regime's offset tau_g z_g[g] (mutants "offset dropped" and
+    "another regime's offset"): rows of regime rb, z_g = (-1, +1), drawn at mu + 1, have PIT F(y) at mu + 1."""
+    ix = B.Index(SEED, {}, ["s0", "s1", "s2"], ["ra", "rb"])
+    mu, sig = math.log(1e6), 0.5
+    post = _one_draw_post(ix, "ln", mu, math.log(sig))
+    post["tau_g"] = _A(np.ones((1, 4)))
+    post["z_g"] = _A(np.broadcast_to(np.array([-1.0, 1.0]), (1, 4, 2)).copy())
+    ys = np.exp(mu + 1.0 + sig * np.random.default_rng(9).standard_normal(30))
+    frame = [dict(r, regime="rb") for r in _frame_of(ix, ys, np.zeros(30, bool), "ln")]
+    _e, st = B.drift_check(post, "ln", ix, frame, (1, 2, 3))
+    rows, _ = B.drift_rows(frame)
+    F = [0.5 * math.erfc(-(math.log(r["ctx"]) - mu - 1.0) / sig / math.sqrt(2)) for r in rows]
+    assert np.allclose(st["pit"], F, atol=1e-4)
+
+
+def test_a_new_seed_keeps_the_breach_but_rule_3_still_refuses(st, sampler):
+    """A.12 (review F1): the previous file is checked by rules 1, 3 and 4 only. A seed whose sha changed still
+    carries the breach (rule 2's seed_sha is waived); a seed without a variable the file names refuses it."""
+    sampler.shift["ln"] = 3.0
+    rc, _line, doc = _fit(st)
+    assert rc == B.EXIT_OK and doc["drift"]["soft.agent"]["breach"] is True
+    path = str(st / "limits" / "bayes.json")
+    got = B.previous_breaches(path, dict(SEED, sha="sha256:" + "f" * 64))
+    assert set(got) == {"soft.agent", "hard.agent"} and got["soft.agent"] == doc["drift"]["soft.agent"]
+    assert set(B.previous_breaches(path, SEED)) == {"soft.agent", "hard.agent"}
+    victim = min(doc["vars"])
+    fewer = dict(SEED, sha="sha256:" + "f" * 64, vars={k: v for k, v in SEED["vars"].items() if k != victim})
+    assert B.previous_breaches(path, fewer) == {}

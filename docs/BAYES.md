@@ -171,8 +171,9 @@ All under `<state>`; the state directory is sandbox `denyWrite` for agents. Writ
                      "types": {"<type>": {"mu": f, "scale": f}}},
            "ctx":   {...same keys...}},
  "drift": {"<family>": {"ks_p": f, "sessions": int, "breach": false}},   # rolling PIT, last 5 sessions,
-                                            # §A.12 (WP5 5c); {} when no check ran and
-                                            # no breach is carried
+                                            # §A.12 (WP5 5c); no entry for a family whose
+                                            # check did not run, or ran with its model gate
+                                            # failing and no breach, unless a breach is carried
  "vars": {"<var>": <block>},
  "sched": <sched block> | null}
 ```
