@@ -1097,6 +1097,7 @@ def test_set_all_is_set_min(eqc_env, build_lib):
     (["--only", "full"], "--only: unknown image full"),
     (["--keep-profile", "bogus"], "--keep-profile must be conservative, noprivate or slim"),
     (["--write-pin"], "--write-pin works only with --resolve-tools"),
+    (["--repro-dump"], "--repro-dump works only with --resolve-tools"),
     (["--bogus"], "unknown argument: --bogus"),
     (["--set"], "--set needs a value"),
 ])
@@ -1351,7 +1352,8 @@ def test_help_texts_name_min_and_all_and_no_full_flag(eqc_env):
     assert "default: the profile core" in p.stdout and "FROM the pinned distroless cc image or FROM scratch" in p.stdout
     p = eqc_env.run("build.sh", "--help")
     assert p.returncode == 0 and "--set min|all" in p.stdout and "--set min|full" not in p.stdout and "min|all" in p.stdout
-    assert "--resolve-tools [--write-pin]" in p.stdout and "default: core" in p.stdout
+    assert "--resolve-tools [--repro-dump]" in p.stdout and "--resolve-tools --write-pin" in p.stdout and "default: core" in p.stdout
+    assert "build NOTHING" in p.stdout and "repro-check.sh" in p.stdout
     assert eqc_env.calls() == []
 
 

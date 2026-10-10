@@ -69,8 +69,9 @@ BASH_BASELINE=5.3
 BASH_PATCHLEVEL=20
 BASH_GPG_FPR=7C0135FB088AAF6C66C650B9BB5869F064EA74AB
 # NOT filled: ftp.gnu.org and the keyservers are outside the agent's sandbox (2026-10-06). From a normal terminal:
-#   bash lib/eq-container/build.sh --resolve-tools      (builds the bash-report stage: prints the three values after
-#                                                        "SIGNATURES OK"; review, then re-run with --write-pin)
+#   bash lib/eq-container/repro-check.sh                (builds the bash-report stage three times, each printing the three
+#                                                        values after "SIGNATURES OK"; the last line must be REPRODUCIBLE x3)
+#   bash lib/eq-container/build.sh --resolve-tools --write-pin   (builds nothing: pins the values the agreeing reports hold)
 # or compute the two source hashes on the host (checklist D2):  curl + gpg --verify + shasum -a 256 (BASH_PATCHES_SHA256 =
 # shasum -a 256 bash53-0?? | shasum -a 256). BASH_BIN_SHA256 is the hash of the built binary (trust on first use after the
 # signature check; a later build that differs fails closed). Until all three are filled, the core profile stops at exit 13.

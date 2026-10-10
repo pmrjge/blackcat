@@ -9,11 +9,18 @@
 #   ./build.sh --check     [--profiles ..|--set ..]   verify images, records and pins WITHOUT building (0 ok, 11 not ok, 10 no container)
 #   ./build.sh --uninstall [--profiles ..|--set ..] [--yes]   container image delete the recorded tags, drop their records (--set all
 #                                                 also removes the records of images no longer built: full, tc-rust, tc-haskell)
-#   ./build.sh --resolve-tools [--write-pin]      build the bash-report stage (--no-cache): GNU bash's tarball and patches are
+#   ./build.sh --resolve-tools [--repro-dump]     build the bash-report stage (--no-cache): GNU bash's tarball and patches are
 #                                                 GPG-verified against BASH_GPG_FPR, then their hashes and the built binary's are
-#                                                 printed (`PIN KEY VALUE pinned: ...`); --write-pin writes them into PINS, the
-#                                                 Dockerfile.minimal ARGs and TOOLS.toml (trust on first use AFTER the signature check:
-#                                                 a set BASH_SRC_SHA256 or BASH_PATCHES_SHA256 that DIFFERS is refused, exit 12)
+#                                                 printed (`PIN KEY VALUE pinned: ...`). The report is kept, one file per run:
+#                                                 $EQ_STATE_DIR/tools-report-<UTC stamp>-<pid>.log (never overwritten); a run that
+#                                                 completes ends with `EQ-REPORT KEY <hash of the recipe>`. --repro-dump also puts the
+#                                                 built binary into the report (gzip+base64) for repro-check.sh's byte comparison.
+#   ./build.sh --resolve-tools --write-pin        build NOTHING: writes the values of the newest complete report into PINS, the
+#                                                 Dockerfile.minimal ARGs and TOOLS.toml (trust on first use AFTER the signature check),
+#                                                 but only if at least two reports of the same recipe agree on all three values and none
+#                                                 of that recipe disagrees (exit 12 otherwise: the build is not reproducible, or only
+#                                                 one run exists: bash repro-check.sh runs several); a set BASH_SRC_SHA256 or
+#                                                 BASH_PATCHES_SHA256 that DIFFERS is refused too (exit 12)
 # Bases (USER decision 2026-10-06, DESIGN_DISTROLESS.md): final images FROM the pinned distroless cc image or FROM scratch; the
 # builders are pinned by digest; no Debian snapshot, apt or dpkg (the former --set full and --no-snapshot are refused: exit 2).
 # Every image's check stage (check-<target>: minimal/check.sh, or the tool's version for the toolchains) is built first, from
@@ -36,7 +43,7 @@ for a in "$@"; do case "$a" in --dry-run|--check) export EQ_NO_STATE_WRITE=1;; e
 cd "$here"
 
 SET=""; SET_GIVEN=0; PROFILES=""; ONLY=""; PROFILE=conservative; YES=0; DRY=0; FORCE=0; NOCACHE=0
-ACTION=build; WRITEPIN=0
+ACTION=build; WRITEPIN=0; REPRODUMP=0
 need() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "build.sh: $1 needs a value" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,6 +60,7 @@ while [ $# -gt 0 ]; do
     --uninstall) ACTION=uninstall;;
     --resolve-tools) ACTION=tools;;
     --write-pin) WRITEPIN=1;;
+    --repro-dump) REPRODUMP=1;;
     -h|--help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
     *) echo "build.sh: unknown argument: $1" >&2; exit 2;;
   esac
@@ -61,6 +69,8 @@ done
 EQ_BUILD_MEMORY=${EQ_BUILD_MEMORY:-8G}; EQ_BUILD_CPUS=${EQ_BUILD_CPUS:-4}
 
 [ "$WRITEPIN" = 0 ] || [ "$ACTION" = tools ] || { echo "build.sh: --write-pin works only with --resolve-tools" >&2; exit 2; }
+[ "$REPRODUMP" = 0 ] || [ "$ACTION" = tools ] || { echo "build.sh: --repro-dump works only with --resolve-tools" >&2; exit 2; }
+[ "$REPRODUMP" = 0 ] || [ "$WRITEPIN" = 0 ] || { echo "build.sh: --repro-dump and --write-pin exclude each other (--write-pin builds nothing)" >&2; exit 2; }
 case "$SET" in
   full) echo "build.sh: --set full was removed: the Debian image 'full' is gone (USER decision 2026-10-06, DESIGN_DISTROLESS.md); use --profiles core (the default) or --set min" >&2; exit 2;;
   ""|min|all) ;;
@@ -196,6 +206,25 @@ manifest_check() { # NAME: verify-tools.sh --manifest for one image (0 ok, 2 inv
 # The bash-report stage (Dockerfile.minimal) runs tc/build-bash.sh resolve: the key is fetched by fingerprint, the keyring must
 # hold exactly the pinned primary key, and the tarball and every patch must carry a good signature from it BEFORE anything is
 # hashed or built; it then prints `SIGNATURES OK ...` and one `PIN KEY VALUE pinned: same|DIFFERS (old)|PLACEHOLDER` line per pin.
+# Every run keeps its own log (tools-report-<stamp>-<pid>.log); a run that completes appends `EQ-REPORT KEY <hash>`, the hash of
+# the recipe (tc/build-bash.sh + Dockerfile.minimal without the three BASH_*_SHA256 ARG lines): reports with the same key came
+# from the same recipe, so their binaries must be equal. --write-pin reads the reports, it builds nothing.
+report_key() { # the hash of the inputs that decide the bash binary (the three pins' ARG lines are outputs, not inputs)
+  { printf 'RECIPE\n'; cat tc/build-bash.sh; printf 'DOCKERFILE\n'; LC_ALL=C grep -Ev '^ARG BASH_(SRC|PATCHES|BIN)_SHA256=' Dockerfile.minimal; } | tm_sha256_stdin
+}
+report_key_of() { LC_ALL=C grep -E '^EQ-REPORT KEY [0-9a-f]{64}$' "$1" 2>/dev/null | tail -n 1 | cut -d' ' -f3 || true; }
+report_pin_lines() { LC_ALL=C grep -o 'PIN BASH_[A-Z0-9_]* [0-9a-f]\{64\} pinned: [A-Za-z]*' "$1" | LC_ALL=C sort -u || true; }
+report_values() { # FILE: "KEY VALUE" per pin, sorted; 1 (and a reason on stdout) unless every pin has exactly one value
+  local f=$1 k n lines out=""
+  lines=$(report_pin_lines "$f")
+  for k in $BASH_PINS; do
+    n=$(printf '%s\n' "$lines" | awk -v k="$k" '$2 == k' | wc -l | tr -d ' ')
+    [ "$n" = 1 ] || { echo "the report holds $n values for $k (want exactly one)"; return 1; }
+    out="$out$k $(printf '%s\n' "$lines" | awk -v k="$k" '$2 == k { print $3 }')
+"
+  done
+  printf '%s' "$out"
+}
 if [ "$ACTION" = tools ]; then
   rbad=0
   for k in MUSL_BUILDER_IMAGE BASH_BASELINE BASH_PATCHLEVEL BASH_GPG_FPR; do
@@ -207,49 +236,87 @@ if [ "$ACTION" = tools ]; then
     out=$(pins_check min-both "$k") || { printf '%s\n' "$out" >&2; rbad=1; }
   done
   [ "$rbad" = 0 ] || { echo "PINS and the Dockerfile.minimal ARGs must be well-formed and agree before --resolve-tools" >&2; exit 2; }
-  eq_need_container
-  log="$EQ_STATE_DIR/tools-report.log"
-  echo "== bash-report: GNU bash $(pin_value BASH_BASELINE) patch level $(pin_value BASH_PATCHLEVEL), key $(pin_value BASH_GPG_FPR) (log $log)"
-  set +e
-  eqc build --progress plain --no-cache --platform linux/arm64 -m "$EQ_BUILD_MEMORY" -c "$EQ_BUILD_CPUS" \
-    -f Dockerfile.minimal --target bash-report -t "eq.invalid/eq-report:$$" . > "$log" 2>&1
-  rc=$?
-  set -e
-  eqc image delete "eq.invalid/eq-report:$$" >/dev/null 2>&1 || true
-  [ "$rc" = 0 ] || { tail -n 30 "$log" >&2; echo "the bash-report stage failed (rc $rc): a download, a signature or the build failed; nothing is pinned (see $log)" >&2; exit 12; }
+  if [ "$WRITEPIN" = 0 ]; then
+    eq_need_container
+    log="$EQ_STATE_DIR/tools-report-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
+    ( set -C; : > "$log" ) || { echo "build.sh: $log exists: a report is never overwritten" >&2; exit 12; }
+    echo "== bash-report: GNU bash $(pin_value BASH_BASELINE) patch level $(pin_value BASH_PATCHLEVEL), key $(pin_value BASH_GPG_FPR) (log $log)"
+    dargs=(); [ "$REPRODUMP" = 0 ] || dargs=(--build-arg BASH_REPRO_DUMP=1)
+    set +e
+    eqc build --progress plain --no-cache --platform linux/arm64 -m "$EQ_BUILD_MEMORY" -c "$EQ_BUILD_CPUS" \
+      ${dargs[@]+"${dargs[@]}"} -f Dockerfile.minimal --target bash-report -t "eq.invalid/eq-report:$$" . > "$log" 2>&1
+    rc=$?
+    set -e
+    eqc image delete "eq.invalid/eq-report:$$" >/dev/null 2>&1 || true
+    [ "$rc" = 0 ] || { tail -n 30 "$log" | cut -c1-300 >&2; echo "the bash-report stage failed (rc $rc): a download, a signature or the build failed; nothing is pinned (see $log)" >&2; exit 12; }
+    sig=$(LC_ALL=C grep -o 'SIGNATURES OK: .*' "$log" | head -n 1 || true)
+    [ -n "$sig" ] || { echo "no 'SIGNATURES OK' line in $log: nothing is pinned" >&2; exit 12; }
+    vals=$(report_values "$log") || { echo "$vals: nothing is pinned (see $log)" >&2; exit 12; }
+    lines=$(report_pin_lines "$log")
+    key=$(report_key)
+    printf 'EQ-REPORT KEY %s\n' "$key" >> "$log"
+    echo "$sig"
+    printf '%s\n' "$lines"
+    echo "REPORT $log"
+    # reproducibility against the earlier reports of the same recipe (information; --write-pin enforces it)
+    same=0; other=""
+    for f in "$EQ_STATE_DIR"/tools-report-*.log; do
+      [ -f "$f" ] && [ "$f" != "$log" ] && [ "$(report_key_of "$f")" = "$key" ] || continue
+      fv=$(report_values "$f") || continue
+      if [ "$fv" = "$vals" ]; then same=$((same + 1)); else other="$other $f"; fi
+    done
+    if [ -n "$other" ]; then echo "REPRODUCIBILITY: DIFFERS from$other (same recipe, other values): the bash build is not reproducible, do not pin"
+    elif [ "$same" = 0 ]; then echo "REPRODUCIBILITY: first report of this recipe: run again (bash repro-check.sh does it) before pinning"
+    else echo "REPRODUCIBILITY: the same three values as $same earlier report(s) of this recipe"; fi
+    echo "to pin, once at least two reports of one recipe agree: re-run with --write-pin (builds nothing; PINS, the Dockerfile.minimal ARGs and the bash entry of TOOLS.toml)"
+    exit 0
+  fi
+  # --write-pin: no build. The newest complete report, checked against the others of its recipe.
+  log=""; for f in "$EQ_STATE_DIR"/tools-report-*.log; do [ -f "$f" ] && [ -n "$(report_key_of "$f")" ] && log=$f; done
+  [ -n "$log" ] || { echo "no complete report in $EQ_STATE_DIR: run build.sh --resolve-tools (bash repro-check.sh runs it several times) first; nothing is pinned" >&2; exit 12; }
+  key=$(report_key_of "$log")
+  [ "$key" = "$(report_key)" ] || { echo "the newest complete report ($log) was made by another recipe than the present tc/build-bash.sh and Dockerfile.minimal: re-run --resolve-tools; nothing is pinned" >&2; exit 12; }
   sig=$(LC_ALL=C grep -o 'SIGNATURES OK: .*' "$log" | head -n 1 || true)
   [ -n "$sig" ] || { echo "no 'SIGNATURES OK' line in $log: nothing is pinned" >&2; exit 12; }
-  lines=$(LC_ALL=C grep -o 'PIN BASH_[A-Z0-9_]* [0-9a-f]\{64\} pinned: [A-Za-z]*' "$log" | LC_ALL=C sort -u || true)
-  for k in $BASH_PINS; do
-    n=$(printf '%s\n' "$lines" | awk -v k="$k" '$2 == k' | wc -l | tr -d ' ')
-    [ "$n" = 1 ] || { echo "the report holds $n values for $k (want exactly one): nothing is pinned (see $log)" >&2; exit 12; }
+  vals=$(report_values "$log") || { echo "$vals: nothing is pinned (see $log)" >&2; exit 12; }
+  same=0; other=""
+  for f in "$EQ_STATE_DIR"/tools-report-*.log; do
+    [ -f "$f" ] && [ "$f" != "$log" ] && [ "$(report_key_of "$f")" = "$key" ] || continue
+    fv=$(report_values "$f") || continue
+    if [ "$fv" = "$vals" ]; then same=$((same + 1)); else other="$other $f"; fi
   done
+  if [ -n "$other" ]; then
+    echo "the bash build is not reproducible: $log and$other come from the same recipe but hold other values; run bash repro-check.sh, fix the cause, nothing is pinned" >&2
+    exit 12
+  fi
+  [ "$same" -ge 1 ] || { echo "only one report ($log) exists for this recipe: pin a value that two builds agree on (bash repro-check.sh); nothing is pinned" >&2; exit 12; }
+  echo "report $log (+ $same agreeing report(s) of the same recipe)"
   echo "$sig"
-  printf '%s\n' "$lines"
-  if [ "$WRITEPIN" = 1 ]; then
-    # trust on first use: a GNU release file never changes, so a set source or patch pin that DIFFERS means a substituted (even
-    # if signed, e.g. an older release under the pinned name) file: refuse; BASH_BIN_SHA256 may drift with the builder's toolchain
-    if printf '%s\n' "$lines" | LC_ALL=C grep -Eq '^PIN BASH_(SRC|PATCHES)_SHA256 [0-9a-f]{64} pinned: DIFFERS'; then
-      echo "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS: released files never change, nothing is pinned; after a deliberate BASH_BASELINE or BASH_PATCHLEVEL change, set each changed pin to UNSET in PINS and in its Dockerfile.minimal ARG, then re-run" >&2
+  # trust on first use: a GNU release file never changes, so a set source or patch pin that DIFFERS means a substituted (even
+  # if signed, e.g. an older release under the pinned name) file: refuse. BASH_BIN_SHA256 may differ from the pin: the recipe
+  # (and so the binary) changed, which the agreeing reports above prove was deliberate and deterministic.
+  for k in BASH_SRC_SHA256 BASH_PATCHES_SHA256; do
+    pv=$(pin_value "$k"); v=$(printf '%s\n' "$vals" | awk -v k="$k" '$1 == k { print $2 }')
+    if ! is_placeholder "$pv" && [ "$pv" != "$v" ]; then
+      echo "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS ($k): released files never change, nothing is pinned; after a deliberate BASH_BASELINE or BASH_PATCHLEVEL change, set each changed pin to UNSET in PINS and in its Dockerfile.minimal ARG, then re-run" >&2
       exit 12
     fi
-    for k in $BASH_PINS; do
-      v=$(printf '%s\n' "$lines" | awk -v k="$k" '$2 == k { print $3 }')
-      tm_is_hex64 "$v" || { echo "the value for $k is not 64 lowercase hex: nothing more is pinned" >&2; exit 12; }
-      for f in PINS Dockerfile.minimal; do
-        if [ "$f" = PINS ]; then sed "s/^$k=.*/$k=$v/" "$f" > "$f.tmp.$$"; else sed "s/^ARG $k=.*/ARG $k=$v/" "$f" > "$f.tmp.$$"; fi
-        mv "$f.tmp.$$" "$f"
-      done
-      case "$k" in
-        BASH_SRC_SHA256) tm_set TOOLS.toml tool bash sha256 "$v";;
-        BASH_BIN_SHA256) tm_set TOOLS.toml tool bash file_sha256 "$v";;
-      esac
+  done
+  for k in $BASH_PINS; do
+    v=$(printf '%s\n' "$vals" | awk -v k="$k" '$1 == k { print $2 }')
+    tm_is_hex64 "$v" || { echo "the value for $k is not 64 lowercase hex: nothing more is pinned" >&2; exit 12; }
+    echo "PIN $k $v"
+    for f in PINS Dockerfile.minimal; do
+      if [ "$f" = PINS ]; then sed "s/^$k=.*/$k=$v/" "$f" > "$f.tmp.$$"; else sed "s/^ARG $k=.*/ARG $k=$v/" "$f" > "$f.tmp.$$"; fi
+      mv "$f.tmp.$$" "$f"
     done
-    tm_set TOOLS.toml tool bash checksum_source "GNU bash-$(pin_value BASH_BASELINE).tar.gz and patches 001-$(printf '%03d' "$(pin_value BASH_PATCHLEVEL)") GPG-verified against the primary key $(pin_value BASH_GPG_FPR) in the bash-report stage, then hashed (build.sh --resolve-tools --write-pin, $(date -u +%F)); the binary hash is trust on first use after that check"
-    echo "pinned BASH_SRC_SHA256, BASH_PATCHES_SHA256 and BASH_BIN_SHA256 in PINS and Dockerfile.minimal, and the bash entry of TOOLS.toml (sha256, file_sha256, checksum_source); review the diff, then commit it"
-  else
-    echo "to pin: re-run with --write-pin (PINS, the Dockerfile.minimal ARGs and the bash entry of TOOLS.toml)"
-  fi
+    case "$k" in
+      BASH_SRC_SHA256) tm_set TOOLS.toml tool bash sha256 "$v";;
+      BASH_BIN_SHA256) tm_set TOOLS.toml tool bash file_sha256 "$v";;
+    esac
+  done
+  tm_set TOOLS.toml tool bash checksum_source "GNU bash-$(pin_value BASH_BASELINE).tar.gz and patches 001-$(printf '%03d' "$(pin_value BASH_PATCHLEVEL)") GPG-verified against the primary key $(pin_value BASH_GPG_FPR) in the bash-report stage, then hashed (build.sh --resolve-tools --write-pin, $(date -u +%F), $((same + 1)) agreeing builds of one reproducible recipe); the binary hash is that recipe's output"
+  echo "pinned BASH_SRC_SHA256, BASH_PATCHES_SHA256 and BASH_BIN_SHA256 in PINS and Dockerfile.minimal, and the bash entry of TOOLS.toml (sha256, file_sha256, checksum_source); review the diff, then commit it"
   exit 0
 fi
 
@@ -327,7 +394,7 @@ for n in $NAMES; do
     echo "$msg" >&2
     case "$msg" in *placeholder*) PIN_PLACEHOLDER=1;; esac
     if [ "$PIN_PLACEHOLDER" = 1 ]; then
-      echo "unresolved pin: BASH_SRC_SHA256, BASH_PATCHES_SHA256 and BASH_BIN_SHA256 come from the GPG-checked bash build: from a normal terminal run bash lib/eq-container/build.sh --resolve-tools, review the printed values, then re-run it with --write-pin (checklist D2); any other key: see the comment above it in PINS" >&2
+      echo "unresolved pin: BASH_SRC_SHA256, BASH_PATCHES_SHA256 and BASH_BIN_SHA256 come from the GPG-checked bash build: from a normal terminal run bash lib/eq-container/repro-check.sh (it builds several times and says REPRODUCIBLE or DIFFERS), then bash lib/eq-container/build.sh --resolve-tools --write-pin, which pins the reproduced values (checklist D2); any other key: see the comment above it in PINS" >&2
       [ "$DRY" = 1 ] && continue
       exit 13
     fi

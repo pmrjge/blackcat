@@ -144,7 +144,7 @@ for t in $(tm_get image "$img" tools); do
       if [ -n "$fsha" ]; then want=$fsha
       elif [ "$march" = binary ] || [ "$mprov" = in-repo ]; then want=$msha; fi
       if [ -n "$want" ]; then
-        case "$want" in PLACEHOLDER|UNSET|"") echo "ERROR: tool $t: the installed file is unpinned (PLACEHOLDER in TOOLS.toml): run bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin" >&2; exit 13;; esac
+        case "$want" in PLACEHOLDER|UNSET|"") echo "ERROR: tool $t: the installed file is unpinned (PLACEHOLDER in TOOLS.toml): run bash lib/eq-container/repro-check.sh, then bash lib/eq-container/build.sh --resolve-tools --write-pin" >&2; exit 13;; esac
         [ "$h" = "$want" ] || die "tool $t: installed $f hashes to $h but TOOLS.toml pins $want"
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$t" "$mver" "$url" "$msha" "$h" "$(tm_get tool "$t" licence)" "$mprov" >> "$R/opt/eq/SBOM.tsv"

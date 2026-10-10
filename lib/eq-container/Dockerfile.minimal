@@ -125,7 +125,10 @@ RUN set -eux; cd /opt/eq/stack_mathlib && lake env printenv LEAN_PATH > /opt/eq/
 
 # ---------------------------------------------------------------- static GNU bash from the GPG-signed source (USER decision 1)
 # The ONE stage with a package manager: apk (signature-checked by apk, floating within Alpine 3.24), which is why the built
-# binary is pinned (BASH_BIN_SHA256). Discarded: only /opt/eq-bash-out/bin/bash leaves it.
+# binary is pinned (BASH_BIN_SHA256). Discarded: only /opt/eq-bash-out/bin/bash leaves it. The build is made reproducible by
+# tc/build-bash.sh itself (fixed build path /build, SOURCE_DATE_EPOCH, TZ/LC_ALL, prefix maps, no build-id, make -j1, full strip):
+# lib/eq-container/repro-check.sh builds the bash-report stage N times and compares the binaries; pin only after it says
+# REPRODUCIBLE. The apk package versions are printed as `DIAG apk` lines and are NOT pinned (a known open source of drift).
 FROM ${MUSL_BUILDER_IMAGE} AS bash-builder
 RUN apk add --no-cache build-base bison gnupg curl
 COPY tc/build-bash.sh /opt/eq-bash/build-bash.sh
@@ -147,6 +150,7 @@ ARG BASH_GPG_FPR
 ARG BASH_SRC_SHA256
 ARG BASH_PATCHES_SHA256
 ARG BASH_BIN_SHA256
+ARG BASH_REPRO_DUMP=0
 RUN sh /opt/eq-bash/build-bash.sh resolve /tmp/eq-bash-report
 
 # ---------------------------------------------------------------- prep: everything the assemble stages read

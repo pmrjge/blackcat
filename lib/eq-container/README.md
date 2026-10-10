@@ -17,7 +17,8 @@ backend (`lib/eq-docker`, never merged); Seatbelt/sandbox-exec and App Sandbox w
 | `eqc_json.py` | the one reader of the CLI's JSON (`image inspect`, `list --format json`) and of `image save` archives |
 | `TOOLS.toml`, `tools.sh` | the declarative tool manifest (every tool, url, sha256, provenance, allowlists per image class, images, profiles) and its reader |
 | `verify-tools.sh` | checks the manifest (`--manifest`) and the built images against it (`--images --deep --inspect` from the saved image, `--smoke`) |
-| `build.sh` | idempotent builds from `Dockerfile.minimal` (core, candidates) and `Dockerfile.toolchains` (extension images); `--profiles core,jvm`; a `check-<target>` stage is built first (a failure is exit 12); refuses a placeholder (13), a malformed pin (2) and a deferred profile (10); `--set full` is exit 2; `--resolve-tools [--write-pin]` prints (and writes) the three bash pins after the source signatures verified |
+| `build.sh` | idempotent builds from `Dockerfile.minimal` (core, candidates) and `Dockerfile.toolchains` (extension images); `--profiles core,jvm`; a `check-<target>` stage is built first (a failure is exit 12); refuses a placeholder (13), a malformed pin (2) and a deferred profile (10); `--set full` is exit 2; `--resolve-tools [--repro-dump]` builds the bash-report stage and keeps a report of the three bash pins (printed after the source signatures verified); `--resolve-tools --write-pin` builds nothing and pins the values that two or more reports of the present recipe agree on |
+| `repro-check.sh` | user-run: `build.sh --resolve-tools --repro-dump` N times (default 3), then `REPRODUCIBLE xN` or `DIFFERS` with a minimal diff of the builds (bytes, strings, the recipe's `DIAG` lines) in `$EQ_STATE_DIR/repro-*/report.txt` |
 | `base-pins.sh`, `base/` | host-side, no container: checks the pinned distroless base (format, the bytes in `base/` against the pins, `cosign verify` with the Google identity); edits nothing. `base/` keeps the index and arm64 manifest bytes the pins were read from |
 | `probe.sh`, `probe_inner.sh`, `probe.d/50-tunnel.sh` | the isolation proof (in-container rows, limit sub-probes, the image works under the flags) and the WALL tunnel probe |
 | `minimal/`, `tc/` | `mkrootfs.sh` (the one layer of the distroless-cc images: no shared object copied, every dynamic ELF must resolve against base + layer via the loader's `--list` in a chroot), `check.sh` (the `check-<target>` stage, run in the final filesystem as user 10001), `perl-shim`, `lake-shim`, `untar.py`; the toolchain recipes `fetch-tool.sh`, `mkrootfs-tc.sh`, `tc/build-bash.sh` (static bash from the GPG-signed source); `install-rust.sh` and `install-ghc.sh` stay for the deferred profiles |
@@ -43,9 +44,12 @@ The probe has three rows for this: `no_debug_shell`, `no_package_manager`, `netw
 and a connect to a closed port is refused, so the network rows cannot pass vacuously).
 
 Pins still open: `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256` and `BASH_BIN_SHA256` (`PINS`, `TOOLS.toml`). Until they are set, `core`
-stops with exit 13. Run `bash lib/eq-container/build.sh --resolve-tools` from a normal terminal: it prints the three values after
-"SIGNATURES OK"; review them, then run `--resolve-tools --write-pin` (writes `PINS`, the `Dockerfile.minimal` ARGs and `TOOLS.toml`;
-trust on first use after the signature check: a set source or patch pin that differs is refused, exit 12). `bash lib/eq-container/base-pins.sh` checks the base's authenticity (needs cosign).
+stops with exit 13. Run `bash lib/eq-container/repro-check.sh` from a normal terminal: it runs `build.sh --resolve-tools` three
+times (each prints the three values after "SIGNATURES OK" and keeps its report in the state directory) and compares the builds;
+the last line must be `REPRODUCIBLE x3` (otherwise `DIFFERS`, with the differing bytes, strings and `DIAG` lines in its report).
+Then `bash lib/eq-container/build.sh --resolve-tools --write-pin` builds nothing: it writes `PINS`, the `Dockerfile.minimal` ARGs
+and `TOOLS.toml` from the newest report, only if at least two reports of the present recipe agree and none disagrees (trust on
+first use after the signature check: a set source or patch pin that differs is refused, exit 12). `bash lib/eq-container/base-pins.sh` checks the base's authenticity (needs cosign).
 Re-pin of the distroless base (it is rebuilt often): fetch the new index and linux/arm64 manifest bytes into `base/`, change
 `DISTROLESS_CC` and `DISTROLESS_CC_ARM64` in `PINS` and the ARG defaults of both Dockerfiles together, run `base-pins.sh`, rebuild.
 
