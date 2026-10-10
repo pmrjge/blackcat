@@ -123,7 +123,7 @@ out["outcome"], out["gate"], out["needs_user"], out["report"]["status"], out["co
   agent_guard's `session-start.json`), else `StackNotLoaded`.
 - Hosts: `none` (default; unattended: needs `budget_usd`, deadline 3600 s, permission prompts off,
   `--settings` turning off plan's auto mode and sandboxed Bash auto-allow (probe E1; unverified) and no
-  caller `settings` overlay, ExitPlanMode and every builder agent denied under plan; fails closed if the
+  caller `settings` overlay, ExitPlanMode denied and, under plan, every builder agent and Workflow; fails closed if the
   mode is not plan or a repository's `.claude/agents` would add or shadow an agent), `"tty"` (the terminal; plan approval needs
   a printed nonce) or an app callable `can_use_tool` (only session addRules for the requested tool survive).
 - An explicit non-plan `permission_mode` is logged `gate_waived`; `bypassPermissions` is always refused.
