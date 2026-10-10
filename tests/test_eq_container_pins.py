@@ -7,10 +7,14 @@ before any `container build`. The bash pins (BASH_SRC_SHA256, BASH_PATCHES_SHA25
 (conftest.fill_bash_pins). verify-tools.sh --manifest runs on the real TOOLS.toml and on seeded copies; the awk reader
 (tools.sh) must agree with tomllib. base-pins.sh runs with a fake cosign, eqc_json.py base-verify on crafted index/manifest
 files, the perl shim against /usr/bin/perl, untar.py with tarfile.open patched to read a gzip tarball (the test interpreter has
-no zstd), tc/build-bash.sh (POSIX sh) with fake curl/gpg/tar/configure/... on PATH, build.sh --resolve-tools/--write-pin with
-the fake CLI printing a bash-report log. A mutated copy of the product directory can be tested by pointing EQ_CONTAINER_LIB at it.
+no zstd), tc/build-bash.sh (POSIX sh) with fake curl/gpg/tar/configure/... on PATH, build.sh --resolve-tools (one build, one
+kept report) and --write-pin (no build: two agreeing reports of the present recipe) with the fake CLI printing a bash-report
+log, repro-check.sh under sh, bash, zsh and dash with a stand-in build.sh. A mutated copy of the product directory can be
+tested by pointing EQ_CONTAINER_LIB at it.
 Run: /Users/pmrj/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_container_pins.py
 """
+import base64
+import gzip
 import hashlib
 import importlib.util
 import io
@@ -112,7 +116,7 @@ def test_core_stops_at_13_while_the_bash_pins_are_unset(eqc_env, pins_lib):
     assert p.returncode == 13, (p.stdout, p.stderr)
     for k in BASH_KEYS:
         assert "pin %s is a placeholder in PINS" % k in p.stderr, p.stderr
-    assert "build.sh --resolve-tools" in p.stderr and "--write-pin" in p.stderr
+    assert "repro-check.sh" in p.stderr and "build.sh --resolve-tools --write-pin" in p.stderr
     assert _no_build(eqc_env)
 
 
@@ -613,20 +617,115 @@ def resolve(eqc_env, lib, *args, rep=None, **extra):
     return eqc_env.run("build.sh", "--resolve-tools", *args, lib=lib, **knobs)
 
 
-def test_resolve_tools_prints_the_signature_line_and_the_three_pins(eqc_env, pins_lib):
+def write_pin(eqc_env, lib, **extra):
+    return eqc_env.run("build.sh", "--resolve-tools", "--write-pin", lib=lib, **extra)
+
+
+def recipe_key(lib: Path) -> str:
+    """build.sh report_key, recomputed: tc/build-bash.sh, then Dockerfile.minimal without its three valued BASH_*_SHA256 ARG
+    lines (those are what --write-pin writes: outputs of the recipe, not inputs)."""
+    lines = (lib / "Dockerfile.minimal").read_bytes().split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    kept = b"".join(ln + b"\n" for ln in lines if not re.match(rb"ARG BASH_(SRC|PATCHES|BIN)_SHA256=", ln))
+    return sha(b"RECIPE\n" + (lib / "tc" / "build-bash.sh").read_bytes() + b"DOCKERFILE\n" + kept)
+
+
+def reports(eqc_env) -> list:
+    return sorted(eqc_env.state.glob("tools-report-*.log"))
+
+
+def report_key_line(f: Path) -> str:
+    return f.read_text().splitlines()[-1]
+
+
+def two_reports(eqc_env, lib, **values):
+    """Two --resolve-tools runs whose builds print the same report (values: report()'s keywords)."""
+    for _ in range(2):
+        p = resolve(eqc_env, lib, rep=report(**values))
+        assert p.returncode == 0, (p.stdout, p.stderr)
+
+
+def write_report(eqc_env, lib: Path, stamp: str, key: str | None = None, complete: bool = True, sig: bool = True,
+                 extra: str = "", **values) -> Path:
+    """A report file named for STAMP the way --resolve-tools leaves it: the build log (build-step prefixes), then, when complete,
+    the EQ-REPORT KEY line of LIB's recipe (or KEY)."""
+    eqc_env.state.mkdir(parents=True, exist_ok=True)
+    body = [ln for ln in report(**values).splitlines() if sig or not ln.startswith("SIGNATURES OK")] + extra.splitlines()
+    text = "".join("#15 1.00 %s\n" % ln for ln in body)
+    if complete:
+        text += "EQ-REPORT KEY %s\n" % (key or recipe_key(lib))
+    f = eqc_env.state / ("tools-report-%s.log" % stamp)
+    f.write_text(text)
+    return f
+
+
+def test_resolve_tools_builds_once_keeps_a_report_and_writes_nothing(eqc_env, pins_lib):
     unset_bash(pins_lib)
     before = lib_digest(pins_lib)
     p = resolve(eqc_env, pins_lib)
     assert p.returncode == 0, (p.stdout, p.stderr)
     assert SIG_LINE in p.stdout and report().splitlines()[1] in p.stdout and report().splitlines()[3] in p.stdout
-    assert "to pin: re-run with --write-pin" in p.stdout
-    assert lib_digest(pins_lib) == before                                    # nothing is written without --write-pin
+    assert lib_digest(pins_lib) == before                                    # --resolve-tools never writes the lib
+    [log] = reports(eqc_env)
+    assert re.fullmatch(r"tools-report-\d{8}T\d{6}Z-\d+\.log", log.name) and "REPORT %s" % log in p.stdout.splitlines()
+    assert report_key_line(log) == "EQ-REPORT KEY " + recipe_key(pins_lib)   # complete: the recipe's key is the last line
+    assert "REPRODUCIBILITY: first report of this recipe" in p.stdout and "--write-pin" in p.stdout
     builds = [c for c in eqc_env.calls() if c[0] == "build"]
     assert len(builds) == 1, builds
     b = builds[0]
     assert b[b.index("--target") + 1] == "bash-report" and "--no-cache" in b and b[b.index("-f") + 1] == "Dockerfile.minimal", b
+    assert "--build-arg" not in b                                            # the binary is dumped only for --repro-dump
     tag = b[b.index("-t") + 1]
     assert re.fullmatch(r"eq\.invalid/eq-report:\d+", tag) and ["image", "delete", tag] in eqc_env.calls()
+
+
+def test_resolve_tools_repro_dump_asks_the_stage_for_the_binary(eqc_env, pins_lib):
+    unset_bash(pins_lib)
+    p = resolve(eqc_env, pins_lib, "--repro-dump")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    [b] = [c for c in eqc_env.calls() if c[0] == "build"]
+    assert b.count("--build-arg") == 1 and b[b.index("--build-arg") + 1] == "BASH_REPRO_DUMP=1", b
+    assert b[b.index("--target") + 1] == "bash-report" and "--no-cache" in b, b
+
+
+def test_resolve_tools_compares_with_the_earlier_reports_of_its_recipe(eqc_env, pins_lib):
+    """Information only, rc 0 either way: --write-pin is the gate."""
+    unset_bash(pins_lib)
+    assert resolve(eqc_env, pins_lib).returncode == 0
+    p = resolve(eqc_env, pins_lib)
+    assert p.returncode == 0 and "REPRODUCIBILITY: the same three values as 1 earlier report(s) of this recipe" in p.stdout, p.stdout
+    earlier = reports(eqc_env)
+    q = resolve(eqc_env, pins_lib, rep=report(bin_="8" * 64))
+    line = next((ln for ln in q.stdout.splitlines() if ln.startswith("REPRODUCIBILITY: DIFFERS from")), "")
+    assert q.returncode == 0 and "do not pin" in line and all(str(r) in line for r in earlier), q.stdout
+    assert len(reports(eqc_env)) == 3 and all(report_key_line(r).startswith("EQ-REPORT KEY ") for r in reports(eqc_env))
+
+
+def test_resolve_tools_never_overwrites_a_report(eqc_env, pins_lib):
+    """A report's name is its UTC second and build.sh's pid; should that file exist anyway, nothing is built or overwritten. The
+    `date` shim makes the stamp fixed and plants the file for its parent (and grandparent: either is build.sh)."""
+    unset_bash(pins_lib)
+    eqc_env.state.mkdir(parents=True, exist_ok=True)
+    shim = eqc_env.shims / "date"
+    shim.write_text('#!/bin/sh\nif [ "$*" = "-u +%Y%m%dT%H%M%SZ" ]; then\n'
+                    '  for p in $PPID $(ps -o ppid= -p $PPID 2>/dev/null); do\n'
+                    '    echo keep > "$EQ_STATE_DIR/tools-report-20990101T000000Z-$p.log"\n'
+                    '  done\n'
+                    '  echo 20990101T000000Z; exit 0\nfi\nexec /bin/date "$@"\n')
+    shim.chmod(0o755)
+    p = resolve(eqc_env, pins_lib)
+    assert p.returncode == 12 and "a report is never overwritten" in p.stderr, (p.stdout, p.stderr)
+    assert reports(eqc_env) and all(f.read_text() == "keep\n" for f in reports(eqc_env))
+    assert not [c for c in eqc_env.calls() if c[0] == "build"]
+
+
+def test_resolve_tools_ignores_reports_of_another_recipe_and_incomplete_ones(eqc_env, pins_lib):
+    unset_bash(pins_lib)
+    write_report(eqc_env, pins_lib, "20200101T000000Z-1", key="0" * 64, bin_="8" * 64)
+    write_report(eqc_env, pins_lib, "20200101T000000Z-2", complete=False, bin_="8" * 64)
+    p = resolve(eqc_env, pins_lib)
+    assert p.returncode == 0 and "REPRODUCIBILITY: first report of this recipe" in p.stdout, p.stdout
 
 
 def test_resolve_tools_reads_stdout_and_stderr_of_the_build(eqc_env, pins_lib):
@@ -643,46 +742,145 @@ def test_resolve_tools_reports_same_and_differs(eqc_env, filled):
 
 @pytest.mark.parametrize("key", ["BASH_SRC_SHA256", "BASH_PATCHES_SHA256"])
 def test_write_pin_refuses_a_differing_source_pin(eqc_env, filled, key):
-    """Trust on first use: a GNU release file never changes, so a set source/patch pin that DIFFERS (a substituted file, even a
-    signed one such as an older release under the pinned name) is refused, exit 12, nothing written."""
-    lines = report(st="same").splitlines()
-    i = 1 if key == "BASH_SRC_SHA256" else 2
-    lines[i] = "PIN %s %s pinned: DIFFERS (%s)" % (key, "8" * 64, lines[i].split()[2])
+    """Trust on first use: a GNU release file never changes, so a set source/patch pin that the agreeing reports contradict (a
+    substituted file, even a signed one such as an older release under the pinned name) is refused, exit 12, nothing written."""
+    vals = {"src": BASH_PIN_VALUES["BASH_SRC_SHA256"], "pat": BASH_PIN_VALUES["BASH_PATCHES_SHA256"],
+            "bin_": BASH_PIN_VALUES["BASH_BIN_SHA256"], "st": "same"}
+    vals["src" if key == "BASH_SRC_SHA256" else "pat"] = "8" * 64
+    two_reports(eqc_env, filled, **vals)
     before = lib_digest(filled)
-    p = resolve(eqc_env, filled, "--write-pin", rep="\n".join(lines))
-    assert p.returncode == 12 and "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS" in p.stderr, \
-        (p.returncode, p.stdout, p.stderr)
-    assert lib_digest(filled) == before
-    q = resolve(eqc_env, filled, rep="\n".join(lines))                    # without --write-pin: printed, rc 0, nothing written
-    assert q.returncode == 0 and "pinned: DIFFERS" in q.stdout and lib_digest(filled) == before, (q.stdout, q.stderr)
+    p = write_pin(eqc_env, filled)
+    assert p.returncode == 12, (p.returncode, p.stdout, p.stderr)
+    assert "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS (%s)" % key in p.stderr, p.stderr
+    assert lib_digest(filled) == before and "PIN BASH_" not in p.stdout
 
 
-def test_write_pin_accepts_a_differing_binary_pin(eqc_env, filled):
-    """BASH_BIN_SHA256 may drift with the builder's toolchain (the sources are the same): --write-pin re-pins it."""
-    lines = report(st="same").splitlines()
-    lines[3] = "PIN BASH_BIN_SHA256 %s pinned: DIFFERS (%s)" % ("8" * 64, lines[3].split()[2])
-    p = resolve(eqc_env, filled, "--write-pin", rep="\n".join(lines))
+def test_write_pin_accepts_a_binary_pin_that_differs_when_the_reports_agree(eqc_env, filled):
+    """A changed recipe gives another binary; reports that agree show the new one is deterministic: --write-pin re-pins it."""
+    two_reports(eqc_env, filled, src=BASH_PIN_VALUES["BASH_SRC_SHA256"], pat=BASH_PIN_VALUES["BASH_PATCHES_SHA256"],
+                bin_="8" * 64, st="same")
+    p = write_pin(eqc_env, filled)
     assert p.returncode == 0, (p.stdout, p.stderr)
     assert "BASH_BIN_SHA256=" + "8" * 64 in (filled / "PINS").read_text().splitlines()
+    assert "ARG BASH_BIN_SHA256=" + "8" * 64 in (filled / "Dockerfile.minimal").read_text().splitlines()
 
 
-def test_write_pin_pins_everything_and_the_core_gates_then_pass(eqc_env, pins_lib):
+def test_write_pin_builds_nothing_and_pins_what_two_reports_agree_on(eqc_env, pins_lib):
     unset_bash(pins_lib)
-    p = resolve(eqc_env, pins_lib, "--write-pin")
+    before = lib_digest(pins_lib)
+    assert resolve(eqc_env, pins_lib).returncode == 0
+    p = write_pin(eqc_env, pins_lib)                                         # one report proves nothing about reproducibility
+    assert p.returncode == 12 and "only one report" in p.stderr and "repro-check.sh" in p.stderr, (p.stdout, p.stderr)
+    assert lib_digest(pins_lib) == before
+    assert resolve(eqc_env, pins_lib).returncode == 0
+    n = len(eqc_env.calls())
+    p = write_pin(eqc_env, pins_lib)
     assert p.returncode == 0 and "pinned BASH_SRC_SHA256, BASH_PATCHES_SHA256 and BASH_BIN_SHA256" in p.stdout, (p.stdout, p.stderr)
+    assert len(eqc_env.calls()) == n                                         # --write-pin asks the container CLI nothing
+    assert "(+ 1 agreeing report(s) of the same recipe)" in p.stdout and SIG_LINE in p.stdout
     for f, fmt in (("PINS", "%s=%s"), ("Dockerfile.minimal", "ARG %s=%s")):
         text = (pins_lib / f).read_text()
         for k, v in (("BASH_SRC_SHA256", H_SRC), ("BASH_PATCHES_SHA256", H_PAT), ("BASH_BIN_SHA256", H_BIN)):
             assert (fmt % (k, v)) in text.splitlines(), (f, k)
+            assert "PIN %s %s" % (k, v) in p.stdout.splitlines()
     bash = next(t for t in tomllib.loads((pins_lib / "TOOLS.toml").read_text())["tool"] if t["name"] == "bash")
     assert bash["sha256"] == H_SRC and bash["file_sha256"] == H_BIN
     assert "GPG-verified" in bash["checksum_source"] and FPR in bash["checksum_source"] and "5.3.tar.gz" in bash["checksum_source"]
+    assert "2 agreeing builds of one reproducible recipe" in bash["checksum_source"], bash["checksum_source"]
     # PINS, the ARGs and the manifest agree now: the manifest passes, and the build gets as far as `container build`
     assert vt(pins_lib, "--profiles", "core").returncode == 0
     q = eqc_env.run("build.sh", "--profiles", "core", "--yes", lib=pins_lib)
     assert q.returncode == 0 and "BUILD: OK" in q.stdout, (q.stdout, q.stderr)
     # the file stays readable by the awk reader (the builder's) and by tomllib
     assert tm('tm_get tool bash sha256', pins_lib).stdout.strip() == H_SRC
+
+
+def test_write_pin_needs_no_container(eqc_env, pins_lib):
+    unset_bash(pins_lib)
+    two_reports(eqc_env, pins_lib)
+    n = len(eqc_env.calls())
+    p = write_pin(eqc_env, pins_lib, EQ_FAKE_CONTAINER_DOWN=1)
+    assert p.returncode == 0 and len(eqc_env.calls()) == n, (p.stdout, p.stderr)
+
+
+def test_write_pin_refuses_when_a_report_of_the_recipe_disagrees(eqc_env, pins_lib):
+    """Not reproducible: two reports agree, a third of the same recipe holds another binary: exit 12, nothing written."""
+    unset_bash(pins_lib)
+    two_reports(eqc_env, pins_lib)
+    assert resolve(eqc_env, pins_lib, rep=report(bin_="8" * 64)).returncode == 0
+    before = lib_digest(pins_lib)
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 12 and "the bash build is not reproducible" in p.stderr and "repro-check.sh" in p.stderr, \
+        (p.stdout, p.stderr)
+    assert lib_digest(pins_lib) == before and "PIN BASH_" not in p.stdout
+
+
+def test_write_pin_counts_only_complete_reports_of_the_present_recipe(eqc_env, pins_lib):
+    """A report of another recipe neither agrees nor disagrees, and the newest complete report must be of the present recipe; a
+    report without its EQ-REPORT KEY line (an interrupted or failed run) is not complete and is skipped."""
+    unset_bash(pins_lib)
+    write_report(eqc_env, pins_lib, "20200101T000000Z-1", key="0" * 64, bin_="8" * 64)
+    write_report(eqc_env, pins_lib, "20200101T000000Z-2", key="0" * 64)
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 12 and "made by another recipe" in p.stderr, p.stderr
+    write_report(eqc_env, pins_lib, "20200101T000001Z-3")
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 12 and "only one report" in p.stderr, p.stderr   # its other-recipe twin does not count
+    write_report(eqc_env, pins_lib, "20200101T000002Z-4")
+    write_report(eqc_env, pins_lib, "20200101T000003Z-5", complete=False, bin_="9" * 64)
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 0 and "(+ 1 agreeing report(s) of the same recipe)" in p.stdout, (p.stdout, p.stderr)
+    assert "tools-report-20200101T000002Z-4.log" in p.stdout                 # the newest COMPLETE report
+    assert "BASH_BIN_SHA256=" + H_BIN in (pins_lib / "PINS").read_text().splitlines()
+
+
+@pytest.mark.parametrize("rel", ["tc/build-bash.sh", "Dockerfile.minimal"])
+def test_write_pin_refuses_reports_made_before_the_recipe_changed(eqc_env, pins_lib, tmp_path, rel):
+    """Any edit of tc/build-bash.sh, or of Dockerfile.minimal outside the three valued BASH_*_SHA256 ARG lines, is another recipe."""
+    unset_bash(pins_lib)
+    two_reports(eqc_env, pins_lib)
+    lib = Path(shutil.copytree(pins_lib, tmp_path / "edited"))
+    with open(lib / rel, "a") as fh:
+        fh.write("\n# edited\n")
+    before = lib_digest(lib)
+    p = write_pin(eqc_env, lib)
+    assert p.returncode == 12 and "made by another recipe" in p.stderr, (p.stdout, p.stderr)
+    assert lib_digest(lib) == before
+
+
+def test_write_pin_twice_changes_nothing_the_pinned_args_are_no_part_of_the_recipe(eqc_env, pins_lib):
+    unset_bash(pins_lib)
+    two_reports(eqc_env, pins_lib)
+    assert write_pin(eqc_env, pins_lib).returncode == 0
+    after = lib_digest(pins_lib)
+    assert report_key_line(reports(eqc_env)[0]) == "EQ-REPORT KEY " + recipe_key(pins_lib)   # the ARG lines changed, the key not
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 0 and lib_digest(pins_lib) == after, (p.stdout, p.stderr)
+
+
+@pytest.mark.parametrize("why, kw, want", [
+    ("no-report", None, "no complete report"),
+    ("only-the-old-single-log", "old", "no complete report"),
+    ("only-incomplete", "incomplete", "no complete report"),
+    ("no-signature-line", dict(sig=False), "no 'SIGNATURES OK' line"),
+    ("two-values-for-one-pin", dict(extra="PIN BASH_BIN_SHA256 %s pinned: PLACEHOLDER" % ("8" * 64)),
+     "the report holds 2 values for BASH_BIN_SHA256"),
+])
+def test_write_pin_rereads_the_newest_report_and_fails_closed(eqc_env, pins_lib, why, kw, want):
+    """--write-pin trusts no earlier run's verdict: it re-checks the newest complete report's signature line and values."""
+    unset_bash(pins_lib)
+    eqc_env.state.mkdir(parents=True, exist_ok=True)
+    if kw == "old":
+        (eqc_env.state / "tools-report.log").write_text(report() + "\n")    # the earlier build.sh's single, overwritten log
+    elif kw == "incomplete":
+        write_report(eqc_env, pins_lib, "20200101T000001Z-2", complete=False)
+    elif kw is not None:                                                    # a good report, then a newer, damaged one
+        write_report(eqc_env, pins_lib, "20200101T000000Z-1")
+        write_report(eqc_env, pins_lib, "20200101T000001Z-2", **kw)
+    before = lib_digest(pins_lib)
+    p = write_pin(eqc_env, pins_lib)
+    assert p.returncode == 12 and want in p.stderr, (p.returncode, p.stdout, p.stderr)
+    assert lib_digest(pins_lib) == before and "PIN BASH_" not in p.stdout
 
 
 @pytest.mark.parametrize("why, rep, rc_build, want", [
@@ -698,10 +896,14 @@ def test_write_pin_pins_everything_and_the_core_gates_then_pass(eqc_env, pins_li
 def test_resolve_tools_fails_closed_and_writes_nothing(eqc_env, pins_lib, why, rep, rc_build, want):
     unset_bash(pins_lib)
     before = lib_digest(pins_lib)
-    p = resolve(eqc_env, pins_lib, "--write-pin", rep=rep, EQ_FAKE_CONTAINER_BUILD_RC=rc_build)
+    p = resolve(eqc_env, pins_lib, rep=rep, EQ_FAKE_CONTAINER_BUILD_RC=rc_build)
     assert p.returncode == 12, (p.returncode, p.stdout, p.stderr)
-    assert want in p.stderr and "PIN BASH_" not in p.stdout, (p.stdout, p.stderr)
+    assert want in p.stderr and "PIN BASH_" not in p.stdout and "REPORT " not in p.stdout, (p.stdout, p.stderr)
     assert lib_digest(pins_lib) == before
+    [log] = reports(eqc_env)                                                 # kept for the post-mortem, never complete
+    assert "EQ-REPORT KEY" not in log.read_text()
+    q = write_pin(eqc_env, pins_lib)
+    assert q.returncode == 12 and "no complete report" in q.stderr and lib_digest(pins_lib) == before, (q.stdout, q.stderr)
 
 
 def test_resolve_tools_the_same_line_twice_is_one_value(eqc_env, pins_lib):
@@ -737,15 +939,217 @@ def test_resolve_tools_refuses_a_half_set_bash_pin(eqc_env, pins_lib):
     assert p.returncode == 2 and "pin BASH_SRC_SHA256 is a placeholder in Dockerfile.minimal" in p.stderr and eqc_env.calls() == []
 
 
-def test_write_pin_without_resolve_tools_is_a_usage_error(eqc_env, pins_lib):
-    p = eqc_env.run("build.sh", "--write-pin", lib=pins_lib)
-    assert p.returncode == 2 and "--write-pin works only with --resolve-tools" in p.stderr and eqc_env.calls() == []
+@pytest.mark.parametrize("args, want", [
+    (["--write-pin"], "--write-pin works only with --resolve-tools"),
+    (["--repro-dump"], "--repro-dump works only with --resolve-tools"),
+    (["--check", "--repro-dump"], "--repro-dump works only with --resolve-tools"),
+    (["--resolve-tools", "--repro-dump", "--write-pin"], "--repro-dump and --write-pin exclude each other"),
+])
+def test_resolve_tools_flag_usage_errors(eqc_env, pins_lib, args, want):
+    p = eqc_env.run("build.sh", *args, lib=pins_lib)
+    assert p.returncode == 2 and want in p.stderr and eqc_env.calls() == [], (p.returncode, p.stderr)
+    assert not eqc_env.state.exists() or not reports(eqc_env)
 
 
 def test_resolve_tools_without_the_container_is_a_skip(eqc_env, pins_lib):
     unset_bash(pins_lib)
     p = resolve(eqc_env, pins_lib, EQ_FAKE_CONTAINER_DOWN=1)
     assert p.returncode == 10 and not [c for c in eqc_env.calls() if c[0] == "build"]
+    assert not eqc_env.state.exists() or not reports(eqc_env)
+
+
+# ================================================================================ repro-check.sh
+# A stand-in build.sh: run N plays the Nth word of FAKE_RUNS. A label (A, B, ...) names the binary the run "built" (one label,
+# one binary); a suffix damages the dump in the report: -clipped (no data, as a build-log size limit leaves it), -corrupt (data
+# that decodes to other bytes). `fail` exits 12 like a failed build, `noreport` prints the pins but no REPORT line.
+FAKE_BUILD_SH = r'''#!/bin/bash
+set -eu
+d=$FAKE_DIR
+n=$(( $(cat "$d/count" 2> /dev/null || echo 0) + 1 )); echo "$n" > "$d/count"
+printf '%s\n' "$*" >> "$d/args"
+label=$(printf '%s\n' $FAKE_RUNS | sed -n "${n}p")
+[ "$label" != fail ] || { echo "the bash-report stage failed (rc 1)" >&2; exit 12; }
+sha() { if command -v shasum > /dev/null 2>&1; then shasum -a 256; else sha256sum; fi | cut -d' ' -f1; }
+printf 'fake binary %s\n' "${label%%-*}" > "$d/bin-$n"
+bin=$(sha < "$d/bin-$n")
+log="$d/tools-report-$n.log"
+{
+  echo "#15 0.10 SIGNATURES OK: bash-5.3.tar.gz and 20 patches, primary key @FPR@"
+  echo "#15 0.20 REPRO SOURCE_DATE_EPOCH=0 TZ=UTC LC_ALL=C build_dir=/build/bash-5.3 make=-j1"
+  echo "#15 0.30 DIAG tool gcc: gcc (Fake) 15.2.0"
+  echo "#15 0.40 DIAG obj $bin ./shell.o"
+  echo "#15 0.50 PIN BASH_SRC_SHA256 @SRC@ pinned: PLACEHOLDER"
+  echo "#15 0.50 PIN BASH_PATCHES_SHA256 @PAT@ pinned: PLACEHOLDER"
+  echo "#15 0.60 PIN BASH_BIN_SHA256 $bin pinned: PLACEHOLDER"
+  echo "#15 0.70 BINB64 BEGIN $bin"
+  case "$label" in
+    *-clipped) ;;
+    *-corrupt) printf 'other bytes\n' | gzip -c | base64 | sed 's/^/#15 0.80 BINB64 DATA /';;
+    *) gzip -c < "$d/bin-$n" | base64 | sed 's/^/#15 0.80 BINB64 DATA /';;
+  esac
+  echo "#15 0.90 BINB64 END $bin"
+  echo "EQ-REPORT KEY @KEY@"
+} > "$log"
+echo "SIGNATURES OK: bash-5.3.tar.gz and 20 patches, primary key @FPR@"
+echo "PIN BASH_SRC_SHA256 @SRC@ pinned: PLACEHOLDER"
+echo "PIN BASH_PATCHES_SHA256 @PAT@ pinned: PLACEHOLDER"
+echo "PIN BASH_BIN_SHA256 $bin pinned: PLACEHOLDER"
+[ "$label" = noreport ] || echo "REPORT $log"
+'''.replace("@FPR@", FPR).replace("@SRC@", H_SRC).replace("@PAT@", H_PAT).replace("@KEY@", "0" * 64)
+SHELLS = [s for s in ("/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash") if os.access(s, os.X_OK)]
+
+
+class Repro:
+    """repro-check.sh (and LAYOUT) in a directory of its own, next to the stand-in build.sh."""
+
+    def __init__(self, tmp: Path):
+        self.t = tmp
+        self.lib = tmp / "lib"
+        self.lib.mkdir()
+        for f in ("repro-check.sh", "LAYOUT"):
+            shutil.copy(EQC_LIB / f, self.lib / f)
+        (self.lib / "build.sh").write_text(FAKE_BUILD_SH)
+        self.fake = tmp / "fake"
+        self.fake.mkdir()
+        self.state = tmp / "state"
+        (tmp / "home").mkdir()
+        (tmp / "tmp").mkdir()
+
+    def run(self, runs: str, *args, sh: str = "/bin/sh", state: bool = True):
+        e = {"PATH": "/usr/bin:/bin", "HOME": str(self.t / "home"), "TMPDIR": str(self.t / "tmp"), "LC_ALL": "C",
+             "FAKE_DIR": str(self.fake), "FAKE_RUNS": runs}
+        if state:
+            e["EQ_STATE_DIR"] = str(self.state)
+        return subprocess.run([sh, str(self.lib / "repro-check.sh"), *args], env=e, cwd=str(self.t), capture_output=True,
+                              text=True, timeout=120, check=False)
+
+    def count(self) -> int:
+        f = self.fake / "count"
+        return int(f.read_text()) if f.exists() else 0
+
+    def dirs(self) -> list:
+        return sorted(self.state.glob("repro-*")) if self.state.exists() else []
+
+
+@pytest.fixture
+def rc(tmp_path):
+    return Repro(tmp_path)
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_repro_check_reproducible(rc, shell):
+    p = rc.run("A A A", sh=shell)
+    assert p.returncode == 0 and p.stdout.splitlines()[-1] == "REPRODUCIBLE x3", (shell, p.stdout, p.stderr)
+    assert rc.count() == 3 and (rc.fake / "args").read_text().splitlines() == ["--resolve-tools --repro-dump"] * 3
+    [d] = rc.dirs()
+    assert re.fullmatch(r"repro-\d{8}T\d{6}Z-\d+", d.name) and (d.stat().st_mode & 0o777) == 0o700
+    rep = (d / "report.txt").read_text()
+    assert rep.splitlines()[-1] == "REPRODUCIBLE x3" and "bash %s/build.sh --resolve-tools --write-pin" % rc.lib in rep
+    assert "BASH_BIN_SHA256 %s" % sha(b"fake binary A\n") in rep
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_repro_check_differs_shows_the_bytes_the_strings_and_the_diag_lines(rc, shell):
+    p = rc.run("A A B", sh=shell)
+    assert p.returncode == 1 and p.stdout.splitlines()[-1] == "DIFFERS (2 distinct)", (shell, p.stdout, p.stderr)
+    [d] = rc.dirs()
+    rep = (d / "report.txt").read_text()
+    assert rep == p.stdout                                                    # the report is what was printed
+    assert "-- run 1 vs run 3" in rep and "-- run 1 vs run 2" not in rep    # run 2 agrees with run 1: not compared
+    assert "1 differing byte positions" in rep and re.search(r"^ +13 101 102$", rep, re.M), rep     # 'A' (0101) vs 'B' (0102)
+    assert "    < fake binary A" in rep and "    > fake binary B" in rep
+    assert "    < DIAG obj %s ./shell.o" % sha(b"fake binary A\n") in rep and "    > DIAG obj %s" % sha(b"fake binary B\n") in rep
+    assert (d / "run-1.bin").read_bytes() == b"fake binary A\n" and (d / "run-3.bin").read_bytes() == b"fake binary B\n"
+
+
+@pytest.mark.parametrize("runs", ["A B-clipped", "A B-corrupt", "A-corrupt B"])
+def test_repro_check_compares_no_bytes_it_could_not_recover(rc, runs):
+    """A dump clipped by a log limit, or one that does not hash to the binary its build printed, is never compared: the DIAG
+    lines remain."""
+    p = rc.run(runs, "--runs", "2")
+    assert p.returncode == 1 and p.stdout.splitlines()[-1] == "DIFFERS (2 distinct)", (p.stdout, p.stderr)
+    assert "could not be recovered from the logs" in p.stdout and "differing byte positions" not in p.stdout
+    assert "DIAG lines that differ" in p.stdout and "    > DIAG obj %s" % sha(b"fake binary B\n") in p.stdout
+
+
+@pytest.mark.parametrize("runs, rc_, at", [("A fail A", 12, "BUILD FAILED (run 2, rc 12)"),
+                                           ("noreport A A", 12, "BUILD FAILED (run 1, rc 0: no report)")])
+def test_repro_check_stops_at_the_first_failed_build(rc, runs, rc_, at):
+    p = rc.run(runs)
+    assert p.returncode == rc_ and p.stdout.splitlines()[-1] == at, (p.stdout, p.stderr)
+    assert rc.count() == int(at.split("run ")[1].split(",")[0])              # no build after the failed one
+
+
+@pytest.mark.parametrize("args, n", [(["--runs", "2"], 2), (["--runs=4"], 4), (["--runs", "10"], 10)])
+def test_repro_check_runs(rc, args, n):
+    p = rc.run(" ".join(["A"] * n), *args)
+    assert p.returncode == 0 and p.stdout.splitlines()[-1] == "REPRODUCIBLE x%d" % n and rc.count() == n, (p.stdout, p.stderr)
+
+
+@pytest.mark.parametrize("args", [["--runs", "1"], ["--runs", "11"], ["--runs", "0"], ["--runs", "02"], ["--runs", "x"],
+                                  ["--runs", ""], ["--runs=-3"], ["--runs"], ["--bogus"], ["A"]])
+def test_repro_check_usage_errors_build_nothing(rc, args):
+    p = rc.run("A A A", *args)
+    assert p.returncode == 2 and p.stderr.startswith("repro-check.sh: "), (args, p.returncode, p.stderr)
+    assert rc.count() == 0 and rc.dirs() == []
+
+
+def test_repro_check_help_and_its_state_directory(rc, tmp_path):
+    p = rc.run("A A A", "--help")
+    assert p.returncode == 0 and "REPRODUCIBLE" in p.stdout and "--write-pin" in p.stdout and rc.count() == 0
+    assert not p.stdout.startswith("#") and "repro-check.sh [--runs N]" in p.stdout
+    # LAYOUT = repo and no EQ_STATE_DIR: the repo's state directory under HOME; every run gets a directory of its own
+    p = rc.run("A A A A A A", state=False)
+    q = rc.run("A A A A A A", state=False)
+    base = tmp_path / "home" / ".local" / "state" / "claude-agent-stack" / "eq-container"
+    assert p.returncode == 0 and q.returncode == 0, (p.stdout, q.stdout)
+    assert len(list(base.glob("repro-*/report.txt"))) == 2
+    (rc.lib / "build.sh").unlink()
+    r = rc.run("A A A")
+    assert r.returncode == 2 and "build.sh not found" in r.stderr
+
+
+def test_repro_check_drives_the_real_build_sh_then_write_pin_pins(eqc_env, pins_lib):
+    """End to end with the fake container: three --resolve-tools --repro-dump builds, REPRODUCIBLE x3, then --write-pin."""
+    unset_bash(pins_lib)
+    p = eqc_env.run("repro-check.sh", lib=pins_lib, EQ_FAKE_CONTAINER_REPORT=report())
+    assert p.returncode == 0 and p.stdout.splitlines()[-1] == "REPRODUCIBLE x3", (p.stdout, p.stderr)
+    builds = [c for c in eqc_env.calls() if c[0] == "build"]
+    assert len(builds) == 3 and all(b[b.index("--build-arg") + 1] == "BASH_REPRO_DUMP=1" for b in builds), builds
+    assert len(reports(eqc_env)) == 3
+    q = write_pin(eqc_env, pins_lib)
+    assert q.returncode == 0 and "(+ 2 agreeing report(s) of the same recipe)" in q.stdout, (q.stdout, q.stderr)
+
+
+def test_an_earlier_disagreeing_report_blocks_write_pin_after_a_reproducible_check(eqc_env, pins_lib):
+    """repro-check compares its own runs only; --write-pin also counts an older report of the recipe (apk drift between
+    sessions): it refuses, names the report and the way out, and pins once that report is moved aside after review."""
+    unset_bash(pins_lib)
+    stale = write_report(eqc_env, pins_lib, "20200101T000000Z-1", bin_="8" * 64)
+    p = eqc_env.run("repro-check.sh", "--runs", "2", lib=pins_lib, EQ_FAKE_CONTAINER_REPORT=report())
+    assert p.returncode == 0 and p.stdout.splitlines()[-1] == "REPRODUCIBLE x2" and "EARLIER report" in p.stdout, p.stdout
+    before = lib_digest(pins_lib)
+    q = write_pin(eqc_env, pins_lib)
+    assert q.returncode == 12 and str(stale) in q.stderr and "move the stale report(s) out of" in q.stderr, (q.stdout, q.stderr)
+    assert "DIAG lines" in q.stderr and lib_digest(pins_lib) == before
+    stale.rename(eqc_env.t / stale.name)
+    r = write_pin(eqc_env, pins_lib)
+    assert r.returncode == 0 and "BASH_BIN_SHA256=" + H_BIN in (pins_lib / "PINS").read_text().splitlines(), (r.stdout, r.stderr)
+
+
+def test_resolve_tools_a_recipe_edited_during_the_build_leaves_the_report_incomplete(eqc_env, pins_lib, tmp_path):
+    """The key is taken before the build and re-checked after it: a report never carries the key of a recipe it was not
+    built from (an edit or a checkout during a run of several minutes)."""
+    unset_bash(pins_lib)
+    cli = tmp_path / "edit-cli"
+    cli.write_text('#!/bin/bash\n[ "$1" != build ] || echo "# edited" >> "%s"\nexec "%s" "$@"\n'
+                   % (pins_lib / "tc" / "build-bash.sh", eqc_env.cli))
+    cli.chmod(0o755)
+    p = resolve(eqc_env, pins_lib, EQ_CONTAINER_BIN=cli)
+    assert p.returncode == 12 and "changed during the build" in p.stderr and "REPORT " not in p.stdout, (p.stdout, p.stderr)
+    [log] = reports(eqc_env)
+    assert "EQ-REPORT KEY" not in log.read_text()
+    assert [c for c in eqc_env.calls() if c[0] == "build"]                   # it did build: the edit came during the build
 
 
 # ================================================================================ base-pins.sh (cosign faked)
@@ -1440,14 +1844,31 @@ for f in a:
 FAKE_MKTEMP = '''#!/bin/sh
 exec /usr/bin/mktemp -d "$TMPDIR/bb.XXXXXX"
 '''
+# tar honours -C (the recipe unpacks into its fixed build root); configure records where and with which environment it ran
 FAKE_TAR = '''#!/bin/sh
 echo tar >> "$FAKE_LOG/marks"
-d="bash-$BASH_BASELINE"; mkdir -p "$d"
-printf '#!/bin/sh\\necho configure >> "$FAKE_LOG/marks"\\nexit 0\\n' > "$d/configure"; chmod +x "$d/configure"
+dir=.
+while [ $# -gt 0 ]; do [ "$1" != -C ] || dir=$2; shift; done
+d="$dir/bash-$BASH_BASELINE"; mkdir -p "$d"
+cat > "$d/configure" << 'EOF'
+#!/bin/sh
+echo configure >> "$FAKE_LOG/marks"
+pwd -P > "$FAKE_LOG/configure.pwd"
+env > "$FAKE_LOG/configure.env"
+echo "#define FAKE 1" > config.h
+EOF
+chmod +x "$d/configure"
 '''
 FAKE_MAKE = '''#!/bin/sh
+[ "$*" != --version ] || { echo "GNU Make 4.4.1"; exit 0; }
 echo make >> "$FAKE_LOG/marks"
+printf '%s\\n' "$*" > "$FAKE_LOG/make.args"
+env > "$FAKE_LOG/make.env"
+echo obj > shell.o
 cp "$FAKE_LOG/fake-bash" bash; chmod +x bash
+'''
+FAKE_APK = '''#!/bin/sh
+[ "$*" = "info -v" ] && printf 'zlib-1.3.1-r2\\nmusl-1.2.5-r10\\n'
 '''
 FAKE_BASH_BIN = '''#!/bin/sh
 case "$*" in
@@ -1461,11 +1882,16 @@ case "$*" in
 esac
 '''
 FAKE_READELF = '''#!/bin/sh
-[ -n "$FAKE_READELF_DYNAMIC" ] || exit 0
 case "$1" in
-  -lW) echo "      [Requesting program interpreter: /lib/ld-musl-aarch64.so.1]";;
-  -dW) echo " 0x0000000000000001 (NEEDED)             Shared library: [libc.musl-aarch64.so.1]";;
+  -lW) [ -z "$FAKE_READELF_DYNAMIC" ] || echo "      [Requesting program interpreter: /lib/ld-musl-aarch64.so.1]";;
+  -dW) [ -z "$FAKE_READELF_DYNAMIC" ] || echo " 0x0000000000000001 (NEEDED)             Shared library: [libc.musl-aarch64.so.1]";;
+  -SW) [ -z "$FAKE_READELF_COMMENT" ] || echo "  [27] .comment          PROGBITS        0000000000000000 0f2e10 000012 01  MS  0   0  1";;
+  -nW) [ -z "$FAKE_READELF_BUILDID" ] || {
+         echo "Displaying notes found in: .note.gnu.build-id"
+         echo "  GNU                  0x00000014	NT_GNU_BUILD_ID (unique build ID bitstring)"
+         echo "    Build ID: 0123456789abcdef0123456789abcdef01234567"; };;
 esac
+exit 0
 '''
 GPG_KEYS = "tru::1:1:1:0:3:1:5\npub:u:4096:1:BB5869F064EA74AB:1:::u:::scESC:::::::\nfpr:::::::::%s:\nuid:u::::1::X::Chet Ramey::::::::::0:\nsub:u:4096:1:AAAA:1::::::e:::::::\nfpr:::::::::%s:"
 SUBFPR = "0123456789ABCDEF0123456789ABCDEF01234567"
@@ -1485,9 +1911,12 @@ class BashBuild:
         self.tmpdir = tmp / "tmp"
         self.tmpdir.mkdir()
         for name, text in (("mktemp", FAKE_MKTEMP), ("curl", FAKE_CURL_BB), ("gpg", FAKE_GPG), ("sha256sum", FAKE_SHA256SUM), ("tar", FAKE_TAR), ("make", FAKE_MAKE),
-                           ("readelf", FAKE_READELF)):
+                           ("readelf", FAKE_READELF), ("apk", FAKE_APK)):
             self.stub(name, text)
-        for name, body in (("patch", 'echo patch >> "$FAKE_LOG/marks"\n'), ("strip", ""), ("nproc", "echo 2\n")):
+        for name, body in (("patch", '[ "$*" != --version ] || { echo "GNU patch 2.8"; exit 0; }\necho patch >> "$FAKE_LOG/marks"\n'),
+                           ("strip", 'printf "%s\\n" "$*" > "$FAKE_LOG/strip.args"\n'),
+                           ("nproc", "echo 2\n"), ("gcc", 'echo "gcc (Fake) 15.2.0"\n'), ("ld", 'echo "GNU ld (Fake) 2.45.1"\n'),
+                           ("bison", 'echo "bison (GNU Bison) 3.8.2"\n')):
             self.stub(name, "#!/bin/sh\n" + body)
         (self.log / "fake-bash").write_text(FAKE_BASH_BIN)
         self.patchlevel = patchlevel
@@ -1496,9 +1925,10 @@ class BashBuild:
         lines = "".join("%s  %s\n" % (sha(("fake patch %s\n" % n).encode()), n) for n in names)
         self.pat = sha(lines.encode())
         self.bin = sha(FAKE_BASH_BIN.encode())
+        self.root = tmp / "build"                                            # BASH_BUILD_ROOT: the image's /build
         self.env = {"BASH_BASELINE": "5.3", "BASH_PATCHLEVEL": patchlevel, "BASH_GPG_FPR": FPR, "BASH_SRC_SHA256": self.src,
                     "BASH_PATCHES_SHA256": self.pat, "BASH_BIN_SHA256": self.bin, "FAKE_GPG_KEYS": GPG_KEYS % (FPR, SUBFPR),
-                    "FAKE_GPG_STATUS": STATUS_GOOD, "FAKE_GPG_STATUS_BAD": STATUS_GOOD}
+                    "FAKE_GPG_STATUS": STATUS_GOOD, "FAKE_GPG_STATUS_BAD": STATUS_GOOD, "BASH_BUILD_ROOT": str(self.root)}
 
     def stub(self, name, text):
         p = self.fakes / name
@@ -1666,6 +2096,8 @@ def test_build_bash_a_hash_that_differs_from_the_pin_stops_before_tar(bb, key, n
                                        ({"FAKE_BASH_VERSION": "5.3.19"}, "reports"),
                                        ({"FAKE_BASH_TCP": "connected"}, "/dev/tcp/127.0.0.1/1 connected"),
                                        ({"FAKE_BASH_TCP": "missing"}, "/dev/tcp redirection missing"),
+                                       ({"FAKE_READELF_COMMENT": "1"}, "still has a .comment section"),
+                                       ({"FAKE_READELF_BUILDID": "1"}, "still has a build id"),
                                        ({"BASH_BIN_SHA256": "9" * 64}, "BASH_BIN_SHA256: computed")])
 def test_build_bash_the_built_binary_must_be_static_versioned_networked_and_pinned(bb, env, want):
     p = bb.run("build", **env)
@@ -1695,6 +2127,101 @@ def test_build_bash_resolve_mode_still_refuses_a_bad_signature(bb):
     p = bb.run("resolve", BASH_SRC_SHA256="UNSET", BASH_PATCHES_SHA256="UNSET", BASH_BIN_SHA256="UNSET",
                FAKE_GPG_BAD_FILE="bash.tar.gz", FAKE_GPG_STATUS_BAD="[GNUPG:] BADSIG X y")
     assert p.returncode == 1 and "PIN " not in p.stdout and "SIGNATURES OK" not in p.stdout and bb.marks() == []
+
+
+def _env_value(f: Path, key: str):
+    """KEY's value in an `env` listing (None when unset)."""
+    return next((ln.split("=", 1)[1] for ln in f.read_text().splitlines() if ln.startswith(key + "=")), None)
+
+
+def test_build_bash_the_reproducibility_settings_reach_configure_make_and_strip(bb):
+    """What the recipe sets against the identified cause (no -g, the fixed tree mapped to /src, no build id, strip drops the
+    compiler ident and the build id) and the defensive rest (constant SOURCE_DATE_EPOCH, TZ, locale; serial make), even when the
+    caller's environment says otherwise."""
+    p = bb.run("build", CFLAGS="-g -O0", LDFLAGS="-Wl,--build-id=sha1", MAKEFLAGS="-j8", TZ="Europe/Lisbon", LC_ALL="pt_PT.UTF-8",
+               SOURCE_DATE_EPOCH="1")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    bd = bb.root.resolve() / "bash-5.3"
+    assert Path((bb.log / "configure.pwd").read_text().strip()) == bd
+    cenv = bb.log / "configure.env"
+    cflags = _env_value(cenv, "CFLAGS").split()
+    assert "-O2" in cflags and not [f for f in cflags if f.startswith("-g")], cflags
+    assert "-ffile-prefix-map=%s/bash-5.3=/src" % bb.root in cflags and "-fdebug-prefix-map=%s/bash-5.3=/src" % bb.root in cflags
+    assert "-frandom-seed=bash-5.3.2" in cflags
+    assert _env_value(cenv, "LDFLAGS") == "-Wl,--build-id=none"
+    assert (_env_value(cenv, "SOURCE_DATE_EPOCH"), _env_value(cenv, "TZ"), _env_value(cenv, "LC_ALL")) == ("0", "UTC", "C")
+    assert (bb.log / "make.args").read_text().split() == ["-j1"] and _env_value(bb.log / "make.env", "MAKEFLAGS") is None
+    assert (bb.log / "strip.args").read_text().split() == ["--strip-all", "-R", ".comment", "-R", ".note", "-R",
+                                                           ".note.gnu.build-id", "bash"]
+    assert "REPRO SOURCE_DATE_EPOCH=0 TZ=UTC LC_ALL=C build_dir=%s/bash-5.3 make=-j1" % bb.root in p.stdout.splitlines()
+    assert not (bb.root / "bash-5.3").exists()                               # the tree is removed after the build
+
+
+def test_build_bash_prints_the_diag_lines_two_builds_are_compared_by(bb):
+    p = bb.run("resolve")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    diag = [ln for ln in p.stdout.splitlines() if ln.startswith("DIAG ")]
+    for want in ("DIAG tool gcc: gcc (Fake) 15.2.0", "DIAG tool ld: GNU ld (Fake) 2.45.1", "DIAG tool bison: bison (GNU Bison) 3.8.2",
+                 "DIAG tool make: GNU Make 4.4.1", "DIAG tool patch: GNU patch 2.8",
+                 "DIAG config.h %s" % sha(b"#define FAKE 1\n"), "DIAG obj %s ./shell.o" % sha(b"obj\n"),
+                 "DIAG unstripped %s" % bb.bin):
+        assert want in diag, (want, diag)
+    assert [ln for ln in diag if ln.startswith("DIAG apk ")] == ["DIAG apk musl-1.2.5-r10", "DIAG apk zlib-1.3.1-r2"]   # sorted
+    assert diag.index("DIAG config.h %s" % sha(b"#define FAKE 1\n")) < diag.index("DIAG obj %s ./shell.o" % sha(b"obj\n"))
+
+
+def test_build_bash_source_date_epoch_is_the_release_date_of_5_3_20(tmp_path):
+    b = BashBuild(tmp_path, patchlevel="20")
+    p = b.run("build")
+    assert p.returncode == 0 and "REPRO SOURCE_DATE_EPOCH=1789344000 TZ=UTC" in p.stdout, (p.stdout, p.stderr)
+    assert _env_value(b.log / "configure.env", "SOURCE_DATE_EPOCH") == "1789344000"   # 2026-09-14T00:00:00Z
+
+
+def test_build_bash_a_leftover_tree_is_removed_before_unpacking(bb):
+    stale = bb.root / "bash-5.3" / "stale.o"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("old")
+    p = bb.run("build")
+    assert p.returncode == 0 and "stale.o" not in p.stdout and not stale.exists(), (p.stdout, p.stderr)
+
+
+@pytest.mark.parametrize("root", ["build", "/", "/tmp/a b", "/tmp/../etc", "/tmp/x/..", "/tmp//x", "/tmp/./x", "/tmp/x/.",
+                                  "/tmp/$(id)", "/tmp/x;y", "/tmp/x\ny"])
+def test_build_bash_a_bad_build_root_is_refused_before_any_download(bb, root):
+    p = bb.run("build", BASH_BUILD_ROOT=root)
+    assert p.returncode == 1 and "BASH_BUILD_ROOT" in p.stderr, (root, p.returncode, p.stderr)
+    assert bb.curls() == [] and bb.marks() == [] and not (bb.log / "gpg.log").exists()
+
+
+def test_build_bash_the_build_root_is_fixed_in_the_images():
+    """No Dockerfile ARG passes BASH_BUILD_ROOT, so the image builds always use the recipe's default, /build."""
+    assert re.search(r"^root=\$\{BASH_BUILD_ROOT:-/build\}$", (EQC_LIB / "tc" / "build-bash.sh").read_text(), re.M)
+    for df in ("Dockerfile.minimal", "Dockerfile.toolchains"):
+        assert "BASH_BUILD_ROOT" not in (EQC_LIB / df).read_text(), df
+
+
+def test_build_bash_repro_dump_appends_the_binary_in_resolve_mode_only(bb):
+    p = bb.run("resolve", BASH_REPRO_DUMP=1)
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    lines = p.stdout.splitlines()
+    i = lines.index("BINB64 BEGIN %s" % bb.bin)
+    assert lines[-1] == "BINB64 END %s" % bb.bin and i > 0                   # last: a clipped log loses only the dump
+    body = lines[i + 1:-1]
+    assert body and all(ln.startswith("BINB64 DATA ") for ln in body)
+    gz = base64.b64decode("".join(ln[len("BINB64 DATA "):] for ln in body))
+    assert gzip.decompress(gz) == FAKE_BASH_BIN.encode() and not gz[3] & 0x08   # no file name in the gzip header
+    assert "bash GNU bash" in "\n".join(lines[:i])                            # the pins and the version line come first
+    for mode, dump in (("build", "1"), ("resolve", "0"), ("resolve", None)):
+        q = bb.run(mode, **({"BASH_REPRO_DUMP": dump} if dump is not None else {}))
+        assert q.returncode == 0 and "BINB64" not in q.stdout, (mode, dump, q.stdout)
+
+
+@pytest.mark.parametrize("value", ["2", "yes", "01", " 1"])
+def test_build_bash_repro_dump_must_be_0_or_1(bb, value):
+    for mode in ("build", "resolve"):
+        p = bb.run(mode, BASH_REPRO_DUMP=value)
+        assert p.returncode == 1 and "BASH_REPRO_DUMP must be 0 or 1" in p.stderr, (mode, p.stderr)
+    assert bb.curls() == []
 
 
 def test_manifest_notices_an_in_repo_file_edited_without_repinning(pins_lib):

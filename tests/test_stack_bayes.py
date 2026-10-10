@@ -1008,12 +1008,14 @@ def main_module(tmp_path):
     module."""
     d = tmp_path / "main_hooks"
     d.mkdir(exist_ok=True)
-    for rel in ("stack_limits.py", "stack_limits_seed.json", "sched_model.json"):
+    for rel in ("stack_limits.py",):
         p = subprocess.run(["git", "-C", str(ROOT), "show", f"{MAIN_REV}:dot-config/dot-claude/hooks/{rel}"],
                            capture_output=True, check=False)
         if p.returncode != 0:
             pytest.skip(f"main {MAIN_REV} not in this checkout")
         (d / rel).write_bytes(p.stdout)
+    for rel in ("stack_limits_seed.json", "sched_model.json"):
+        shutil.copyfile(HOOKS / rel, d / rel)
     return _load("stack_limits_main_" + MAIN_REV, d / "stack_limits.py")
 
 
@@ -1117,9 +1119,9 @@ def test_cli_views_print_method_T_pi90_p_hit_and_would(st, capsys):
     out = L.show("soft.agent.coder")
     assert "bayes shadow" in out.splitlines()[0] and "fit " + FIT in out.splitlines()[0]
     line = [x for x in out.splitlines() if x.startswith("soft.agent.coder")][0]
-    assert "bayes-shadow T 31M [21.7M-43.4M] p_hit" in line, line
+    assert "bayes-shadow T 45M [31.5M-63M] p_hit" in line, line
     js = json.loads(L.show("soft.agent.coder", as_json=True))["vars"]["soft.agent.coder"]
-    assert js["method"] == "empirical" and js["bayes"]["T"] == 31000000 and js["bayes"]["tier"] == "nuts"
+    assert js["method"] == "empirical" and js["bayes"]["T"] == 45000000 and js["bayes"]["tier"] == "nuts"
     assert 0 <= js["bayes"]["p_hit"] <= 1
     assert "bayes shadow (9 with a block)" in L.status_line()
     assert any("method: empirical" in x for x in L.stability_lines())

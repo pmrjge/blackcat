@@ -69,14 +69,15 @@ BASH_BASELINE=5.3
 BASH_PATCHLEVEL=20
 BASH_GPG_FPR=7C0135FB088AAF6C66C650B9BB5869F064EA74AB
 # NOT filled: ftp.gnu.org and the keyservers are outside the agent's sandbox (2026-10-06). From a normal terminal:
-#   bash lib/eq-container/build.sh --resolve-tools      (builds the bash-report stage: prints the three values after
-#                                                        "SIGNATURES OK"; review, then re-run with --write-pin)
+#   bash lib/eq-container/repro-check.sh                (builds the bash-report stage three times, each printing the three
+#                                                        values after "SIGNATURES OK"; the last line must be REPRODUCIBLE x3)
+#   bash lib/eq-container/build.sh --resolve-tools --write-pin   (builds nothing: pins the values the agreeing reports hold)
 # or compute the two source hashes on the host (checklist D2):  curl + gpg --verify + shasum -a 256 (BASH_PATCHES_SHA256 =
 # shasum -a 256 bash53-0?? | shasum -a 256). BASH_BIN_SHA256 is the hash of the built binary (trust on first use after the
 # signature check; a later build that differs fails closed). Until all three are filled, the core profile stops at exit 13.
-BASH_SRC_SHA256=UNSET
-BASH_PATCHES_SHA256=UNSET
-BASH_BIN_SHA256=UNSET
+BASH_SRC_SHA256=0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+BASH_PATCHES_SHA256=51df03a9d332cc2a069701a0c786b01632b1726a106a1af7a13cf6210c205e64
+BASH_BIN_SHA256=e91998f0a96f92fa95ab42bf6d3b3f71c58b1b2f2e67a87d9e0ef0836d015bef
 
 # ---- the Apple container CLI (read by setup.sh only: install.sh --with-eq-container's step 1; no image build reads these) ----
 # Release 1.5.0 (published 2026-09-29), its signed installer package. URL, size and sha256: GitHub's own asset record

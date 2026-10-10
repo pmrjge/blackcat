@@ -512,7 +512,7 @@ f/g = the seed's floor/ceiling (`stack_limits_seed.json`); the decision is alway
 | L4 | `soft.prompt` | seed-anchored: mu0 = log(seed) − z_(1−r)·sqrt(σ² + sd0²), σ = sd0 = 1 (`bayes_grid.anchor_mu`) | M4 log-normal single level, censored on own `hit_soft`/`hit_hard_prompt` | ≥ 30 windows from ≥ 3 sessions; grid edge mass < 1e-3 | ceil2(q_.90); f 5M, g 100M; soft ≤ 0.67 hard.prompt | hold, method `empirical(hold)` |
 | L5 | `soft.prompt.<type>` (orchestrator 140M pinned) | as L4 on the windows where the type ran | as L4 | as L4 | max(seed, q_.90), clamped: seed = f = g → never moves | hold at 140M |
 | L6 | `hard.prompt` (pinned 300M) | anchored on soft.prompt | as L4 | as L4 | ceil2(q_.99), reported; f = g = 300M → never moves | §4 (Q1) |
-| L7 | `soft.session` (unset) | anchored on hard.session | M4 on session rows, censored on `hit_soft`/`hit_hard_session` | ≥ 5 sessions | ceil2(q_.90); f 100M, g 1.5B; ≤ 0.8 hard.session | stays unset |
+| L7 | `soft.session` (seed 1.3B since 2026-10-10; unset before) | anchored on hard.session | M4 on session rows, censored on `hit_soft`/`hit_hard_session` | ≥ 5 sessions | ceil2(q_.90); f 100M, g 1.5B; ≤ 0.8 hard.session | keeps its value (the seed until learned) |
 | L8 | `hard.session` | seed-anchored on the seed file's value (main: 1.92B) | as L7 | ≥ 5 sessions | ceil2(q_.99); f 300M, g 2.5B | §4 (Q1); shadow-only |
 
 Bayes action: T is the posterior-predictive (1 − r) quantile of a new run's demand with the new-session effect

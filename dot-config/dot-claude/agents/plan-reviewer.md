@@ -3,7 +3,7 @@ name: plan-reviewer
 description: "Plan critique against the goal, code and current docs: wrong assumptions, missing steps, risks. Read-only."
 model: opus
 effort: high
-maxTurns: 60
+maxTurns: 90
 tools: Read, Bash, WebSearch, WebFetch, ToolSearch, Skill, mcp__libdocs, mcp__exa, mcp__jina
 mcpServers:
   - libdocs:

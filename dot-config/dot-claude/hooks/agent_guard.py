@@ -5846,54 +5846,60 @@ def budget_reason(kind, span, used, var, cap, lim, ev):
 # sessions by tests/derive_thresholds.py: soft = p90 of healthy runs x 1.25-1.5, floor 2 x median,
 # two significant figures, per type when it has >= 5 healthy segments from >= 3 agents, else per pool
 # of comparable types. Every subagent type is listed (self-test: SOFT_LIMITS covers AGENTS); None =
-# no per-agent limit (orchestrator: short relays, too few runs to derive one; blackcat: the main
-# thread, covered by the prompt limit). Unknown types get none.
+# no per-agent limit (blackcat: the main thread, covered by the prompt limit). Unknown types get
+# none. The orchestrator had none until 2026-10-10 (short relays, too few runs to derive one); its
+# 4,700,000 is user-set, the wrap-up warning before its hard.agent cap (9,300,000).
 # STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
 # hard budgets and the MCP call cap are independent of it.
-SOFT_PROMPT_CTX = 33000000
+SOFT_PROMPT_CTX = 50000000
 # The per-prompt soft limit while an agent of one of these types runs (a registry entry not
 # stopped): the largest value applies, never below SOFT_PROMPT_CTX.
 # Set by the user, not derived: an orchestrator job of up to 10 tasks runs under one human prompt
 # (2026-10-03: 80M; 2026-10-08: 140M, the sessions kept colliding with the limits).
 SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 140000000}
-_SOFT_BUILDER = 19000000     # builder pool: implementers and domain engineers
-_SOFT_ANALYST = 8700000      # analyst pool: planners, reviewers, research
+# Raised by the user on 2026-10-10: 1.5 x the learned value then in force (live.json), rounded up
+# to two significant figures, for the types that hit their soft limit and their pools; scout,
+# claude-code-guide and toolsmith kept their values.
+_SOFT_BUILDER = 61000000     # builder pool: implementers and domain engineers
+_SOFT_ANALYST = 17000000     # analyst pool: planners, reviewers, research
 _SOFT_LOOKUP = 450000        # lookup pool: one-question agents
-_SOFT_ARTIFACT = 3100000     # artifact pool: prose, documents, images, browser
+_SOFT_ARTIFACT = 4700000     # artifact pool: prose, documents, images, browser
 SOFT_LIMITS = {
     # derived from the type's own runs
-    "claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,
-    "code-reviewer": 8700000, "verifier": 26000000,
+    "claude-code-engineer": 59000000, "scout": 390000, "claude-code-guide": 680000,
+    "code-reviewer": 17000000, "verifier": 30000000,
     # builder pool
-    "coder": _SOFT_BUILDER, "main-coder": _SOFT_BUILDER, "ninja-coder": _SOFT_BUILDER,
-    "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
-    "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER,
-    "devops-engineer": _SOFT_BUILDER, "frontend-engineer": _SOFT_BUILDER,
-    "python-engineer": _SOFT_BUILDER, "rust-engineer": _SOFT_BUILDER,
+    "coder": 28000000, "main-coder": 60000000, "ninja-coder": _SOFT_BUILDER,
+    "build-fixer": _SOFT_BUILDER, "test-engineer": 42000000,
+    "data-scientist": 60000000, "data-engineer": 43000000,
+    "devops-engineer": 60000000, "frontend-engineer": _SOFT_BUILDER,
+    "python-engineer": 45000000, "rust-engineer": _SOFT_BUILDER,
     "go-engineer": _SOFT_BUILDER, "node-engineer": _SOFT_BUILDER, "jvm-engineer": _SOFT_BUILDER,
     "julia-engineer": _SOFT_BUILDER, "haskell-engineer": _SOFT_BUILDER,
     "mobile-engineer": _SOFT_BUILDER, "game-engineer": _SOFT_BUILDER,
     "embedded-engineer": _SOFT_BUILDER, "hpc-engineer": _SOFT_BUILDER,
     "cuda-engineer": _SOFT_BUILDER, "mlx-engineer": _SOFT_BUILDER, "dl-engineer": _SOFT_BUILDER,
-    "ml-engineer": _SOFT_BUILDER, "llm-engineer": _SOFT_BUILDER,
+    "ml-engineer": 60000000, "llm-engineer": _SOFT_BUILDER,
     "robotics-engineer": _SOFT_BUILDER, "quantum-engineer": _SOFT_BUILDER,
-    "biochem-engineer": _SOFT_BUILDER, "security-engineer": _SOFT_BUILDER,
-    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": _SOFT_BUILDER,
+    "biochem-engineer": _SOFT_BUILDER, "security-engineer": 60000000,
+    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": 37000000,
     "git-engineer": _SOFT_BUILDER,
     # analyst pool
-    "planner": _SOFT_ANALYST, "plan-reviewer": _SOFT_ANALYST, "researcher": _SOFT_ANALYST,
-    "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
+    "planner": _SOFT_ANALYST, "plan-reviewer": 15000000, "researcher": _SOFT_ANALYST,
+    "security-auditor": 20000000, "proof-checker": _SOFT_ANALYST,
     # lookup pool
-    "explore": _SOFT_LOOKUP, "oracle": _SOFT_LOOKUP, "mcp-broker": _SOFT_LOOKUP,
+    "explore": 850000, "oracle": 510000, "mcp-broker": 680000,
     "toolsmith": _SOFT_LOOKUP,
     # artifact pool
-    "writer": _SOFT_ARTIFACT, "browser-operator": _SOFT_ARTIFACT,
+    "writer": 4300000, "browser-operator": _SOFT_ARTIFACT,
     "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
     "image-director": _SOFT_ARTIFACT,
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
     "rigger-animator": _SOFT_ARTIFACT, "sculptor-painter": _SOFT_ARTIFACT,
+    # coordinator: user-set on 2026-10-10 (the value frozen in live.json)
+    "orchestrator": 4700000,
     # no per-agent limit
-    "orchestrator": None, "blackcat": None, "equilibrium": None,
+    "blackcat": None, "equilibrium": None,
 }
 _SOFT_NOTE = []     # the warning queued for this process's PreToolUse output (emit, soft_flush)
 SOFT_WRAP_UP = ("Wrap up: finish the current step, return STATUS: partial with what is done and "
@@ -13226,8 +13232,8 @@ def budget_self_test():
 
 def soft_self_test():
     """Soft limits: every agent type has an entry; a run's segment counts only calls after its
-    start; soft_check warns at the limit, once per segment and once per prompt, never for the
-    orchestrator's own run, scaled by STACK_SOFT_LIMIT_SCALE (0 = off); a running orchestrator
+    start; soft_check warns at the limit, once per segment and once per prompt, never for a type
+    without one (equilibrium), scaled by STACK_SOFT_LIMIT_SCALE (0 = off); a running orchestrator
     raises the prompt limit to SOFT_PROMPT_CTX_BY_TYPE's value."""
     import shutil
     import tempfile
@@ -13235,9 +13241,9 @@ def soft_self_test():
     if set(SOFT_LIMITS) != set(AGENTS):
         problems.append("SOFT_LIMITS != AGENTS: %s" % sorted(set(SOFT_LIMITS) ^ set(AGENTS)))
     unlimited = sorted(t for t, v in SOFT_LIMITS.items() if v is None)
-    if unlimited != ["blackcat", "equilibrium", "orchestrator"] or any(  # coordinators: no per-agent limit
+    if unlimited != ["blackcat", "equilibrium"] or any(  # the main thread, the eq leader: no per-agent limit
             v is not None and (not isinstance(v, int) or v <= 0) for v in SOFT_LIMITS.values()):
-        problems.append("SOFT_LIMITS: only blackcat, equilibrium and orchestrator may be unlimited (%s)"
+        problems.append("SOFT_LIMITS: only blackcat and equilibrium may be unlimited (%s)"
                         % unlimited)
     saved = os.environ.get("STACK_SOFT_LIMIT_SCALE")
     tmp = tempfile.mkdtemp(prefix="agent-guard-soft-")
@@ -13274,7 +13280,8 @@ def soft_self_test():
                  ("0", st(lim * 9), scout, False), ("2", st(lim * 2 - 1), scout, False),
                  ("2", st(lim * 2), scout, True),
                  ("1", st(lim), {"agent_id": "a1", "agent_type": "Scout"}, True),
-                 ("1", st(0), {"agent_id": "o1", "agent_type": "orchestrator"}, False),
+                 ("1", st(0), {"agent_id": "o1", "agent_type": "orchestrator"}, True),
+                 ("1", st(0), {"agent_id": "o1", "agent_type": "equilibrium"}, False),
                  ("1", st(0, SOFT_PROMPT_CTX - 1), {}, False),
                  ("1", st(0, SOFT_PROMPT_CTX), {}, True), ("0", st(0, SOFT_PROMPT_CTX * 9), {},
                                                            False),

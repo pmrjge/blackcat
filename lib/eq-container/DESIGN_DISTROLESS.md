@@ -174,6 +174,9 @@ The frozen PF argv is `bash check_lean.sh Answer.lean`, and probes use `bash -c`
   `sha256sum bash53-0*` listing) and `BASH_BIN_SHA256` (the built binary). Because apk floats, the binary pin is what makes a drift
   fail closed. First values: the builder prints them after the signatures verify (`build.sh --resolve-tools`, trust on first use
   after a signature check), or the user computes the source hashes on the host (`curl` + `gpg --verify` + `shasum -a 256`).
+  Amended 2026-10-10 (USER decision: three builds gave three binaries): the recipe is made reproducible (`tc/build-bash.sh`
+  header), `repro-check.sh` builds it several times and compares, and `--write-pin` builds nothing: it pins only values that two
+  or more reports of the present recipe agree on.
 - **B2: busybox ash as `bash`**: a two-line in-repo `bash` wrapper (`exec /opt/eq/bin/busybox ash "$@"`), no compiled-from-source
   tool and no remaining placeholder. Cost: the hash-frozen `check_lean.sh` then runs under ash (it uses only POSIX features plus
   `local`, but its interpreter changes), and `probe_inner.sh:76-85` would PASS vacuously (`/dev/tcp` does not exist in ash, so every
@@ -403,7 +406,7 @@ in-repo, `lakecache.blob.core.windows.net` + `github.com` (Mathlib). D1 also nee
 | # | command | confirms when |
 |---|---|---|
 | D1 | `bash lib/eq-container/base-pins.sh` | cosign verifies `cc-debian13@e792ab3d...` (and `static` if used); arm64 `2f0295ce...` is in the index; rc 0 |
-| D2 | (B1) `bash lib/eq-container/build.sh --resolve-tools` | prints the three bash pins after "Good signature" from `7C0135FB...`; review, then `--write-pin` |
+| D2 | (B1) `bash lib/eq-container/repro-check.sh`, then `bash lib/eq-container/build.sh --resolve-tools --write-pin` | each build prints the three bash pins after "Good signature" from `7C0135FB...`; the check must end `REPRODUCIBLE x3`; `--write-pin` builds nothing and pins the agreeing values |
 | D3 | `bash lib/eq-container/build.sh --profiles core --yes` | `check-min-both` and `check-min-py` pass, then the finals build; rc 0 |
 | D4 | the same with `--force`, then compare `MANIFEST.root` of both builds | equal |
 | D5 | `bash lib/eq-container/verify-tools.sh --images --deep --inspect --smoke --profiles core; bash lib/eq-container/eq-container.sh install` | base layers equal the pinned distroless layers; the probe passes including the new rows |

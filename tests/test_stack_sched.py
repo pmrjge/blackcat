@@ -397,7 +397,7 @@ def test_load_model_defaults_and_b_schema(tmp_path, monkeypatch):
                              "pools": {"builder": {}}}))
     m = S.load_model(f)
     assert S.tinfo(m, "claude-code-engineer")["turns"] == {"S": 10, "M": 30, "L": 60}
-    assert S.tinfo(m, "claude-code-engineer")["soft_limit"] == 19000000       # not in the file: default kept
+    assert S.tinfo(m, "claude-code-engineer")["soft_limit"] == 59000000       # not in the file: default kept
     assert S.kappas(m, "claude-code-engineer") == (1.25, 0.05)                 # opus 5.5 rule
     assert S.kappas(m, "coder") == (1.25, 0.1)                                 # sonnet -> default
     assert S.kappas(m, "researcher") == (2.0, 0.05)                            # 1h cache

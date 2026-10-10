@@ -225,8 +225,13 @@ def rule_args(c):
         for i in st.instrs:
             if i.kw != "ARG":
                 continue
-            k, eq, _ = i.args.partition("=")
-            if eq and k != "KEEP_EXTS":
+            k, eq, v = i.args.partition("=")
+            # BASH_REPRO_DUMP is a knob, not a pin (build.sh --resolve-tools --repro-dump): off by default, and only where the
+            # report is built, never in the stage whose binary goes into an image
+            if k == "BASH_REPRO_DUMP" and (st.name, eq, v) != ("bash-report", "=", "0"):
+                out.append("stage %s (line %d): ARG BASH_REPRO_DUMP%s%s: only the bash-report stage declares it, with the default 0"
+                           % (st.name, i.line, eq, v))
+            elif eq and k not in ("KEEP_EXTS", "BASH_REPRO_DUMP"):
                 out.append("stage %s (line %d): ARG %s has a default (only KEEP_EXTS may); the global value is PINS's" % (st.name, i.line, k))
             elif not eq and k not in c.df.globals:
                 out.append("stage %s (line %d): ARG %s is not a global ARG" % (st.name, i.line, k))
@@ -441,6 +446,12 @@ SEEDS = [
     ("arg-with-a-default-in-a-stage", M, "args", in_stage("fetch", lambda p: p.replace("ARG LEAN_SHA256\n", "ARG LEAN_SHA256=" + SHA64 + "\n")),
      "ARG LEAN_SHA256 has a default"),
     ("arg-global-differs-from-pins", M, "args", sub("ARG UV_VERSION=0.12.22", "ARG UV_VERSION=0.12.23"), "ARG UV_VERSION=0.12.23 differs from PINS"),
+    ("arg-repro-dump-on-by-default", M, "args", sub("ARG BASH_REPRO_DUMP=0\n", "ARG BASH_REPRO_DUMP=1\n"),
+     "ARG BASH_REPRO_DUMP=1: only the bash-report stage"),
+    ("arg-repro-dump-without-a-default", M, "args", sub("ARG BASH_REPRO_DUMP=0\n", "ARG BASH_REPRO_DUMP\n"),
+     "ARG BASH_REPRO_DUMP: only the bash-report stage"),
+    ("arg-repro-dump-in-the-image-stage", M, "args", in_stage("bash", after_from("ARG BASH_REPRO_DUMP=0")),
+     "stage bash (line"),
     ("arg-global-twice", M, "args", sub("ARG LEAN_VERSION=4.34.1\n", "ARG LEAN_VERSION=4.34.1\nARG LEAN_VERSION=4.34.1\n"),
      "global ARG LEAN_VERSION is declared 2 times"),
     ("arg-bare-but-not-global", M, "args", in_stage("fetch", after_from("ARG NOT_A_GLOBAL")), "ARG NOT_A_GLOBAL is not a global ARG"),
