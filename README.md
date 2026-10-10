@@ -928,6 +928,8 @@ full report: bash "<config dir>/bin/doctor.sh"
 
 Healthy means 0 FAIL. WARN lines name optional pieces (a media tool, Chrome, a language server) and the
 command that adds each.
+A WARN `eq-container: install failed at <date>: unresolved pin` is the optional container isolation with
+unset bash pins, not a fault in the rest of the stack (see [Install](#install), step 10b).
 
 ## Install
 
@@ -1064,6 +1066,25 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
 `/stack-doctor` has a section for each. `--restore` puts `stack.env` and the manifest back but leaves
 the images, eq-container's records and the WALL's state and audit logs alone, and names how to remove
 them ([CONFIG.md](CONFIG.md) §7 "Container isolation and the WALL").
+
+**eq-container is optional, and a doctor WARN about it can be old.** It covers only the equilibrium agent's
+container isolation and the WALL check; the Bayes pipeline and the rest of the stack do not use it. It installs
+only with `./install.sh --with-eq-container`; `--with-bayes` never retries it. So `WARN eq-container: install
+failed at <date>: unresolved pin` (`doctor.sh`, a WARN, not a FAIL) may be the marker an earlier attempt left in
+`~/.local/state/claude-agent-stack/eq-container/status.env`, and `WALL: skipped (eq-container is not installed)`
+follows from it. "Unresolved pin" means `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256` and `BASH_BIN_SHA256` in
+`lib/eq-container/PINS` are still `UNSET`. They are the expected checksums of a GPG-verified bash build, and the
+installer deliberately does not fill them: it verifies against recorded pins, and pins taken from a fresh download
+would defeat that check. Resolve them once, from a normal terminal outside any agent sandbox (network and GPG needed):
+
+```sh
+bash lib/eq-container/build.sh --resolve-tools              # prints the three values; review them
+bash lib/eq-container/build.sh --resolve-tools --write-pin  # writes them into PINS
+git diff lib/eq-container/PINS                              # review, then commit
+./install.sh --with-eq-container
+```
+
+If you do not need equilibrium containers, ignore the WARN.
 
 The harness these images isolate is tracked in [`dot-config/dot-equilibrium/`](dot-config/dot-equilibrium/README.md). It holds the agent-equilibrium
 experiment: design, pre-registration, the seven item pools with their oracles, and the harness with its tests. It is

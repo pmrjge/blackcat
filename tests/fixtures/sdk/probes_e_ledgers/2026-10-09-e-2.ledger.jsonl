@@ -1,0 +1,29 @@
+{"ev": "envelope", "date": "2026-10-09", "total_usd": 2.0, "groups_usd": {"E1E2": 1.5, "E3": 0.5}, "caps_usd": {"E1": 0.6, "E2": 0.6, "E3": 0.4}, "consent_env": "SDK_PROBES_E_CONSENT", "consent_value": "2.00", "flag": "--paid", "probes": ["E1", "E2", "E3"], "model": "haiku", "t": 1791583294.672}
+{"ev": "probe", "probe": "E1", "cap": 0.6, "left_total": 2.0, "left_group": 1.5, "t": 1791583294.673}
+{"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.12, "t": 1791583294.68}
+{"ev": "cost", "probe": "E1", "session": 0, "usd": 0.053981, "t": 1791583298.16}
+{"ev": "reserve", "probe": "E1", "session": 1, "usd": 0.12, "t": 1791583298.962}
+{"ev": "cost", "probe": "E1", "session": 1, "usd": 0.054297, "t": 1791583302.55}
+{"ev": "reserve", "probe": "E1", "session": 2, "usd": 0.12, "t": 1791583303.695}
+{"ev": "cost", "probe": "E1", "session": 2, "usd": 0.054285, "t": 1791583308.1}
+{"ev": "reserve", "probe": "E1", "session": 3, "usd": 0.12, "t": 1791583308.681}
+{"ev": "cost", "probe": "E1", "session": 3, "usd": 0.054255, "t": 1791583312.957}
+{"ev": "reserve", "probe": "E1", "session": 4, "usd": 0.12, "t": 1791583313.88}
+{"ev": "cost", "probe": "E1", "session": 4, "usd": 0.054255, "t": 1791583317.508}
+{"ev": "probe_end", "probe": "E1", "status": "ran", "usd": 0.271071, "t": 1791583318.076}
+{"ev": "probe", "probe": "E2", "cap": 0.6, "left_total": 1.728929, "left_group": 1.228929, "t": 1791583318.076}
+{"ev": "reserve", "probe": "E2", "session": 0, "usd": 0.05, "t": 1791583318.077}
+{"ev": "reserve", "probe": "E2", "session": 1, "usd": 0.18, "t": 1791583319.642}
+{"ev": "cost", "probe": "E2", "session": 1, "usd": 0.059011, "t": 1791583331.539}
+{"ev": "reserve", "probe": "E2", "session": 2, "usd": 0.18, "t": 1791583332.087}
+{"ev": "cost", "probe": "E2", "session": 2, "usd": 0.018255, "t": 1791583337.53}
+{"ev": "reserve", "probe": "E2", "session": 3, "usd": 0.3, "t": 1791583338.112}
+{"ev": "cost", "probe": "E2", "session": 3, "usd": 0.00979, "t": 1791583340.304}
+{"ev": "reserve", "probe": "E2", "session": 3, "usd": 0.3, "turn": true, "t": 1791583343.306}
+{"ev": "cost", "probe": "E2", "session": 3, "usd": 0.016834, "t": 1791583348.222}
+{"ev": "probe_end", "probe": "E2", "status": "ran", "usd": 0.1441, "t": 1791583348.744}
+{"ev": "probe", "probe": "E3", "cap": 0.4, "left_total": 1.584829, "left_group": 0.5, "t": 1791583348.744}
+{"ev": "reserve", "probe": "E3", "session": 0, "usd": 0.2, "t": 1791583348.745}
+{"ev": "cost", "probe": "E3", "session": 0, "usd": 0.04447, "t": 1791583358.437}
+{"ev": "reserve", "probe": "E3", "session": 0, "usd": 0.2, "turn": true, "t": 1791583358.44}
+{"ev": "end", "usd": 0.415171, "probes": {"E1": "ran", "E2": "ran"}, "t": 1791583359.657}

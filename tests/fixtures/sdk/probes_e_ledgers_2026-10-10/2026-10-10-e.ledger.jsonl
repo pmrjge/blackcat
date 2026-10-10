@@ -1,0 +1,22 @@
+{"ev": "envelope", "date": "2026-10-10", "total_usd": 2.0, "groups_usd": {"E1E2": 1.5, "E3": 0.5}, "caps_usd": {"E1": 0.4, "E3P": 0.1}, "consent_env": "SDK_PROBES_E_CONSENT", "consent_value": "0.50", "run_cap_usd": 0.5, "flag": "--paid", "probes": ["E1", "E3P"], "model": "haiku", "e1_agent": "verifier", "prior": {"ledgers": 3, "reported": 0.984122, "unreported": 0.42, "used": 1.404122, "left": 0.595878}, "t": 1791590509.336}
+{"ev": "probe", "probe": "E1", "cap": 0.4, "left_total": 0.5, "left_group": 1.5, "t": 1791590509.337}
+{"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08, "t": 1791590509.374}
+{"ev": "cost", "probe": "E1", "session": 0, "usd": 0.080825, "t": 1791590518.951}
+{"ev": "reserve", "probe": "E1", "session": 1, "usd": 0.08, "t": 1791590519.262}
+{"ev": "cost", "probe": "E1", "session": 1, "usd": 0.065985, "t": 1791590524.526}
+{"ev": "reserve", "probe": "E1", "session": 2, "usd": 0.08, "t": 1791590525.361}
+{"ev": "cost", "probe": "E1", "session": 2, "usd": 0.065604, "t": 1791590530.934}
+{"ev": "reserve", "probe": "E1", "session": 3, "usd": 0.08, "t": 1791590534.993}
+{"ev": "cost", "probe": "E1", "session": 3, "usd": 0.065662, "t": 1791590550.476}
+{"ev": "reserve", "probe": "E1", "session": 4, "usd": 0.08, "t": 1791590550.841}
+{"ev": "cost", "probe": "E1", "session": 4, "usd": 0.065857, "t": 1791590556.642}
+{"ev": "reserve", "probe": "E1", "session": 5, "usd": 0.056, "t": 1791590557.418}
+{"ev": "cost", "probe": "E1", "session": 5, "usd": 0.061122, "t": 1791590562.711}
+{"ev": "probe_end", "probe": "E1", "status": "ran", "usd": 0.405055, "t": 1791590563.45}
+{"ev": "probe", "probe": "E3P", "cap": 0.094945, "left_total": 0.094945, "left_group": 0.5, "t": 1791590563.45}
+{"ev": "reserve", "probe": "E3P", "session": 0, "usd": 0.08, "t": 1791590563.452}
+{"ev": "cost", "probe": "E3P", "session": 0, "usd": 0.056897, "t": 1791590572.706}
+{"ev": "reserve", "probe": "E3P", "session": 0, "usd": 0.08, "turn": true, "t": 1791590572.711}
+{"ev": "cost", "probe": "E3P", "session": 0, "usd": 0.109616, "t": 1791590638.601}
+{"ev": "probe_end", "probe": "E3P", "status": "ran", "usd": 0.109616, "t": 1791590641.847}
+{"ev": "end", "usd": 0.514671, "probes": {"E1": "ran", "E3P": "ran"}, "t": 1791590641.848}
