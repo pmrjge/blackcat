@@ -1,65 +1,62 @@
 # Opening prompt for BlackCat (paste everything below the line into a new session)
 
-Before pasting: quit every Claude Code session. Do not reinstall from an agent (that is the user's step, see HANDOFF_STATE).
+Before pasting: quit every Claude Code session. Installing is the user's step (HANDOFF_STATE §5); no agent runs `install.sh`.
 
 ---
-You are BlackCat resuming the claude-agent-stack work (previous session 2026-10-08). Every agent id from it is gone.
-Resume from files only.
+You are BlackCat resuming the claude-agent-stack work (previous sessions 2026-10-08 to 2026-10-10). Every agent id from them
+is gone. Resume from files only.
 
 ## Goal
-Finish the remaining plan on top of main `47dce9f4` (shrink-on and bayes-3a-fixes merged, C10 on main green,
-reinstalled): the guard fix T-guard-timeout, SDK-1, Bayes WP2/WP4/3b/3c, then the later SDK and Bayes steps, each landed in the
-saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1 state, 2 decisions, 4 left to do, 5 user steps,
-9 programs).
+Carry on the 2026-10-10 order in hand_off/HANDOFF_STATE.md §4: (1) the user's C10 and ff-merge of `sdk/plan-bash-gate`,
+(2) the `--no-ff` merge of `docs/handoff-10b` (this hand-off), (3) step 11, `./install.sh --with-bayes`, which starts gathering
+data in shadow; after step 11: `bayes/5-drift` and `bayes/5b` (each: main merged in, C10, ff-only), the 5d rehearsal, the 5f
+binding verdict, Q-E, Q-F, the paid E1 rerun (`sdk/probes-e3`), guard backlog steps 6-8, SDK-4, the `stack_sdk.Session`
+keychain fix, 10c (token economy), the parked findings, and last the FINAL docs and wiki rewrite and the cleanup.
+HANDOFF_STATE.md is authoritative: §1 state, §2 decisions, §3 branches, §4 order, §5 user commands, §7 open items.
 
 ## Paths
-- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main was `47dce9f4` at the hand-off: verify; layout dot-config/{dot-claude,dot-equilibrium})
-- H = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb (git-ignored `.claude-work/` holds job files; its branch `golden/handoff-plan-continuation-c09473` is superseded, do not merge it). Agent Bash sandboxes cannot write H; the Write and Edit tools can.
-- Hand-off branch: `golden/work-order-continuation-b06255` (worktree /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/project-redundancy-review-21d544, on `47dce9f4`), awaiting the user's ff
-- Merged by the user: `limits-raise` (soft prompt orchestrator 140M, hard.prompt 300M, live), `bayes/3a` (`91fd17d2`), `shrink-on` (`a0791669`), `bayes-3a-fixes` (`47dce9f4`)
-- Program branches (created 2026-10-08 23:04 at `47dce9f4`): `fix/guard-timeout`, `sdk/1`, `bayes/3b`, `bayes/4`; worktrees under M/.claude-work/ and the hand-off worktree's .claude-work/ (`git -C M worktree list`)
-- Work-order tracker: H/.claude-work/work-order-1008/plan.md
-- Reinstall notes: H/.claude-work/dot-config/REINSTALL.md
-- C10: H/.claude-work/c10/ (latest on main: c10-bayes-3a-fixes-47dce9f4.summary, green; from now on `c10-ref.sh <ref>`, user terminal only; c10-eqcli-321f037.failed_ids under resume-770728/.claude-work/c10/ = the 7 known environment ids, which pass outside the sandbox)
-- Plans: H/.claude-work/sdk/plan.md, H/.claude-work/bayes/plan.md (section "STAGE 3b-4 EXECUTION"), H/.claude-work/shrink-on/plan.md (T-guard-timeout ticket); measurements: H/.claude-work/output-shrink-on/A_numbers.md, H/.claude-work/deterministic-offload/; rescue: H/.claude-work/lost-features/rescue/MANIFEST.md
+- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main was `c1ded439` at this hand-off: verify)
+- H = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb (git-ignored `.claude-work/`:
+  `c10/c10-ref.sh` and its summaries, plans `work-order-1008/`, `bayes/`, `sdk/`). Agent Bash sandboxes cannot write H; Write
+  and Edit can. Do not delete H or its branch.
+- W = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/project-redundancy-review-21d544 (git-ignored `.claude-work/`:
+  `bayes-wp5/` (WP5 plan, route, hybrid copy), `sdk/probes-e-analysis/analysis.md`, `guard-timeout-r4/`, `sec-r5/`, `sec-r6/`,
+  `main-merge-c1ded439/plan.md`, branch worktrees under `worktrees/` and `wt-probes-e2`)
+- Probe reports and ledgers: M/.claude-work/sdk/probes/. Bayes data: M/.claude-work/bayes/{data,wp2}/.
 
 ## Read first
-1. M/hand_off/HANDOFF_STATE.md (on main once the user ff-merges `golden/work-order-continuation-b06255`; until then read it in that worktree): sections 1, 2, 4, 5, 9.
-2. H/.claude-work/work-order-1008/plan.md and the plan.md of a program only when you start it.
+1. M/hand_off/HANDOFF_STATE.md (all of it; it is the 2026-10-10 state).
+2. The plan of a workstream only when you start it: W/.claude-work/bayes-wp5/plan.md and M/docs/BAYES.md §A.9-§A.12 (WP5);
+   H/.claude-work/sdk/plan.md (SDK-4); W/.claude-work/sdk/probes-e-analysis/analysis.md (probes); H/.claude-work/work-order-1008/plan.md.
 
 ## First actions
-1. Spawn one verifier (read-only) for a state report: main tip (`git -C M log --oneline -8 main`); whether
-   `golden/work-order-continuation-b06255` is merged; the tips of `fix/guard-timeout`, `sdk/1`, `sdk/2`, `bayes/3b`, `bayes/3c`,
-   `bayes/4` against main (`git -C M log --oneline main..<b>`); the installed manifest commit (`~/.claude/.stack-manifest.json`)
-   against main; the newest `c10-*.summary` in H/.claude-work/c10/. The verifier's hook refuses
-   harness, stack_progress and install runs: use a coder for those.
-2. Guard fix T-guard-timeout on `fix/guard-timeout`: `timeout 5 cp x <cfg>/hooks/f` passes agent_guard's protected-path scan
-   because in `_Scan.scan_words` the duration operand ends the command position; keep the command position over the
-   `_duration()` word after `timeout`/`gtimeout` (and their `-s`/`-k` values), as RO_WRAPPERS' `wrapper()` already does; its own
-   proof test and mutant (H/.claude-work/shrink-on/plan.md). Security surface: security-auditor + code-reviewer before the merge. First in the merge order.
-3. SDK-1 on `sdk/1` (H/.claude-work/sdk/plan.md): `tests/sdk_probes.py` (PEP 723 plus lock, run by the user, never by pytest),
-   pinned `claude-agent-sdk==0.2.163`; code-reviewer. Then the user runs the consented paid probes
-   (`uv run --script tests/sdk_smoke.py` <= $3.00, `uv run --script tests/sdk_probes.py` <= $10.50); freeze the SDK-2 design on
-   their results.
-4. Bayes (H/.claude-work/bayes/plan.md): WP2 refit v3 on a live copy (data-scientist; output M/.claude-work/bayes/wp2/); WP4
-   scheduler `load_bayes_sched` on `bayes/4`; WP3b detached fitter on `bayes/3b` (needs WP2's fit time); WP3c remainder on
-   `bayes/3c`, only after the guard merge (agent_guard.py edits are serialized).
-5. Merge order: guard (`fix/guard-timeout`) -> `sdk/2` -> `bayes/3b` -> `bayes/3c` -> `sdk/3` -> `bayes/4` -> `sdk/4`. For each:
-   review, then a full C10 on its tip run by the user (`cd ~ && bash H/.claude-work/c10/c10-ref.sh <branch>`; agents cannot: the
-   sandbox refuses the `tools/instructor` directories; never two C10 scripts at once), then the user's
-   `git -C M merge --ff-only <branch>` (main then equals the tested tip). New failed ids: fix on the branch before the merge.
-   Where `sdk/1` lands (alone before `sdk/2` or folded into it) is not settled: ask the user when SDK-1 is ready.
-6. Paid steps are consented but USER-run: `sdk_smoke.py` <= $3.00, `sdk_probes.py` <= $10.50, Bayes P1 <= $40, P2 <= $200,
-   A4 probe <= $0.25. Unattended runs stop at the plan with STATUS blocked; hand the user the exact command and wait.
-7. Ask the user only what blocks the next item; do not re-ask the settled decisions in HANDOFF_STATE section 2 and the plans.
+1. One verifier (read-only) for a state report: `git -C M log --oneline -12 main`; whether `sdk/plan-bash-gate` and
+   `docs/handoff-10b` are merged (`git -C M merge-base --is-ancestor <b> main`); the tips of `bayes/5-drift`, `bayes/5b`,
+   `sdk/probes-e2`, `sdk/probes-e3` and `git -C M rev-list --count <b>..main` for each; the installed manifest commit
+   (`~/.claude/.stack-manifest.json`) against main; the newest `c10-*.summary` in H/.claude-work/c10/; the last rows of
+   `~/.local/state/claude-agent-stack/usage/bayes.json.rec` (did step 11 happen: a status other than `skipped:no-pymc`?).
+2. If steps 1-3 are not all done, hand the user the exact commands from HANDOFF_STATE §5 and wait; do not start the
+   after-11 work before step 11 unless the user says so.
+3. After step 11, in the §4 order: an agent merges main into `bayes/5-drift` (a merge commit; `refs/rescue/<branch>-pre-main-merge`
+   first; tests green), the user runs its C10 and the ff; then `bayes/5b` the same way. Meanwhile, $0 work that touches
+   neither main nor those files can proceed in worktrees: finishing `sdk/probes-e3` (its open items in HANDOFF_STATE §3), the
+   eq_mutations anchor fix (§7 item 1), the guard backlog branch `fix/guard-backlog` (after that fix), SDK-4 drafting.
+4. Ask the user only what blocks the next item: Q-E and Q-F (defaults in §4 rows 9 and 10), the go-ahead for the paid E1
+   rerun (envelope `e3-2026-10-10`), the go-ahead for 10c's branch plan, and every removal in the cleanup.
 
 ## Constraints
-- Never push, no forge writes. Never run `./install.sh` (dry run included); never merge into main (the user runs ff merges).
-- No paid calls without consent; only the consented ones above, and the USER runs them. No Haiku. Python through uv
-  (`uv run --no-cache`: the shared cache is corrupt).
-- Nobody but the user removes worktrees or branches; list them (`just worktree-audit`). Copy H/.claude-work/lost-features/rescue/ outside the worktree before any removal.
-- Own worktree only: builders commit in their own worktree under H/.claude-work; serialize agent_guard.py, settings.json, install.sh, blackcat.md. Do not edit tools/instructor or lib/eq-wall (protected).
-- Security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*, doctor.sh, agent tool lists) get security-auditor + code-reviewer before merge.
-- C10 on main after every merge, and a full C10 on a branch tip before calling it merge-ready (a targeted-test pass is not a C10: Bayes 3a was merged on one and broke 12 tests); with an ff-only merge the tip C10 is the C10 on main, unless main moved in between. Full C10s run only from the user's terminal (`c10-ref.sh <ref>` in H/.claude-work/c10/, short clone /tmp/c10s, `UV_CACHE_DIR` set; launch from `cd ~`). Tests under `.claude-work` show about 130 known path failures; compare against the known ids.
-- Limits: 24 tool calls per BlackCat prompt and the orchestrator soft token limit (140M, live): checkpoint plan.md files. The rules file is exactly at the prompt_budget gate: any rules text needs a gate or trim decision from the user.
-- Open items to carry (HANDOFF_STATE sections 4 and 7): T-guard-timeout (agent_guard, fix direction in H/.claude-work/shrink-on/plan.md); `output_shrink.py report` needs M as its argument when run from a linked worktree; doctor.sh needs the user's terminal (sandbox-only FAILs); broker TOCTOU in `load_wall_module` vs `Wall.start` (MEDIUM, latent); A4 fold after the user's paid probe; optional `UV_CACHE_DIR` default in `_run_install` and the smoke harness (main-coder); side branches, scratch worktrees and `refs/rescue/shrink-on-51dcd288` for the user (section 3); model display: check project-level `.claude/agents` shadowing in that other session.
+- Never push, no forge writes. Never run `./install.sh` (dry run included); never merge into main or move it (the user runs
+  every merge; main stays still during a C10).
+- Paid runs only inside a consented envelope and only by the user; agents make no API calls. Bayes fits only from the user's
+  terminal, never during a C10, an eq run or another fit; WP5 never edits `BAYES_LIVE`.
+- Python through uv (`uv run --no-cache`: the shared cache is corrupt).
+- Worktrees: make them under W/.claude-work/worktrees/ with `git worktree add --no-checkout`, `git read-tree HEAD`,
+  `git checkout -- . ':(exclude)tools/instructor'`; never stage the 12 ` D tools/instructor/*` entries; explicit `git add` paths.
+- Security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*, doctor.sh, stack_sdk.py, agent tool
+  lists) get security-auditor + code-reviewer before merge; serialize agent_guard.py, settings.json, install.sh, blackcat.md;
+  do not edit tools/instructor or lib/eq-wall.
+- A full C10 runs only from the user's terminal (`cd ~ && bash H/.claude-work/c10/c10-ref.sh <branch>`); a targeted-test pass
+  is not a C10. Pass = `NEW vs known: []`, install_smoke 1 failed (openpty); eq_mutations reads 38/39 + 1 problem until the
+  `callerpolicy` anchor is fixed.
+- The stack rules file is at its prompt_budget gate: any rules text (10c) needs a trim or a gate decision from the user.
+- Nobody but the user removes worktrees, branches or rescue refs; agents list them (HANDOFF_STATE §5 step 9).
