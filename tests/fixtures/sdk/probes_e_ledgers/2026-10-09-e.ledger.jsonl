@@ -1,0 +1,8 @@
+{"ev": "envelope", "date": "2026-10-09", "total_usd": 2.0, "groups_usd": {"E1E2": 1.5, "E3": 0.5}, "caps_usd": {"E1": 0.6, "E2": 0.6, "E3": 0.4}, "consent_env": "SDK_PROBES_E_CONSENT", "consent_value": "2.00", "flag": "--paid", "probes": ["E1", "E2", "E3"], "model": "haiku", "t": 1791583256.347}
+{"ev": "probe", "probe": "E1", "cap": 0.6, "left_total": 2.0, "left_group": 1.5, "t": 1791583256.348}
+{"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.12, "t": 1791583256.379}
+{"ev": "cost", "probe": "E1", "session": 0, "usd": 0.082648, "t": 1791583261.09}
+{"ev": "reserve", "probe": "E1", "session": 1, "usd": 0.12, "t": 1791583261.704}
+{"ev": "cost", "probe": "E1", "session": 1, "usd": 0.054169, "t": 1791583265.554}
+{"ev": "reserve", "probe": "E1", "session": 2, "usd": 0.12, "t": 1791583266.13}
+{"ev": "end", "usd": 0, "probes": {}, "t": 1791583278.318}

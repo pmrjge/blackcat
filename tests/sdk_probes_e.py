@@ -5,45 +5,77 @@
 # [tool.uv]
 # exclude-newer = "2026-10-01T00:00:00Z"
 # ///
-"""Agent SDK probes E1-E3: what the SDK-2r and SDK-3 reviews left open (sec-r10 NOT CHECKED and N2, the SDK-3
-plan-gate assumptions). They make real, billed API calls, so the user runs them: never pytest (no test_
-prefix), never an agent. Hash-locked by tests/sdk_probes_e.py.lock (`uv lock --script tests/sdk_probes_e.py`).
+"""Agent SDK probes E1-E3 and E3P: what the SDK-2r and SDK-3 reviews left open (sec-r10 NOT CHECKED and N2,
+the SDK-3 plan-gate assumptions). They make real, billed API calls, so the user runs them: never pytest (no
+test_ prefix), never an agent. Hash-locked by tests/sdk_probes_e.py.lock (`uv lock --script tests/sdk_probes_e.py`).
 
-    uv run --locked --script tests/sdk_probes_e.py                       # dry run, the default: the plan, $0
-    SDK_PROBES_E_CONSENT=2.00 uv run --locked --script tests/sdk_probes_e.py --paid [--only E1,E3] [--cli PATH]
+    uv run --locked --script tests/sdk_probes_e.py --only E1,E3P          # dry run, the default: the plan, $0
+    SDK_PROBES_E_CONSENT=0.50 uv run --locked --script tests/sdk_probes_e.py --paid --only E1,E3P [--cli PATH]
 
-Consent envelope (the user's decision, 2026-10-09): at most $2.00 in all, E1+E2 at most $1.50, E3 at most $0.50.
-A paid run needs both --paid and SDK_PROBES_E_CONSENT=2.00 (the total in dollars); without --paid it is a dry
-run, --paid alone is a usage error. The envelope opens the run's ledger and heads the report. E1 needs the
-v2 stack_sdk.py installed (Session, StackNotLoaded, config_root, wire: checked before the ledger opens); E2 and
-E3 need only options(), so `--only E2,E3` runs on an older install.
+Consent (the user's decision, 2026-10-09): at most $2.00 in all, ACROSS RUNS, E1+E2 at most $1.50 and E3+E3P at
+most $0.50 within a run. A paid run needs --paid and SDK_PROBES_E_CONSENT equal to the run's own cap: the sum
+of the selected probes' caps as %.2f (E1+E3P: 0.50); a run with all of E1, E2 and E3 selected keeps the first
+run's value, 2.00, and the $2.00 as its own cap. Without --paid it is a dry run; --paid alone is a usage error.
+Before the ledger opens, every <name>.ledger.jsonl in the report's directory (and in the default one,
+<main checkout>/.claude-work/sdk/probes/) is replayed: a session counts at its last reported cost, or at its
+whole cap where its last event is a reservation (never reported, an open turn, closed with an agent running);
+a run without its "end" event (running, or killed) counts at its whole run cap; an unreadable ledger refuses
+the run. The run is refused when that prior spend plus its own cap exceeds $2.00; the check and the new
+ledger's envelope happen under an exclusive lock (<default dir>/.sdk_probes_e.lock), so two starts cannot both
+pass on the same prior spend. A run killed without its "end" event (SIGKILL, SIGHUP, SIGTERM) counts at
+its whole cap for good (fail safe); the only remedy is to append an "end" event (`{"ev": "end", "usd": <its
+spend>}`, the spend read from its own reservations and costs) to that ledger by hand. The dry run and the paid run print what is left (2.00 - prior). The first paid
+runs (2026-10-09: -e, -e-2, -e-3) used $1.4041 at worst, so $0.5959 is left. E1 needs the v2 stack_sdk.py
+installed (Session, StackNotLoaded, config_root, wire: checked before the ledger opens); E2, E3 and E3P need
+only options().
 
-Caps: E1 $0.60 and E2 $0.60 (E1+E2 $1.20 of $1.50), E3 $0.40 (of $0.50). The margins cover the CLI checking
-max_budget_usd only after a turn (a session may overshoot its cap by one turn). Every session gets at most
-what its probe, its envelope group and the $2.00 total have left by the reported costs, and none starts below
-$0.02. A session counts at its whole cap until a ResultMessage reports its cost (E2c's connect-only session
-stays there: U15 measured $0, but nothing reports it). A result without a finite, non-negative total_cost_usd
-keeps its session at the whole cap and stops the run: nothing more starts (fail closed). A probe left with
-less than a session needs ends there (cap_used, its unmeasured parts skipped); any other refusal by the cap
-logic stops the run.
+Caps: E1 $0.40 (six Sonnet sessions, each at most $0.08), E2 $0.60, E3 $0.40, E3P $0.10 (one session at most
+$0.08). The margins cover the CLI checking max_budget_usd only after a turn (a session may overshoot its cap by
+one turn). Every session gets at most what its probe, its envelope group and the run's cap have left by the
+reported costs, and none starts below $0.02. A session counts at its whole cap until a ResultMessage reports
+its cost (E2c's connect-only session stays there: U15 measured $0, but nothing reports it). A result without
+a finite, non-negative total_cost_usd keeps its session at the whole cap and stops the run: nothing more starts
+(fail closed). A probe left with less than a session needs ends there (cap_used, its unmeasured parts skipped);
+any other refusal by the cap logic stops the run.
 
-Cheapest setting that still answers: every main thread runs model "haiku" (a session option; nothing in
-stack.env changes) and the probes' throwaway agents say `model: haiku`. Every session has max_turns (E1 3,
-E2 4, E3 8), the throwaway agents `maxTurns: 4`, and every probe a wall-clock limit.
+E1 (the analysis's E1', 2026-10-09): the first runs' E1 measured nothing (Session(None) ran the settings.json
+agent, blackcat: no Bash tool, its model sonnet beat model=haiku). E1 now runs Session("verifier") (Bash, no
+permissionMode, model sonnet: the agent's model decides); a leg is INVALID unless its session's agent setting
+(the transcript's agent-setting row; CLI 2.1.287's init frame has no agent field) is the verifier, Bash is in
+the init tool list and the init frame names a model. E1b is split: untrusted (the CLI's stderr, read through
+the SDK's stderr callback for the trust warning only, answers "dropped (untrusted)") and trusted
+(CLAUDE_CODE_SANDBOXED=1 in that leg's env, against its own no-rule control under the same env). No temp
+CLAUDE_CONFIG_DIR (the login's keychain entry is named after it) and no edit of ~/.claude.json.
+The verifier is one of agent_guard's READONLY_TYPES: its Bash may run scripts and write only in scratch, and a
+temp project is the project (only its ./.claude-work is scratch), so E1's script and markers live in
+<temp cwd>/.claude-work/. The stack's own exact rule (E1c) names `just`, which is not on the guard's read-only
+list: that leg could only read hook_decided, so it is not run (E1C_NOT_RUN; E1c answers unknown, $0).
+A Bash call that got neither a tool result nor a denial (the session cut by its deadline, the CLI's exit or
+its budget stop) is "undecided", never a denial.
+E3P (the analysis's E3'): a foreground Agent child, then a SendMessage resume (E3c2a: does its meta.json
+toolUseId survive?) and the hook logger's meta.json check at each child's first tool call (E3e). E3d now reads
+a refused resume (SendMessage: "was stopped by the user and was not resumed") as "terminal". E2 is not re-run
+(its E2a one-call-per-turn rewrite is out of scope).
+
+Models: E1 the verifier's own (sonnet); every other main thread "haiku" (a session option; nothing in stack.env
+changes) and the throwaway agents say `model: haiku`; the report records each session's model from its init
+frame. Every session has max_turns (E1 3, E2 4, E3 8, E3P 6), the throwaway agents `maxTurns: 4`, and every
+probe a wall-clock limit.
 
 State: each probe works in fresh temp dirs and every session's XDG_STATE_HOME points into them, so the stack's
-hooks (E1 loads the installed stack through stack_sdk.Session) write their state there. E2 and E3 load only
-the temp project's settings (setting_sources ["project"]): no user settings, hooks or allow rules, so E3's
+hooks (E1 loads the installed stack through stack_sdk.Session) write their state there. E2, E3 and E3P load
+only the temp project's settings (setting_sources ["project"]): no user settings, hooks or allow rules, so the
 PreToolUse logger is a throwaway hook in the temp project. Nothing here writes ~/.claude, ~/.codex or this
 repository; the CLI itself writes what it writes for any session, its transcripts under
-<config>/projects/<temp cwd>/ (E3 reads the subagents' meta.json there).
+<config>/projects/<temp cwd>/ (E1 reads the agent setting there, E3 and E3P the subagents' meta.json).
 
 The report (default <main checkout>/.claude-work/sdk/probes/<date>-e.md, never overwritten) holds, per part,
-the question, the observable, the reading and yes / no / unknown (the observable is missing) / error /
-skipped / refused, and per probe the cost, cap, session ids, transcript paths and measured facts (numbers,
-booleans, identifiers). No prompt, reply, tool input or error text is written. The ledger
-(<report>.ledger.jsonl, 0600, appended as the run goes) holds the envelope, every reservation and every
-reported cost.
+the question, the observable, the reading and the answer (yes / no / unknown: the observable is missing /
+invalid / dropped (untrusted) / terminal / error / skipped / refused), and per probe the cost, cap, session
+ids, models, transcript paths and measured facts (numbers, booleans, identifiers). No prompt, reply, tool
+input, stderr or error text is written. The ledger (<report name>.ledger.jsonl, 0600, appended as the run
+goes, always in the default directory, also when --out puts the report elsewhere, so every later run reads it)
+holds the envelope (with the prior spend and the run's cap), every reservation and every reported cost.
 """
 from __future__ import annotations
 
@@ -52,6 +84,7 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime
+import fcntl
 import glob
 import importlib.util
 import json
@@ -86,18 +119,32 @@ task_states, agents_running, poll, clean, BudgetError = base.task_states, base.a
     base.clean, base.BudgetError
 
 SDK_PIN = base.SDK_PIN
-TOTAL_CAP_USD = 2.00
-ENVELOPE = {"E1E2": 1.50, "E3": 0.50}                # the user's consent, 2026-10-09
-CONSENT_ENV, CONSENT_VALUE = "SDK_PROBES_E_CONSENT", "%.2f" % TOTAL_CAP_USD
-CONSENT_TEXT = ("the user's decision of 2026-10-09: at most $2.00 in all, E1+E2 at most $1.50 plus E3 at most "
-                "$0.50; user-run only (--paid and %s=%s)" % (CONSENT_ENV, CONSENT_VALUE))
+TOTAL_CAP_USD = 2.00                                # the user's consent of 2026-10-09, across all runs
+ENVELOPE = {"E1E2": 1.50, "E3": 0.50}                # within one run
+CONSENT_ENV, CONSENT_VALUE = "SDK_PROBES_E_CONSENT", "%.2f" % TOTAL_CAP_USD   # CONSENT_VALUE: FULL_SET runs only
+FULL_SET = frozenset({"E1", "E2", "E3"})            # a run with all three keeps the first run's 2.00 consent
+CONSENT_TEXT = ("the user's decision of 2026-10-09: at most $2.00 in all, across runs (every ledger in the "
+                "default and the report directory counts), E1+E2 at most $1.50 plus E3+E3P at most $0.50 per run; user-run only "
+                "(--paid and %s=<the run's cap>)" % CONSENT_ENV)
 MIN_SESSION_USD = 0.02
 MODEL = "haiku"
+E1_AGENT = "verifier"                               # E1's main thread: Bash, no permissionMode, model sonnet
+E1_SESSION_USD = 0.08                               # one E1 Sonnet session (measured ~0.054 as blackcat)
+E3P_SESSION_USD = 0.08                              # E3P's one session (E3c2a and E3e)
+TRUST_WARNING = "this workspace has not been trusted"           # CLI 2.1.287, stderr (console.error)
+TRUST_ENV = {"CLAUDE_CODE_SANDBOXED": "1"}          # E1's trusted legs: a trust switch by the CLI's text
+RESUME_REFUSED = "was stopped by the user and was not resumed"  # CLI 2.1.287, SendMessage on a stopped child
+LEDGER_GLOB = "*.ledger.jsonl"
+IDENT_RX = re.compile(r"[\w.:@+-]{1,128}")           # a model, an agent name: what a fact may record
 CHILD_MAX_TURNS = 4                                 # the throwaway agents' frontmatter maxTurns
 CEILING_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"
 SANDBOX_OVERLAY = base.SETTINGS_OVERLAY             # sandbox.autoAllowBashIfSandboxed false
 STACK_RULE_CMD = "just -f tools/instructor/justfile --list"
 STACK_RULE = "Bash(%s)" % STACK_RULE_CMD           # an exact Bash allow rule of the stack's settings.json
+# why E1c's leg is not run: agent_guard (READONLY_TYPES) refuses the verifier's `just` before any rule is read,
+# so the leg could only read hook_decided (proof: the guard test in test_sdk_probes_e_fake.py); None runs it
+E1C_NOT_RUN: str | None = "agent_guard holds the verifier to read-only Bash and `just` is not on its list"
+LOCK_NAME = ".sdk_probes_e.lock"                    # in the default ledger dir: the gate and the envelope, serialised
 # what E1 needs of the INSTALLED <config>/bin/stack_sdk.py (the v2 helper, SDK-2); E2 and E3 need only options(),
 # which the v1 helper has too, so `--only E2,E3` runs on an older install
 E1_NEEDS = ("Session", "StackNotLoaded", "config_root", "wire")
@@ -106,9 +153,16 @@ UNVERIFIED = (
     "whether make_git's bare .git (HEAD, objects, refs) stops the CLI's walk to the repository root (E2c1)",
     "whether an unknown subagent_type makes the Agent call fail rather than fall back to another agent (E2b)",
     "whether CLAUDE_CODE_SESSION_KIND=bg makes the CLI write outside the temp dirs (E2a)",
-    "whether a growing subagent transcript proves a SendMessage resume (E3c2, E3d)",
+    "whether a growing subagent transcript proves a SendMessage resume (E3c2, E3c2a, E3d)",
+    "whether the CLI prints the trust warning to stderr under the SDK at all (E1b untrusted reads no without it)",
+    "what CLAUDE_CODE_SANDBOXED=1 changes besides trust (E1b trusted has its own control under the same env)",
+    "that the transcript's agent-setting row names the main thread's agent (E1's validity check)",
+    "that no agent_guard rule besides its read-only check decides the verifier's `sh <cwd>/.claude-work/e1.sh` "
+    "(the fake runs only readonly_violation; a leg reading hook_decided says so)",
+    "whether the verifier's frontmatter (mcpServers, effort) applies to an --agent main thread under "
+    "--strict-mcp-config (no API spend either way; effort raises a session's cost)",
 )
-ANSWERS = ("yes", "no", "unknown")
+ANSWERS = ("yes", "no", "unknown", "invalid", "dropped (untrusted)", "terminal")
 DECISIONS = ("allow", "deny", "ask", "defer")
 
 PROMPTS = {
@@ -130,6 +184,9 @@ PROMPTS = {
                 "done. Then end your turn without waiting for it."),
     "e3_send": ("Call the SendMessage tool exactly once, to the agent {agent_id}, with the message: reply with the "
                 "single word ok. Wait for its reply, then reply with one word: done."),
+    "e3_fg": ("Call the Agent tool exactly once with subagent_type {agent}, in the foreground (run_in_background "
+              "false), and the prompt: read the file {path} with the Read tool, then reply done. Wait for it to "
+              "finish, then reply with one word: done."),
 }
 # the throwaway agents and skill (files in the temp projects, never in the report)
 LATE_BODY = "Reply with exactly: ok"
@@ -137,8 +194,13 @@ WRITER_BODY = "Write exactly the file you are asked to write, with the Write too
 FORK_BODY = "Write the file {marker} containing the single word ok with the Write tool, then reply: done."
 HOLDER_BODY = ("Do exactly what you are asked, in order: write the file with the Write tool, then run the Bash "
                "command once, then reply: done.")
-# the throwaway PreToolUse command hook (E3): logs identifiers only, decides nothing
-HOOK_LOGGER = '''import json, re, sys
+ECHO_BODY = "Do exactly what you are asked: read the file with the Read tool, then reply: done."
+E1_SCRIPT = "touch {marker}\n"           # E1's <cwd>/.claude-work/e1.sh: the marker write, behind `sh <script>`
+# the throwaway PreToolUse command hook (E3, E3P): logs identifiers and booleans only, decides nothing. For a
+# child's row (E3e) it also logs whether the child's meta.json exists now and holds a toolUseId, looked up
+# where agent_guard's spawn_meta looks (meta_folders: agent_transcript_path's folder, then
+# <transcript_path minus .jsonl>/subagents, a subagent's own transcript mapped back to its folder)
+HOOK_LOGGER = '''import json, os, re, sys
 OK = re.compile(r"[A-Za-z0-9_.:@+-]{1,128}")
 try:
     ev = json.load(sys.stdin)
@@ -146,6 +208,29 @@ except Exception:
     sys.exit(0)
 row = {k: ev.get(k) for k in ("hook_event_name", "tool_name", "permission_mode", "agent_id", "agent_type")}
 row = {k: v for k, v in row.items() if isinstance(v, str) and OK.fullmatch(v)}
+aid, folders = row.get("agent_id"), []
+atp, tp = ev.get("agent_transcript_path"), ev.get("transcript_path")
+if aid and isinstance(atp, str) and atp.strip():
+    folders.append(os.path.dirname(os.path.expanduser(atp.strip())))
+if aid and isinstance(tp, str) and tp.strip():
+    tp = os.path.expanduser(tp.strip())
+    d, stem = os.path.dirname(tp), os.path.basename(tp)
+    if os.path.basename(d) == "subagents":
+        folders.append(d)
+    else:
+        stem = stem[:-len(".jsonl")] if stem.endswith(".jsonl") else str(ev.get("session_id") or stem)
+        folders.append(os.path.join(d, stem, "subagents"))
+if folders:
+    metas = [os.path.join(f, "agent-%s.meta.json" % aid) for f in folders]
+    row["meta_json"], row["meta_tool_use_id"] = any(os.path.isfile(p) for p in metas), False
+    for p in metas:
+        try:
+            with open(p, encoding="utf-8") as fh:
+                m = json.load(fh)
+        except Exception:
+            continue
+        if isinstance(m, dict) and isinstance(m.get("toolUseId"), str) and m["toolUseId"].strip():
+            row["meta_tool_use_id"] = True
 with open(sys.argv[1], "a", encoding="utf-8") as fh:
     fh.write(json.dumps(row) + "\\n")
 '''
@@ -168,6 +253,7 @@ class Probe:
     max_turns: int                    # every session's main-thread turn limit
     parts: tuple[Part, ...]
     fn: Callable[[Ctx], Awaitable[None]]
+    est_usd: tuple[float, float] = (0.0, 0.0)   # the expected spend (low, high): the plan's estimate, not a cap
 
 
 @dataclasses.dataclass
@@ -181,6 +267,19 @@ class Config:
     wait_s: float = 90.0              # each wait: a child, a stop, a resumed child
     hold_s: float = 150.0             # E3d: the longest the host parks the child's Bash request
     settle_s: float = 3.0             # file side effects: an agent file watched, a meta.json rewritten
+
+
+def consent_value(probes: list[Probe]) -> str:
+    """The SDK_PROBES_E_CONSENT value a paid run of `probes` needs: its own cap, the sum of the selected caps as
+    %.2f; a run with all of E1, E2 and E3 keeps the first run's 2.00 (the whole consent as its cap)."""
+    if FULL_SET <= {p.pid for p in probes}:
+        return CONSENT_VALUE
+    return "%.2f" % sum(p.budget_usd for p in probes)
+
+
+def run_cap(probes: list[Probe]) -> float:
+    """What the run may book in all: its consent value in dollars."""
+    return float(consent_value(probes))
 
 
 def validate_registry(probes: list[Probe]) -> None:
@@ -232,6 +331,7 @@ class Ctx(base.Ctx):
         self.floor: dict[int, float] = {}               # open_turn: the session's total before the open turn
         self.answers: dict[str, str] = {}
         self.facts: dict[str, Any] = {}
+        self.models: dict[int, str] = {}                # session key -> the model its init frame names
         self.state = self.mkdir("state")
 
     def mkdir(self, *parts: str) -> str:
@@ -300,6 +400,9 @@ class Ctx(base.Ctx):
         sid = getattr(m, "session_id", None)
         if kind(m) == "SystemMessage" and isinstance(getattr(m, "data", None), dict):
             sid = m.data.get("session_id") or sid
+            model = m.data.get("model")
+            if getattr(m, "subtype", "") == "init" and isinstance(model, str) and IDENT_RX.fullmatch(model):
+                self.models[key] = model
         if isinstance(sid, str) and re.fullmatch(r"[\w-]{8,80}", sid) and sid not in self.session_ids:
             self.session_ids.append(sid)
 
@@ -325,10 +428,13 @@ class Ctx(base.Ctx):
         return self.helper.options(None, budget_usd=self.budget(share, usd), cwd=cwd, sources=sources, env=env, **kw)
 
     @contextlib.asynccontextmanager
-    async def stack_session(self, cwd: str, msgs: list[Any], *, share: float = 1.0, overlay: bool = True, **kw: Any):
+    async def stack_session(self, cwd: str, msgs: list[Any], *, usd: float | None = None, overlay: bool = True,
+                            env: dict[str, str] | None = None, **kw: Any):
         """A stack_sdk.Session on the INSTALLED stack, host none (unattended: plan, --permission-prompts none),
-        main thread without an agent, model haiku; with `overlay`, sandbox.autoAllowBashIfSandboxed false (the
-        Session itself refuses overlays: the probe adds it to isolate the allow rules from the sandbox). No
+        main thread the E1_AGENT agent (Session("verifier"): Bash, no permissionMode; its own model, sonnet,
+        decides: no model= is passed, and an agent's frontmatter model beat model= in the first run); with
+        `overlay`, sandbox.autoAllowBashIfSandboxed false (the Session itself refuses overlays: the probe adds it
+        to isolate the allow rules from the sandbox). `env` is added to the session's (E1's trusted legs). No
         config_dir: Session would export CLAUDE_CONFIG_DIR, and CLI 2.1.287 names the keychain entry of the
         login after it whenever that variable is set (jF(): "Claude Code-credentials-<sha256(dir)[:8]>"), so a
         subscription login under the default ~/.claude would not be found."""
@@ -339,14 +445,18 @@ class Ctx(base.Ctx):
         def on(m: Any) -> None:
             self.note(key, m)
             msgs.append(m)
-        s = probe_session_class(self.helper)(
-            None, host="none", budget_usd=self.budget(share), cli=self.cfg.cli_path,
-            transport=self.cfg.transport_factory, on_message=on, row=False, deadline_s=self.cfg.turn_s,
-            bg_wait_s=self.cfg.wait_s, env={"XDG_STATE_HOME": self.state}, cwd=cwd, model=MODEL,
-            max_turns=self.probe.max_turns, strict_mcp_config=True,
-            disallowed_tools=[*base.DISALLOWED, *base.allowed_mcp(self.cfg.config_dir)], **kw)
-        s.overlay = overlay
-        opts = s.preview()
+        budget = self.budget(usd=usd)
+        try:
+            s = probe_session_class(self.helper)(
+                E1_AGENT, host="none", budget_usd=budget, cli=self.cfg.cli_path,
+                transport=self.cfg.transport_factory, on_message=on, row=False, deadline_s=self.cfg.turn_s,
+                bg_wait_s=self.cfg.wait_s, env=dict(env or {}, XDG_STATE_HOME=self.state), cwd=cwd,
+                max_turns=self.probe.max_turns, strict_mcp_config=True,
+                disallowed_tools=[*base.DISALLOWED, *base.allowed_mcp(self.cfg.config_dir)], **kw)
+            s.overlay = overlay
+            opts = s.preview()          # the options it would connect with: a refusal may come here too
+        except ValueError as e:         # e.g. a helper that refuses CLAUDE_CODE_SANDBOXED (sdk/env-channel)
+            raise HelperRefused(type(e).__name__) from e
         self.reserve(key, opts)
         try:
             async with s:
@@ -487,15 +597,40 @@ def transcript_lines(config: str, sid: str | None, aid: str | None) -> int | Non
     return None
 
 
-def hook_rows(path: str) -> list[dict[str, str]]:
+def hook_rows(path: str) -> list[dict[str, Any]]:
+    """The logger's rows: its string identifiers and its booleans (E3e's meta_json, meta_tool_use_id)."""
     rows = []
     with contextlib.suppress(OSError), open(path, encoding="utf-8") as fh:
         for ln in fh:
             with contextlib.suppress(ValueError):
                 r = json.loads(ln)
                 if isinstance(r, dict):
-                    rows.append({k: v for k, v in r.items() if isinstance(v, str)})
+                    rows.append({k: v for k, v in r.items() if isinstance(v, (str, bool))})
     return rows
+
+
+def agent_setting(config: str, sid: str | None, init: dict[str, Any]) -> str | None:
+    """The main thread's agent: an agent field of the init frame if a CLI ever sends one, else the session
+    transcript's last `{"type": "agent-setting", "agentSetting": ...}` row (CLI 2.1.287 writes it there, last
+    wins; its init frame has no agent field). None if neither names one."""
+    for k in ("agentSetting", "agent_setting", "agent"):
+        v = init.get(k)
+        if isinstance(v, str):
+            return v if IDENT_RX.fullmatch(v) else None
+    if not sid or not re.fullmatch(r"[\w-]{1,128}", sid):
+        return None
+    found = None
+    for p in sorted(glob.glob(os.path.join(glob.escape(config), "projects", "*", sid + ".jsonl"))):
+        with contextlib.suppress(OSError), open(p, encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                if '"agent-setting"' not in ln:
+                    continue
+                with contextlib.suppress(ValueError):
+                    r = json.loads(ln)
+                    if isinstance(r, dict) and r.get("type") == "agent-setting" and r.get("sessionId", sid) == sid:
+                        v = r.get("agentSetting")
+                        found = v if isinstance(v, str) and IDENT_RX.fullmatch(v) else None
+    return found
 
 
 def write_text(path: str, text: str) -> None:
@@ -569,73 +704,153 @@ def yn(cond: bool | None) -> str:
     return "unknown" if cond is None else "yes" if cond else "no"
 
 
-# ---------------------------------------------------------------- E1: Bash allow rules under host none + plan
-def bash_leg(helper: Any, msgs: list[Any], denials: Any, command: str, marker: str | None) -> dict[str, Any]:
+# ---------------------------------------------------------------- E1 (E1'): Bash allow rules under host none + plan
+class HelperRefused(RuntimeError):
+    """The installed stack_sdk.Session refused a leg's arguments (an env it will not pass): nothing started."""
+
+
+def leg_validity(config: str, msgs: list[Any]) -> dict[str, Any]:
+    """A leg measures the rules only if its main thread really was E1_AGENT with the Bash tool, and the init
+    frame names its model (the first runs' E1 ran blackcat: no Bash, so nothing was measured)."""
+    init = init_data(msgs)
+    tools, model = init.get("tools"), init.get("model")
+    out = {"agent_setting": agent_setting(config, session_of(msgs), init),
+           "bash_tool": isinstance(tools, list) and "Bash" in tools,
+           "model": model if isinstance(model, str) and IDENT_RX.fullmatch(model) else None}
+    out["valid"] = out["agent_setting"] == E1_AGENT and out["bash_tool"] and out["model"] is not None
+    return out
+
+
+def bash_leg(helper: Any, msgs: list[Any], denials: Any, command: str, marker: str | None,
+             validity: dict[str, Any]) -> dict[str, Any]:
     want = argv(command)
     ids = [i for i, inp, _ in calls(msgs, "Bash") if argv(inp.get("command")) == want]
     errs, den, hooks = tool_errors(msgs), denied_ids(denials), hook_decisions(helper, msgs)
-    return {"attempted": bool(ids), "calls": len(ids), "denied": any(i in den for i in ids),
+    return {**validity, "attempted": bool(ids), "calls": len(ids), "denied": any(i in den for i in ids),
+            "decided": any(i in errs or i in den for i in ids),
             "tool_error": any(errs.get(i) for i in ids), "marker": None if marker is None else os.path.exists(marker),
             "hook_decisions": dict(hooks), "mode": init_data(msgs).get("permissionMode")}
 
 
 def bash_verdict(leg: dict[str, Any]) -> str:
-    """ran / denied / not_attempted / hook_decided / not_plan. With a marker it decides; without one the
-    call's denial does (permission_denials)."""
+    """invalid / not_plan / hook_decided / not_attempted / ran / undecided / denied. Invalid first: a leg whose
+    main thread was not the verifier with Bash and a recorded model measured nothing. A marker proves the run;
+    a call with neither a tool result nor a denial was never decided (the session ended first: its deadline,
+    the CLI's exit, its budget stop), which is no denial; else the marker's absence, or without a marker the
+    call's denial (permission_denials), decides."""
+    if not leg.get("valid"):
+        return "invalid"
     if leg["mode"] not in (None, "plan"):
         return "not_plan"
     if sum(leg["hook_decisions"].values()):
         return "hook_decided"
     if not leg["attempted"]:
         return "not_attempted"
+    if leg["marker"]:
+        return "ran"
+    if not leg.get("decided"):
+        return "undecided"
     if leg["marker"] is not None:
-        return "ran" if leg["marker"] else "denied"
+        return "denied"
     return "denied" if leg["denied"] else "ran"
 
 
-E1_LEGS = (("control", "", True), ("session_rule", "session", True), ("repo_rule", "repo", True),
-           ("stack_rule", "stack", True), ("as_installed", "", False))
+def e1_command(cwd: str, name: str) -> tuple[str, str]:
+    """(`sh <cwd>/.claude-work/e1.sh`, its marker <cwd>/.claude-work/e1-<name>.marker); the script touches the
+    marker, so the call does not look like a write (analysis §2). The verifier is a READONLY_TYPES agent:
+    agent_guard lets its Bash run scripts and write only in scratch, and a temp project is the project (only
+    its ./.claude-work is scratch), so both live there. The rule names the command verbatim, so each path must
+    be one plain shell word."""
+    work = os.path.join(cwd, ".claude-work")
+    script, marker = os.path.join(work, "e1.sh"), os.path.join(work, "e1-%s.marker" % name)
+    if not re.fullmatch(r"[\w./@+:-]+", script) or not re.fullmatch(r"[\w./@+:-]+", marker):
+        raise RuntimeError("E1's temp path is not a plain shell word")
+    write_text(script, E1_SCRIPT.format(marker=marker))
+    return "sh " + script, marker
+
+
+# (leg, rule, overlay, trusted): untrusted legs first (control first: the rule legs read against it), then the
+# trusted pair (CLAUDE_CODE_SANDBOXED=1, its own control), then the stack's rule and the stack as installed
+E1_LEGS = (("control", "", True, False), ("session_rule", "session", True, False), ("repo_rule", "repo", True, False),
+           ("trusted_control", "", True, True), ("trusted_repo_rule", "repo", True, True),
+           ("stack_rule", "stack", True, False), ("as_installed", "", False, False))
+# part -> (its leg, the control whose denial makes the leg's reading mean something)
+E1_READ = {"E1a": ("session_rule", "control"), "E1bu": ("repo_rule", "control"),
+           "E1bt": ("trusted_repo_rule", "trusted_control"), "E1c": ("stack_rule", "control"),
+           "E1d": ("as_installed", None)}
 
 
 async def e1(c: Ctx) -> None:
     inst = installed(c.cfg.config_dir)
     f = c.facts
-    f.update(stack_rule_installed=STACK_RULE in inst["allow"], sandbox_enabled=inst["sandbox"].get("enabled"),
+    f.update(e1_agent=E1_AGENT, stack_rule_installed=STACK_RULE in inst["allow"],
+             sandbox_enabled=inst["sandbox"].get("enabled"),
              sandbox_auto_allow=inst["sandbox"].get("autoAllowBashIfSandboxed"))
     v: dict[str, str] = {}
-    for name, rule, overlay in E1_LEGS:
-        if rule == "stack" and not f["stack_rule_installed"]:
-            v[name] = "skipped"
+    try:
+        for name, rule, overlay, trusted in E1_LEGS:
+            if rule == "stack" and not f["stack_rule_installed"]:
+                v[name] = "skipped"
+                continue
+            if rule == "stack" and E1C_NOT_RUN:             # it could only read hook_decided: not run, $0
+                v[name] = f[name + "_verdict"] = "not_run"
+                continue
+            cwd = c.mkdir("e1", name)
+            command, marker = (STACK_RULE_CMD, None) if rule == "stack" else e1_command(cwd, name)
+            kw: dict[str, Any] = {}
+            if rule == "session":
+                kw["allowed_tools"] = ["Bash(%s)" % command]
+            if rule == "repo":
+                write_text(os.path.join(cwd, ".claude", "settings.json"),
+                           json.dumps({"permissions": {"allow": ["Bash(%s)" % command]}}))
+            msgs: list[Any] = []
+            warned = Counter()
+
+            def on_stderr(line: str, warned: Counter[str] = warned) -> None:
+                """The CLI's stderr: only whether the trust warning came; no line is kept."""
+                if TRUST_WARNING in str(line):
+                    warned["trust"] += 1
+            try:
+                async with c.stack_session(cwd, msgs, usd=E1_SESSION_USD, overlay=overlay,
+                                           env=dict(TRUST_ENV) if trusted else None, stderr=on_stderr, **kw) as s:
+                    out = await s.ask(PROMPTS["e1_bash"].format(command=command))
+            except c.helper.StackNotLoaded as e:           # $0 so far for this leg, but booked at its cap
+                f["stack_not_loaded"], f["stack_not_loaded_leg"] = load_reason(e), name
+                break
+            except HelperRefused:                           # nothing started, nothing booked
+                v[name] = f[name + "_verdict"] = "helper_refused"
+                continue
+            leg = bash_leg(c.helper, msgs, out.get("permission_denials"), command, marker,
+                           leg_validity(c.cfg.config_dir, msgs))
+            leg["trust_warning"] = warned["trust"] > 0
+            f.update({"%s_%s" % (name, k): x for k, x in leg.items()})
+            v[name] = f[name + "_verdict"] = bash_verdict(leg)
+    except CapUsed:                                     # the legs measured so far still answer
+        e1_answers(c, v)
+        raise
+    e1_answers(c, v)
+
+
+def e1_answers(c: Ctx, v: dict[str, str]) -> None:
+    """Per part: invalid if its leg or its control is invalid; unknown unless its control was denied (PR5b's
+    lesson: a rule leg means something only if the same call without a rule was denied); E1c (no marker) also
+    needs the control's denial to show in permission_denials (calibrated); a denied repo rule with the trust
+    warning on stderr is "dropped (untrusted)"; an undecided call or a leg not run (E1C_NOT_RUN) reads unknown.
+    A leg that never started leaves its part to the run (skipped)."""
+    f, ans = c.facts, {"ran": "yes", "denied": "no"}
+    f["denials_calibrated"] = calibrated = v.get("control") == "denied" and f.get("control_denied") is True
+    for part, (leg, control) in E1_READ.items():
+        lv = v.get(leg)
+        if lv is None:
             continue
-        cwd = c.mkdir("e1", name)
-        marker = None if rule == "stack" else os.path.join(cwd, "e1-%s.marker" % name)
-        command = STACK_RULE_CMD if rule == "stack" else "touch " + str(marker)
-        kw: dict[str, Any] = {}
-        if rule == "session":
-            kw["allowed_tools"] = ["Bash(%s)" % command]
-        if rule == "repo":
-            write_text(os.path.join(cwd, ".claude", "settings.json"),
-                       json.dumps({"permissions": {"allow": ["Bash(%s)" % command]}}))
-        msgs: list[Any] = []
-        try:
-            async with c.stack_session(cwd, msgs, share=0.2, overlay=overlay, **kw) as s:
-                out = await s.ask(PROMPTS["e1_bash"].format(command=command))
-        except c.helper.StackNotLoaded as e:           # $0 so far for this leg, but booked at its cap
-            f["stack_not_loaded"] = load_reason(e)
-            break
-        leg = bash_leg(c.helper, msgs, out.get("permission_denials"), command, marker)
-        f.update({"%s_%s" % (name, k): x for k, x in leg.items()})
-        v[name] = f[name + "_verdict"] = bash_verdict(leg)
-    ans = {"ran": "yes", "denied": "no"}
-    # without a marker (the stack's rule) the denial list decides: only if the control's denial showed in it
-    # a rule leg means something only if the same call without a rule was denied (PR5b's lesson)
-    control = v.get("control") == "denied"
-    calibrated = control and f.get("control_denied") is True
-    f["denials_calibrated"] = calibrated
-    c.answers.update(E1a=ans.get(v.get("session_rule", ""), "unknown") if control else "unknown",
-                     E1b=ans.get(v.get("repo_rule", ""), "unknown") if control else "unknown",
-                     E1c=ans.get(v.get("stack_rule", ""), "unknown") if calibrated else "unknown",
-                     E1d=ans.get(v.get("as_installed", ""), "unknown"))
+        if lv == "invalid" or (control is not None and v.get(control) == "invalid"):
+            c.answers[part] = "invalid"
+        elif control is not None and v.get(control) != "denied" or part == "E1c" and not calibrated:
+            c.answers[part] = "unknown"
+        else:
+            a = ans.get(lv, "unknown")
+            dropped = a == "no" and leg in ("repo_rule", "trusted_repo_rule") and f.get(leg + "_trust_warning")
+            c.answers[part] = "dropped (untrusted)" if dropped else a
 
 
 # ---------------------------------------------------------------- E2: the env channel, late and far agents
@@ -830,7 +1045,7 @@ async def e3_hold(c: Ctx, logger: str) -> None:
     write_project(p, agents=(("e3-holder", HOLDER_BODY, "acceptEdits", "Write, Bash"),), hook=hook_command(logger, log))
     host, cfg, f = SendHoldHost(c.cfg.hold_s), c.cfg, c.facts
     o = c.options(p, permission_mode="default", can_use_tool=host)
-    sid = aid = meta0 = meta1 = lines0 = lines1 = None
+    sid = aid = meta0 = meta1 = lines0 = lines1 = refused = None
     n_stop = 0
     async with c.client(o) as s, anyio.create_task_group() as tg:
         tg.start_soon(s.drain)
@@ -881,6 +1096,7 @@ async def e3_hold(c: Ctx, logger: str) -> None:
             meta1, lines1 = read_meta(cfg.config_dir, sid, aid), transcript_lines(cfg.config_dir, sid, aid)
             # decided after the last read, with no await before the reader stops: no frame lands in between
             f["e3d_resume_turn_ended"] = done = resume_done()
+            refused = resume_refused(s.msgs[m:])
             if not done:
                 c.rebook(s.key, float(o.max_budget_usd))
         tg.cancel_scope.cancel()
@@ -893,31 +1109,146 @@ async def e3_hold(c: Ctx, logger: str) -> None:
              e3_main_modes_hold=sorted({r.get("permission_mode", "") for r in rows if not r.get("agent_id")}),
              **{"e3d_meta_%s" % k: v for k, v in meta_facts(meta0).items()},
              **{"e3d_meta_after_%s" % k: v for k, v in meta_facts(meta1).items()},
-             e3d_child_lines_before=lines0, e3d_child_lines_after=lines1, e3d_resumed=resumed)
+             e3d_child_lines_before=lines0, e3d_child_lines_after=lines1, e3d_resumed=resumed,
+             e3d_resume_refused=refused)
     caller = init_data(s.msgs).get("permissionMode") or "default"
     f["e3b_hold"] = own_mode(rows, "acceptEdits" if made and "Write" not in host.seen else None, caller)
-    stopped0 = (meta0 or {}).get("stoppedByUser") is True
-    c.answers["E3d"] = yn((meta1 or {}).get("stoppedByUser") is True) if stopped0 and resumed else "unknown"
+    c.answers["E3d"] = e3d_reading((meta0 or {}).get("stoppedByUser") is True, resumed, refused,
+                                   (meta1 or {}).get("stoppedByUser") is True)
+
+
+async def e3p(c: Ctx) -> None:
+    """E3P (the analysis's E3'), one session: a foreground Agent child (e3-echo: default mode, Read only) reads a
+    file and finishes; a SendMessage resumes it; its meta.json is read after each (E3c2a). The throwaway hook
+    logger records at every child row whether the child's meta.json exists where agent_guard looks (E3e)."""
+    import anyio
+    logger, log = os.path.join(c.scratch, "hook_logger.py"), os.path.join(c.scratch, "hooks-e3p.jsonl")
+    write_text(logger, HOOK_LOGGER)
+    p = c.mkdir("e3p", "agent")
+    target = os.path.join(p, "e3p-read.txt")
+    write_text(target, "probe\n")
+    write_project(p, agents=(("e3-echo", ECHO_BODY, None, "Read"),), hook=hook_command(logger, log))
+    host, f, cfg = base.Host(p, ("Agent", "Task", "SendMessage", "Read")), c.facts, c.cfg
+    aid = meta0 = meta1 = lines0 = lines1 = refused = None
+    sends = 0                                           # main-thread SendMessage calls in the resume turn
+    async with c.client(c.options(p, usd=E3P_SESSION_USD, permission_mode="default", can_use_tool=host)) as s:
+        await s.turn(PROMPTS["e3_fg"].format(agent="e3-echo", path=target), cfg.turn_s)
+        await s.until_idle(cfg.turn_s)
+        sid = session_of(s.msgs)
+        spawn = [i for tool in ("Agent", "Task") for i, inp, parent in calls(s.msgs, tool)
+                 if parent is None and inp.get("subagent_type") == "e3-echo"]
+        found = [a for a, m in metas(cfg.config_dir, sid).items() if m.get("agentType") == "e3-echo"]
+        found += [r["agent_id"] for r in hook_rows(log) if r.get("agent_type") == "e3-echo" and r.get("agent_id")]
+        aid = found[0] if found else None
+        meta0, lines0 = read_meta(cfg.config_dir, sid, aid), transcript_lines(cfg.config_dir, sid, aid)
+        if aid and lines0 is not None:
+            n = len(s.msgs)
+            c.open_turn(s.key)
+            await s.turn(PROMPTS["e3_send"].format(agent_id=aid), cfg.turn_s)
+            await s.until_idle(cfg.turn_s)
+            await anyio.sleep(cfg.settle_s)
+            lines1, meta1 = transcript_lines(cfg.config_dir, sid, aid), read_meta(cfg.config_dir, sid, aid)
+            refused = resume_refused(s.msgs[n:])
+            errs = tool_errors(s.msgs[n:])          # a denied SendMessage (host, hook: is_error) resumes nothing
+            sends = len([i for i, _, parent in calls(s.msgs[n:], "SendMessage") if parent is None
+                         and errs.get(i) is False])
+    rows = hook_rows(log)
+    first: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if isinstance(r.get("agent_id"), str):
+            first.setdefault(r["agent_id"], r)
+    at_first = [r.get("meta_json") for r in first.values()]
+    tid0, tid1 = (meta0 or {}).get("toolUseId"), (meta1 or {}).get("toolUseId")
+    # a resume is proven only by a SendMessage call of the resume turn that succeeded (no error result) AND the child's transcript growing: a
+    # transcript that grew without one (a late write of the first run) proves nothing
+    resumed = sends > 0 and lines0 is not None and lines1 is not None and lines1 > lines0
+    f.update(e3p_main_mode=init_data(s.msgs).get("permissionMode"), e3p_spawn_calls=len(spawn),
+             e3p_spawn_tool_use_id=spawn[0] if spawn else None, e3p_child_found=aid is not None,
+             e3p_meta_tid_is_spawn=tid0 == spawn[0] if spawn and isinstance(tid0, str) else None,
+             **{"e3p_meta_%s" % k: v for k, v in meta_facts(meta0).items()},
+             **{"e3p_meta_after_%s" % k: v for k, v in meta_facts(meta1).items()},
+             e3p_child_lines_before=lines0, e3p_child_lines_after=lines1, e3p_resumed=resumed,
+             e3p_resume_refused=refused, e3p_send_calls=len(calls(s.msgs, "SendMessage")),
+             e3p_resume_send_calls=sends, e3p_hook_rows=len(rows),
+             e3e_children=len(first), e3e_meta_at_first_call=at_first,
+             e3e_tid_at_first_call=[r.get("meta_tool_use_id") for r in first.values()])
+    c.answers["E3c2a"] = yn(tid1 == tid0 and meta1 is not None) if resumed and not refused and isinstance(tid0, str) \
+        else "unknown"
+    c.answers["E3e"] = "no" if False in at_first else "yes" if at_first and all(x is True for x in at_first) \
+        else "unknown"
+
+
+def e3d_reading(stopped0: bool, resumed: bool, refused: bool | None, stopped1: bool) -> str:
+    """E3d: terminal when the CLI refused to resume the stopped child (SendMessage success false, "was stopped
+    by the user and was not resumed") and its transcript did not grow: the stop is final, there is nothing to
+    survive; else yes / no by stoppedByUser after a proven resume; unknown otherwise."""
+    if not stopped0:
+        return "unknown"
+    if refused and not resumed:
+        return "terminal"
+    if resumed and not refused:
+        return yn(stopped1)
+    return "unknown"
+
+
+def result_text(content: Any) -> str:
+    """A tool result's text (a string, or a list of text blocks), for a fixed-phrase test only: never kept."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(str(b.get("text", "")) if isinstance(b, dict) else str(getattr(b, "text", "")) for b in content)
+    return ""
+
+
+def resume_refused(msgs: list[Any]) -> bool | None:
+    """Did the result of a main-thread SendMessage call in `msgs` refuse the resume (RESUME_REFUSED in its text
+    or its tool_use_result, and that record's success not true)? None: no such result."""
+    ids = {i for i, _, parent in calls(msgs, "SendMessage") if parent is None}
+    seen: bool | None = None
+    for m in msgs:
+        if kind(m) != "UserMessage" or not isinstance(m.content, list):
+            continue
+        tur = getattr(m, "tool_use_result", None)
+        tur = tur if isinstance(tur, dict) else {}
+        for b in m.content:
+            if kind(b) != "ToolResultBlock" or b.tool_use_id not in ids:
+                continue
+            text = result_text(b.content) + " " + json.dumps(tur, default=str)
+            refused = RESUME_REFUSED in text and tur.get("success") is not True
+            seen = refused or bool(seen)
+    return seen
 
 
 # ---------------------------------------------------------------- the registry
-OBS_TOUCH = ("the marker that `touch <temp cwd>/<marker>` (Bash, main thread, model haiku) creates; sandbox "
-             "auto-allow off by a settings overlay")
-READ_RULE = ("yes: the marker exists; no: the call was made, no marker; unknown: no such call, a PreToolUse hook "
-             "decided it, the session was not in plan, or the control (the same call, no rule) was not denied")
-READ_INSTALLED = ("yes: the marker exists; no: the call was made, no marker; unknown: no such call, a PreToolUse "
-                  "hook decided it, or the session was not in plan (fact control_verdict: the same call, overlay on)")
+OBS_TOUCH = ("the marker that `sh <temp cwd>/.claude-work/e1.sh` (it touches the marker; Bash, main thread the "
+             "verifier; ./.claude-work: the only scratch agent_guard gives a read-only agent in a project) "
+             "creates; sandbox auto-allow off by a settings overlay; the leg's validity: the transcript's agent "
+             "setting, Bash in the init tools, the init model")
+READ_VALID = "invalid: the leg's (or its control's) main thread was not the verifier with Bash and a recorded model; "
+READ_RULE = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, the "
+             "call was never decided (no tool result), a PreToolUse hook decided it, the session was not in plan, or "
+             "the control (the same call, no rule) was not denied")
+READ_REPO = (READ_RULE + "; dropped (untrusted): no, and the CLI's stderr had the warning \"%s\"" % TRUST_WARNING)
+READ_INSTALLED = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, "
+                  "the call was never decided (no tool result), a PreToolUse hook decided it, or the session was not "
+                  "in plan (fact control_verdict: the same call, overlay on)")
 PROBES = [
-    Probe("E1", "E1E2", 0.60, 900, 3, (
-        Part("E1a", "Host none + plan + --permission-prompts none (stack_sdk.Session, installed stack): does a Session "
-                    "allowed_tools Bash(...) allow rule run its command?", OBS_TOUCH, READ_RULE),
-        Part("E1b", "Same, with the Bash(...) allow rule in the repository's .claude/settings.json?", OBS_TOUCH, READ_RULE),
+    Probe("E1", "E1E2", 0.40, 1200, 3, (
+        Part("E1a", "Host none + plan + --permission-prompts none (stack_sdk.Session(\"verifier\"), installed stack): "
+                    "does a Session allowed_tools Bash(...) allow rule run its command?", OBS_TOUCH, READ_RULE),
+        Part("E1bu", "Same, with the Bash(...) allow rule in the repository's .claude/settings.json, the temp "
+                     "workspace untrusted?", OBS_TOUCH + "; the CLI's stderr (SDK stderr callback): the trust "
+                     "warning, as a boolean", READ_REPO),
+        Part("E1bt", "Same, the workspace trusted by CLAUDE_CODE_SANDBOXED=1 in the session's env?",
+             OBS_TOUCH + "; its control: the same call, no rule, the same env", READ_REPO),
         Part("E1c", "Same, with the stack's own exact rule %s (user settings)?" % STACK_RULE,
              "the call's tool_use_id in the result's permission_denials (the command writes nothing)",
-             "yes: called, not denied; no: denied; unknown: no such call, a hook decided it, the rule is not "
-             "installed, or the control's denial did not show in permission_denials (uncalibrated)"),
+             "unknown, NOT RUN while E1C_NOT_RUN holds (%s: the leg could only read hook_decided, so it costs $0 "
+             "and answers unknown); when run: " % E1C_NOT_RUN + READ_VALID + "yes: called, not denied; no: denied; "
+             "unknown: no such call, the call was never decided, a hook decided it, the rule is not installed, or the "
+             "control's denial did not show in permission_denials (uncalibrated)"),
         Part("E1d", "Same with no rule at all and the sandbox settings as installed (no overlay): does the command run?",
-             "the touch marker, no overlay", READ_INSTALLED)), e1),
+             "the touch marker, no overlay", READ_INSTALLED)), e1, est_usd=(0.33, 0.48)),
     Probe("E2", "E1E2", 0.60, 900, 4, (
         Part("E2a", "CLAUDE_CODE_SESSION_KIND=bg with CLAUDE_BG_SESSION_PERMISSION_RULES {allow, deny, addDirs} in "
                     "options.env: do the rules take effect in an SDK session?",
@@ -934,7 +1265,7 @@ PROBES = [
              "yes: listed; no: not listed; unknown: the control is not listed"),
         Part("E2c2", "Does the CLI load agents from .claude/agents in a subdirectory of an --add-dir (layout 6-subdir)?",
              "get_server_info() agents at connect; control: the add-dir's own .claude/agents",
-             "yes: listed; no: not listed; unknown: the control is not listed")), e2),
+             "yes: listed; no: not listed; unknown: the control is not listed")), e2, est_usd=(0.11, 0.15)),
     Probe("E3", "E3", 0.40, 1200, 8, (
         Part("E3a", "Main thread in plan mode: does a `context: fork` skill whose `agent:` has permissionMode acceptEdits "
                     "run in that mode (its Write succeeds)?",
@@ -954,9 +1285,25 @@ PROBES = [
              "the meta.json re-read after the resume; the resume proven by the child's transcript growing",
              "yes: unchanged; no: changed or gone; unknown: no resume proven, E3c1 unknown, or no toolUseId before the resume"),
         Part("E3d", "Does stoppedByUser in meta.json survive a SendMessage resume after stop_task?",
-             "the held child's meta.json after stop_task (PR5b's hold) and after the resume (its transcript grows)",
-             "yes: true after both; no: true after the stop, not after the resume; unknown: not true after the stop, "
-             "or no resume proven")), e3),
+             "the held child's meta.json after stop_task (PR5b's hold) and after the resume (its transcript grows); "
+             "the SendMessage result (a refusal as a boolean)",
+             "terminal: the CLI refused the resume (SendMessage success false, \"%s\") and the transcript did not "
+             "grow: the stop is final; yes: true after both; no: true after the stop, not after the resume; "
+             "unknown: not true after the stop, or neither a resume nor a refusal proven" % RESUME_REFUSED)),
+          e3, est_usd=(0.15, 0.20)),
+    Probe("E3P", "E3", 0.10, 600, 6, (
+        Part("E3c2a", "Does an Agent-spawned child's meta.json toolUseId survive a SendMessage resume (a foreground "
+                      "child that finished, then resumed)?",
+             "the child's meta.json before and after the resume; the resume proven by a main-thread SendMessage "
+             "call in the resume turn and the child's transcript growing",
+             "yes: unchanged; no: changed or gone; unknown: no resume proven (no SendMessage call, or the transcript "
+             "did not grow), the resume refused, or no toolUseId before the resume"),
+        Part("E3e", "Does a child's meta.json exist at its first tool call (agent_guard's plan backstop fails open "
+                    "without it)?",
+             "the throwaway PreToolUse logger at each child row: meta.json where agent_guard's spawn_meta looks "
+             "(meta_json, meta_tool_use_id booleans); each child's first row",
+             "yes: every child's first row saw it; no: one did not; unknown: no child row, or no transcript_path "
+             "to look from")), e3p, est_usd=(0.04, 0.08)),
 ]
 
 
@@ -972,27 +1319,31 @@ class Row:
     facts: dict[str, Any] = dataclasses.field(default_factory=dict)
     seconds: float = 0.0
     status: str = "ran"               # ran | cap_used | refused | error | timeout | skipped
+    models: list[str] = dataclasses.field(default_factory=list)    # each session's model, from its init frame
 
 
 async def run_probes(probes: list[Probe], cfg: Config, helper: Any, rows: list[Row] | None = None,
-                     ledger: Callable[[dict[str, Any]], None] | None = None) -> list[Row]:
-    """Each probe in turn under its cap, its group's envelope and the total, by the reported costs. A probe
-    whose cap is used up ends (cap_used); any other BudgetError or an unreported cost stops the run: the rest
-    is skipped. Rows go into `rows` as they finish."""
+                     ledger: Callable[[dict[str, Any]], None] | None = None, total: float | None = None) -> list[Row]:
+    """Each probe in turn under its cap, its group's envelope and the run's cap `total` (main(): the consent
+    value; default TOTAL_CAP_USD), by the reported costs. A probe whose cap is used up ends (cap_used); any other
+    BudgetError or an unreported cost stops the run: the rest is skipped. Rows go into `rows` as they finish."""
     validate_registry(probes)
     import anyio
     rows = [] if rows is None else rows
     led = ledger or (lambda ev: None)
+    total = TOTAL_CAP_USD if total is None else total
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or not 0 < total <= TOTAL_CAP_USD + 1e-9:
+        raise BudgetError("the run's cap %r is not in (0, %.2f]" % (total, TOTAL_CAP_USD))
     spent, by, stop = 0.0, Counter(), None
     for p in probes:
         ids = [x.pid for x in p.parts]
-        left = min(TOTAL_CAP_USD - spent, ENVELOPE[p.group] - by[p.group])
+        left = min(total - spent, ENVELOPE[p.group] - by[p.group])
         if stop or left < MIN_SESSION_USD:
             rows.append(Row(p, dict.fromkeys(ids, "skipped"), 0.0, facts={"reason": stop or "envelope_used"},
                             status="skipped"))
             continue
         ctx, t0 = Ctx(p, cfg, helper, left, led), time.monotonic()
-        led({"ev": "probe", "probe": p.pid, "cap": ctx.cap, "left_total": round(TOTAL_CAP_USD - spent, 6),
+        led({"ev": "probe", "probe": p.pid, "cap": ctx.cap, "left_total": round(total - spent, 6),
              "left_group": round(ENVELOPE[p.group] - by[p.group], 6)})
         row, fail = Row(p, {}, ctx.cap), None
         try:
@@ -1012,6 +1363,7 @@ async def run_probes(probes: list[Probe], cfg: Config, helper: Any, rows: list[R
         row.answers = {k: ctx.answers[k] if ctx.answers.get(k) in ANSWERS else rest for k in ids}
         row.status, row.facts = fail or "ran", dict(ctx.facts)
         row.cost, row.sessions, row.seconds = ctx.spent, list(ctx.session_ids), round(time.monotonic() - t0, 1)
+        row.models = [ctx.models[k] for k in sorted(ctx.models)]
         row.transcripts = [t for sid in ctx.session_ids for t in ctx.transcripts(sid)]
         row.facts.update(rate_limit_events=ctx.rate_limit_events, sessions_without_result=ctx.unreported,
                          open_tasks_at_close_by_type=dict(sorted(ctx.open_at_close.items())))
@@ -1033,7 +1385,7 @@ def words(s: str) -> str:
 def prompt_fragments() -> list[str]:
     """Every prompt and throwaway text (as words(), placeholders as words) and every 32-character window."""
     out = set()
-    for p in map(words, [*PROMPTS.values(), LATE_BODY, WRITER_BODY, FORK_BODY, HOLDER_BODY]):
+    for p in map(words, [*PROMPTS.values(), LATE_BODY, WRITER_BODY, FORK_BODY, HOLDER_BODY, ECHO_BODY]):
         out.add(p)
         out.update(p[i:i + 32] for i in range(max(0, len(p) - 31)))
     return sorted(out, key=len, reverse=True)
@@ -1057,12 +1409,22 @@ def render(rows: list[Row], meta: dict[str, Any]) -> str:
     by: Counter[str] = Counter()
     for r in rows:
         by[r.probe.group] += r.cost
-    out = ["# Agent SDK probes E1-E3, %s" % meta["date"], "",
+    total = meta.get("run_cap", TOTAL_CAP_USD)
+    prior = meta.get("prior") or {}
+    models = "; ".join("%s %s" % (r.probe.pid, ", ".join("%s x%d" % (clean(m), n) for m, n in Counter(r.models).items())
+                                   or "-") for r in rows) or "-"
+    out = ["# Agent SDK probes %s, %s" % (", ".join(r.probe.pid for r in rows) or "-", meta["date"]), "",
            "Consent envelope: %s." % CONSENT_TEXT, "",
-           "Spent USD %.4f of the %.2f total: E1+E2 %.4f of %.2f, E3 %.4f of %.2f (CLI estimates; a session "
+           "This run's cap (%s): USD %.2f. Prior spend (%s ledgers in the default and the report directory, at worst): USD %s, so "
+           "USD %s of the %.2f was left before this run." % (
+               CONSENT_ENV, total, cell(prior.get("ledgers")), cell(prior.get("used")), cell(prior.get("left")),
+               TOTAL_CAP_USD),
+           "",
+           "Spent USD %.4f of the run's %.2f: E1+E2 %.4f of %.2f, E3+E3P %.4f of %.2f (CLI estimates; a session "
            "without a reported cost counts at its whole cap) · claude-agent-sdk %s · system CLI %s · main-thread "
-           "model %s" % (sum(r.cost for r in rows), TOTAL_CAP_USD, by["E1E2"], ENVELOPE["E1E2"], by["E3"],
-                         ENVELOPE["E3"], cell(meta.get("sdk")), cell(meta.get("system_cli")), MODEL), "",
+           "models (each session's init frame): %s" % (sum(r.cost for r in rows), total, by["E1E2"], ENVELOPE["E1E2"],
+                                                       by["E3"], ENVELOPE["E3"], cell(meta.get("sdk")),
+                                                       cell(meta.get("system_cli")), models), "",
            "| probe | status | answers | cost USD | cap USD | seconds | sessions | transcripts |",
            "|---|---|---|---:|---:|---:|---|---|"]
     for r in rows:
@@ -1114,94 +1476,238 @@ class Ledger:
         self.fh.close()
 
 
-def envelope_event(probes: list[Probe], today: str) -> dict[str, Any]:
+class LedgerUnreadable(BudgetError):
+    """A ledger in the default or the report directory that cannot be replayed: the prior spend is unknown, so the run is
+    refused (fail closed)."""
+
+
+LEDGER_EVENTS = frozenset({"envelope", "probe", "probe_end", "end", "reserve", "cost", "cost_unknown"})
+
+
+def ledger_spend(path: str) -> dict[str, float]:
+    """Replay one ledger as Ctx kept its book: per (probe, session), a reservation books its usd (never lowering
+    the booking: an open turn, an unproven or closed session), the first cost after a reservation replaces it
+    (the ledger's cost already holds the floor of earlier turns), a later cost never lowers it, a cost_unknown
+    books its booked_usd for good. reported: the sessions whose last word is a cost; unreported: those still at a
+    reservation; used: their sum, never below the run's own probe_end or end totals, nor, while the run has no
+    "end" event (running, or killed), below its envelope's run_cap_usd: a run in progress counts at its cap."""
+    book: dict[tuple[str, str], float] = {}
+    reported: dict[tuple[str, str], bool] = {}
+    sticky: set[tuple[str, str]] = set()
+    ends: dict[str, float] = {}
+    end_usd, open_cap, name = 0.0, 0.0, os.path.basename(path)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError) as e:
+        raise LedgerUnreadable("%s: unreadable (%s)" % (name, type(e).__name__)) from e
+    for n, ln in enumerate(lines, 1):
+        if not ln.strip():
+            continue
+        try:
+            ev = json.loads(ln)
+        except ValueError as e:
+            raise LedgerUnreadable("%s:%d is not JSON" % (name, n)) from e
+        what = ev.get("ev") if isinstance(ev, dict) else None
+        if what not in LEDGER_EVENTS:
+            raise LedgerUnreadable("%s:%d: an event this replay does not know" % (name, n))
+        usd = ev.get("booked_usd" if what == "cost_unknown" else "usd")
+        if what == "envelope":                      # until its "end": the run's whole cap (running or killed)
+            cap = ev.get("run_cap_usd")
+            open_cap = float(cap) if valid_cost(cap) else 0.0
+            continue
+        if what == "probe":
+            continue
+        if not valid_cost(usd):
+            raise LedgerUnreadable("%s:%d: %s without a valid amount" % (name, n, what))
+        if what == "probe_end":
+            ends[str(ev.get("probe"))] = float(usd)
+            continue
+        if what == "end":
+            end_usd, open_cap = float(usd), 0.0
+            continue
+        key = (str(ev.get("probe")), json.dumps(ev.get("session")))
+        if what == "cost" and reported.get(key) is False and key not in sticky:
+            book[key] = float(usd)                      # a result replaces its session's reservation
+        else:
+            book[key] = max(book.get(key, 0.0), float(usd))
+        if what == "cost_unknown":
+            sticky.add(key)
+        reported[key] = what == "cost" and key not in sticky
+    rep = sum(v for k, v in book.items() if reported.get(k))
+    unrep = sum(v for k, v in book.items() if not reported.get(k))
+    return {"reported": rep, "unreported": unrep, "used": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}
+
+
+def ledger_dirs(out: str | None, today: str) -> list[str]:
+    """Where earlier runs' ledgers are: the report's directory and the default one, each once."""
+    dirs = [os.path.dirname(base.default_out(today + "-e"))] + ([os.path.dirname(out)] if out else [])
+    seen, keep = set(), []
+    for d in dirs:
+        r = os.path.realpath(d)
+        if r not in seen:
+            seen.add(r)
+            keep.append(d)
+    return keep
+
+
+def prior_spend(dirs: list[str]) -> dict[str, Any]:
+    """Every <name>.ledger.jsonl in `dirs` (each file once), replayed: what the earlier runs used at worst and
+    what is left of the $2.00. Raises LedgerUnreadable for any ledger it cannot replay."""
+    files, seen = [], set()
+    for d in dirs:
+        for p in sorted(glob.glob(os.path.join(glob.escape(d), LEDGER_GLOB))):
+            if os.path.realpath(p) not in seen:
+                seen.add(os.path.realpath(p))
+                files.append(p)
+    spend = [ledger_spend(p) for p in files]
+    used = sum(s["used"] for s in spend)
+    return {"ledgers": len(files), "reported": round(sum(s["reported"] for s in spend), 6),
+            "unreported": round(sum(s["unreported"] for s in spend), 6), "used": round(used, 6),
+            "left": round(TOTAL_CAP_USD - used, 6)}
+
+
+def prior_line(prior: dict[str, Any]) -> str:
+    return ("prior spend: %d ledgers, reported USD %.4f + booked at cap without a report USD %.4f = USD %.4f at "
+            "worst; left of the %.2f: USD %.4f" % (prior["ledgers"], prior["reported"], prior["unreported"],
+                                                    prior["used"], TOTAL_CAP_USD, prior["left"]))
+
+
+def envelope_event(probes: list[Probe], today: str, prior: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"ev": "envelope", "date": today, "total_usd": TOTAL_CAP_USD, "groups_usd": dict(ENVELOPE),
-            "caps_usd": {p.pid: p.budget_usd for p in probes}, "consent_env": CONSENT_ENV, "consent_value": CONSENT_VALUE,
-            "flag": "--paid", "probes": [p.pid for p in probes], "model": MODEL}
+            "caps_usd": {p.pid: p.budget_usd for p in probes}, "consent_env": CONSENT_ENV,
+            "consent_value": consent_value(probes), "run_cap_usd": run_cap(probes), "flag": "--paid",
+            "probes": [p.pid for p in probes], "model": MODEL, "e1_agent": E1_AGENT,
+            "prior": {k: v for k, v in (prior or {}).items()
+                      if k in ("ledgers", "reported", "unreported", "used", "left")}}
 
 
-def print_plan(probes: list[Probe], consent: str | None) -> None:
+def print_plan(probes: list[Probe], consent: str | None, prior: dict[str, Any] | str) -> None:
+    need, cap = consent_value(probes), run_cap(probes)
     print("DRY RUN: no call is made, $0.")
     print("Consent envelope: %s." % CONSENT_TEXT)
+    print("%-4s %-6s %-11s %-5s %-9s %-8s %s" % ("id", "cap", "est.", "group", "max_turns", "timeout", "main thread"))
     for p in probes:
-        print("%-3s $%.2f  group %-4s  max_turns %d  timeout %ds  model %s" % (
-            p.pid, p.budget_usd, p.group, p.max_turns, p.timeout_s, MODEL))
+        print("%-4s $%.2f  $%.2f-%.2f  %-5s %-9d %-8s %s" % (
+            p.pid, p.budget_usd, p.est_usd[0], p.est_usd[1], p.group, p.max_turns, "%ds" % p.timeout_s,
+            "%s (its own model, sonnet)" % E1_AGENT if p.pid == "E1" else "model %s" % MODEL))
         for part in p.parts:
-            print("     %-5s %s" % (part.pid, part.question))
+            print("     %-6s %s" % (part.pid, part.question))
     by: Counter[str] = Counter()
     for p in probes:
         by[p.group] += p.budget_usd
-    print("caps: %s; total %.2f of %.2f" % (", ".join("%s %.2f of %.2f" % (g, by[g], ENVELOPE[g]) for g in ENVELOPE),
-                                            sum(by.values()), TOTAL_CAP_USD))
-    print("worst case: the caps (%.2f) plus at most one turn over each session's cap (the CLI checks after each "
-          "turn); no session starts whose cap would take the reported spend past its group or %.2f"
-          % (sum(by.values()), TOTAL_CAP_USD))
+    print("caps: %s; this run's cap %.2f (consent value %s); expected %.2f-%.2f" % (
+        ", ".join("%s %.2f of %.2f" % (g, by[g], ENVELOPE[g]) for g in ENVELOPE), cap, need,
+        sum(p.est_usd[0] for p in probes), sum(p.est_usd[1] for p in probes)))
+    print("worst case: the run's cap (%.2f) plus at most one turn over each session's cap (the CLI checks after each "
+          "turn); no session starts whose cap would take the reported spend past its group or the run's cap" % cap)
+    if isinstance(prior, str):
+        print("prior spend: unreadable (%s): a paid run would be refused" % prior)
+    else:
+        print(prior_line(prior))
+        print("a paid run of this selection would %s (prior %.4f + cap %.2f %s %.2f)" % (
+            "START" if prior["used"] + cap <= TOTAL_CAP_USD + 1e-9 else "be REFUSED", prior["used"], cap,
+            "<=" if prior["used"] + cap <= TOTAL_CAP_USD + 1e-9 else ">", TOTAL_CAP_USD))
     if consent is not None:
         print("%s is set, but without --paid this is a dry run." % CONSENT_ENV)
-    print("paid run: %s=%s uv run --locked --script tests/sdk_probes_e.py --paid" % (CONSENT_ENV, CONSENT_VALUE))
-    print("E1 needs the v2 stack_sdk.py installed (%s); E2 and E3 need only options(): --only E2,E3 runs on an "
-          "older install." % ", ".join(E1_NEEDS))
+    print("paid run: %s=%s uv run --locked --script tests/sdk_probes_e.py --paid --only %s" % (
+        CONSENT_ENV, need, ",".join(p.pid for p in probes)))
+    print("E1 needs the v2 stack_sdk.py installed (%s); E2, E3 and E3P need only options()." % ", ".join(E1_NEEDS))
     print("unverified, read the answers with these in mind:")
     for u in UNVERIFIED:
         print("  - " + u)
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Agent SDK probes E1-E3 (billed; run by the user).")
+    ap = argparse.ArgumentParser(
+        description="Agent SDK probes E1-E3 and E3P (billed; run by the user).",
+        epilog="Consent: %s must equal the run's own cap, the sum of the selected probes' caps as %%.2f (E1,E3P: "
+               "0.50); only a run with all of E1, E2 and E3 selected keeps the first run's value %s. A paid run is "
+               "refused when the ledgers already in the default and the report directory (replayed at worst, a run "
+               "without its end at its cap) plus its cap exceed $%.2f. A run killed without its end event (SIGKILL, "
+               "SIGHUP, SIGTERM) counts at its whole cap for good; the only remedy is appending an end event "
+               "to its ledger by hand." % (CONSENT_ENV, CONSENT_VALUE, TOTAL_CAP_USD))
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="print the plan, spend nothing (the default)")
-    mode.add_argument("--paid", action="store_true", help="make the billed calls; needs %s=%s too" % (
-        CONSENT_ENV, CONSENT_VALUE))
-    ap.add_argument("--only", default="", help="comma-separated probe ids, e.g. E1,E3")
+    mode.add_argument("--paid", action="store_true", help="make the billed calls; needs %s=<the run's cap> too" %
+                      CONSENT_ENV)
+    ap.add_argument("--only", default="", help="comma-separated probe ids, e.g. E1,E3P (default: all)")
     # no --config: the CLI's own (CLAUDE_CONFIG_DIR, else ~/.claude); exporting another would also rename the
     # keychain entry the CLI looks the login up in
     ap.add_argument("--cli", default=shutil.which("claude"), help="the installed claude (default: PATH)")
-    ap.add_argument("--out", help="report path (default <main checkout>/.claude-work/sdk/probes/<date>-e.md)")
+    ap.add_argument("--out", help="report path (default <main checkout>/.claude-work/sdk/probes/<date>-e.md); the "
+                    "ledger stays in that default directory")
     a = ap.parse_args(argv)
     only = {x.strip().upper() for x in a.only.split(",") if x.strip()}
     if only - {p.pid for p in PROBES}:
         ap.error("unknown probe ids: %s" % ", ".join(sorted(only - {p.pid for p in PROBES})))
     probes = [p for p in PROBES if not only or p.pid in only]
     validate_registry(probes)
-    consent = os.environ.get(CONSENT_ENV)
+    consent, need, cap = os.environ.get(CONSENT_ENV), consent_value(probes), run_cap(probes)
+    today = datetime.date.today().isoformat()
+    out = os.path.abspath(os.path.expanduser(a.out)) if a.out else base.default_out(today + "-e")
     if not a.paid:
-        print_plan(probes, consent)
+        try:
+            prior: dict[str, Any] | str = prior_spend(ledger_dirs(out, today))
+        except LedgerUnreadable as e:
+            prior = str(e)
+        print_plan(probes, consent, prior)
         return 0
-    if consent != CONSENT_VALUE:
-        ap.error("a paid run needs %s=%s in the environment as well as --paid (%s)" % (
-            CONSENT_ENV, CONSENT_VALUE, CONSENT_TEXT))
+    if consent != need:
+        ap.error("a paid run of %s needs %s=%s (this run's cap) in the environment as well as --paid (%s)" % (
+            ",".join(p.pid for p in probes), CONSENT_ENV, need, CONSENT_TEXT))
     if (v := base.versions(None)["sdk"]) != SDK_PIN:
         ap.error("claude-agent-sdk %s is not the pinned %s: uv run --locked --script %s" % (v, SDK_PIN, __file__))
     if not a.cli:
         ap.error("no `claude` on PATH: pass --cli /path/to/claude (Q3: the installed CLI)")
     config = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
     helper = base.load_helper(config)          # once, before the ledger: E1 needs the v2 helper (SDK-2)
-    need = ("options",) + (E1_NEEDS if any(p.pid == "E1" for p in probes) else ())
-    if missing := [n for n in need if not hasattr(helper, n)]:
+    need_names = ("options",) + (E1_NEEDS if any(p.pid == "E1" for p in probes) else ())
+    if missing := [n for n in need_names if not hasattr(helper, n)]:
         ap.error("the installed %s/bin/stack_sdk.py lacks %s: reinstall the stack (./install.sh) or run "
-                 "--only E2,E3 (they need only options())" % (config, ", ".join(missing)))
-    today = datetime.date.today().isoformat()
-    out = os.path.abspath(os.path.expanduser(a.out)) if a.out else base.default_out(today + "-e")
-    try:                                       # before any billed call, not after
-        os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
-        if not os.access(os.path.dirname(out), os.W_OK):
-            raise PermissionError("not writable")
-        ledger = Ledger(out[:-3] + ".ledger.jsonl" if out.endswith(".md") else out + ".ledger.jsonl")
+                 "--only E2,E3,E3P (they need only options())" % (config, ", ".join(missing)))
+    # every run's ledger goes to the default directory, wherever --out puts the report, so every later run reads
+    # it; the check and the envelope that books this run's cap happen under one exclusive lock there
+    ldir = ledger_dirs(out, today)[0]
+    try:
+        os.makedirs(ldir, mode=0o700, exist_ok=True)
+        lock_fd = os.open(os.path.join(ldir, LOCK_NAME), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     except OSError as e:
-        ap.error("cannot write the report or its ledger beside %s: %s" % (out, e.strerror or e))
-    ledger.write(envelope_event(probes, today))
-    print("Consent envelope: %s. Ledger: %s" % (CONSENT_TEXT, ledger.path))
+        ap.error("cannot open the ledger directory %s: %s" % (ldir, e.strerror or e))
+    try:                                       # closing it releases the lock (also on ap.error's SystemExit)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:                                   # the cross-run check: before the ledger, before any billed call
+            prior = prior_spend(ledger_dirs(out, today))
+        except LedgerUnreadable as e:
+            ap.error("refused: a ledger in the default or the report directory cannot be replayed, so the prior "
+                     "spend is unknown: %s" % e)
+        print(prior_line(prior))
+        if prior["used"] + cap > TOTAL_CAP_USD + 1e-9:
+            ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f exceeds the USD %.2f consent "
+                     "(left: USD %.4f)" % (prior["used"], cap, TOTAL_CAP_USD, prior["left"]))
+        try:                                   # before any billed call, not after
+            os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
+            if not os.access(os.path.dirname(out), os.W_OK):
+                raise PermissionError("not writable")
+            ledger = Ledger(os.path.join(ldir, os.path.basename(out).removesuffix(".md") + ".ledger.jsonl"))
+        except OSError as e:
+            ap.error("cannot write the report beside %s or its ledger in %s: %s" % (out, ldir, e.strerror or e))
+        ledger.write(envelope_event(probes, today, prior))     # from here on, other runs count this one at its cap
+    finally:
+        os.close(lock_fd)
+    print("Consent envelope: %s. This run's cap: USD %.2f. Ledger: %s" % (CONSENT_TEXT, cap, ledger.path))
     cfg = Config(config_dir=config, cli_path=a.cli)
     rows: list[Row] = []
     try:
-        asyncio.run(run_probes(probes, cfg, helper, rows, ledger.write))
+        asyncio.run(run_probes(probes, cfg, helper, rows, ledger.write, total=cap))
     finally:                                   # Ctrl-C or a crash: the finished probes are still reported
         ledger.write({"ev": "end", "usd": round(sum(r.cost for r in rows), 6),
                       "probes": {r.probe.pid: r.status for r in rows}})
         ledger.close()
-        print(write_report(out, render(rows, dict(base.versions(a.cli), date=today))))
+        print(write_report(out, render(rows, dict(base.versions(a.cli), date=today, run_cap=cap, prior=prior))))
         for r in rows:
-            print("%-3s %-8s $%.4f  %s" % (r.probe.pid, r.status, r.cost, " ".join("%s=%s" % kv for kv in r.answers.items())))
+            print("%-4s %-8s $%.4f  %s" % (r.probe.pid, r.status, r.cost,
+                                           " ".join("%s=%s" % kv for kv in r.answers.items())))
     return 1 if any(r.status in ("error", "refused") for r in rows) else 0
 
 
