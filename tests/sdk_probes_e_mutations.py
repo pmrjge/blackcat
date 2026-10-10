@@ -1,6 +1,8 @@
 """Seeded-mutation proof for tests/sdk_probes_e.py: the consent gate (its value is the run's own cap), the cross-run
-ledger check, the caps and the fail-closed cost book, and the readings the second probe set added (E1's validity
-gate and trust split, E3d's terminal, E3P's E3c2a and E3e).
+ledger check, the caps and the fail-closed cost book, the readings the second probe set added (E1's validity
+gate and trust split, E3d's terminal, E3P's E3c2a and E3e), and the E1 rerun's (sdk/probes-e3): the consent
+envelopes (e3-2026-10-10: its own ledgers, its total, E1 only, a one-turn margin), the explicit overlay, the
+uncontrolled reading, the whole-session reserve and trust unproven.
 Each mutant is one or more exact text substitutions in a scratch copy of sdk_probes_e.py
 (beside a copy of sdk_probes.py, which it loads) under $TMPDIR; sdk_probes_e.py itself is never written. Its
 NAMED test in tests/test_sdk_probes_e_fake.py runs against that copy (SDK_PROBES_E_SCRIPT) and must FAIL (its id
@@ -40,10 +42,18 @@ T_TRUST = "test_e1b_reads_the_trust_warning_and_the_trusted_leg_reads_its_own_co
 T_E3P = "test_e3p_answers_from_an_agent_childs_resume_and_its_first_tool_call"
 T_GOOD = "test_every_part_answers_in_the_good_world_within_its_caps"
 VALID = "    out[\"valid\"] = out[\"agent_setting\"] == E1_AGENT and out[\"bash_tool\"] and out[\"model\"] is not None\n"
-GATE = "        if prior[\"used\"] + cap > TOTAL_CAP_USD + 1e-9:\n            ap.error(\"refused: the prior"
+GATE = "        if prior[\"used\"] + cap > env.total_usd + 1e-9:\n            ap.error(\"refused: the prior"
 T_GUARD = "test_e1s_command_passes_the_guards_read_only_rule_for_the_verifier"
 T_CUT = "test_a_bash_call_cut_before_its_tool_result_is_not_a_denial"
 T_OPEN = "test_a_run_in_progress_counts_at_its_cap"
+T_ENVS = "test_envelopes_count_only_their_own_ledgers"
+T_E3GATE = "test_the_e3_gate_counts_its_own_runs_and_leaves_the_first_envelope_untouched"
+T_E3FLAG = "test_the_e3_envelope_is_e1_only_and_its_consent_is_its_cap_less_one_turn"
+T_E3DRY = "test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command"
+T_AUTO = "test_the_explicit_overlay_denies_the_control_in_the_auto_world"
+T_OWN = "test_the_overlay_is_laid_over_the_sessions_own_settings"
+T_UNCTRL = "test_a_control_that_runs_makes_its_rule_legs_uncontrolled"
+T_RESERVE = "test_no_e1_leg_starts_below_a_whole_session"
 PREVIEW = ("            s.overlay = overlay\n            opts = s.preview()          # the options it would connect with: "
            "a refusal may come here too\n        except ValueError as e:         # e.g. a helper that refuses "
            "CLAUDE_CODE_SANDBOXED (sdk/env-channel)\n            raise HelperRefused(type(e).__name__) from e\n")
@@ -56,7 +66,8 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("G3", "paid is the default (dry run only on --dry-run)", "test_dry_run_is_the_default_and_spends_nothing",
      [("    if not a.paid:\n        try:\n", "    if a.dry_run:\n        try:\n")]),
     ("G4", "the ledger does not open with the envelope", "test_a_paid_run_logs_the_envelope_first_and_reports",
-     [("        ledger.write(envelope_event(probes, today, prior))", "        ledger.write({\"ev\": \"start\"})")]),
+     [("        ledger.write(envelope_event(probes, today, prior, env.eid))",
+       "        ledger.write({\"ev\": \"start\"})")]),
     # no C1 ("a probe cap above its envelope accepted": `0 < b <= env` -> `0 < b`): an equivalent mutant, since one
     # probe above its group's envelope is always a group sum above it (C3's check)
     ("C1", "a probe cap of 0, NaN or a string accepted", T_REG,
@@ -73,7 +84,7 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("C6", "a session's cap not bounded by what the probe has left", "test_a_session_never_gets_more_than_its_probe_has_left",
      [("        b = min(self.cap - self.spent, self.cap * share,", "        b = min(self.cap, self.cap * share,")]),
     ("C7", "no floor: a session may start with almost nothing left", "test_a_session_never_gets_more_than_its_probe_has_left",
-     [("        if not b >= MIN_SESSION_USD:\n", "        if not b > 0:\n")]),
+     [("        if not b >= max(need, MIN_SESSION_USD):\n", "        if not b > 0:\n")]),
     ("U1", "a missing cost counts as $0", "test_an_unreported_cost_fails_closed",
      [("            elif not valid_cost(c):\n", "            elif c is not None and not valid_cost(c):\n"),
       ("                cost = max(self.floor.pop(key, 0.0), float(c))\n",
@@ -142,10 +153,10 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      [("        if self.costs.get(key) != before:\n", "        if False:\n")]),
     # the second probe set (sdk/probes-e2): the consent value, the cross-run ledger check, the run's own cap
     ("G5", "a partial run accepts the full 2.00 consent", T_VALUE,
-     [("    if FULL_SET <= {p.pid for p in probes}:\n        return CONSENT_VALUE\n",
+     [("    if env.eid == LEGACY_ENVELOPE and FULL_SET <= {p.pid for p in probes}:\n        return CONSENT_VALUE\n",
        "    if True:\n        return CONSENT_VALUE\n")]),
     ("G6", "a run with all of E1-E3 needs its caps' sum, not 2.00", T_VALUE,
-     [("    if FULL_SET <= {p.pid for p in probes}:\n        return CONSENT_VALUE\n",
+     [("    if env.eid == LEGACY_ENVELOPE and FULL_SET <= {p.pid for p in probes}:\n        return CONSENT_VALUE\n",
        "    if False:\n        return CONSENT_VALUE\n")]),
     ("G7", "the run's cap not passed to run_probes", T_VALUE,
      [("run_probes(probes, cfg, helper, rows, ledger.write, total=cap)",
@@ -155,7 +166,7 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("G9", "a run cap outside (0, 2.00] accepted", T_BOUND,
      [("    if isinstance(total, bool) or not isinstance(total, (int, float)) or not 0 < total <= TOTAL_CAP_USD + 1e-9:\n",
        "    if False:\n")]),
-    ("X1", "no cross-run refusal", T_CROSS, [(GATE, GATE.replace("    if prior[\"used\"] + cap > TOTAL_CAP_USD + 1e-9:",
+    ("X1", "no cross-run refusal", T_CROSS, [(GATE, GATE.replace("    if prior[\"used\"] + cap > env.total_usd + 1e-9:",
                                                                  "    if False:"))]),
     ("X2", "the cross-run check leaves out this run's own cap", T_CROSS,
      [(GATE, GATE.replace("prior[\"used\"] + cap >", "prior[\"used\"] >"))]),
@@ -179,7 +190,7 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("X9", "a cost_unknown booking lowered by a later result", T_REPLAY,
      [("            sticky.add(key)\n", "            pass\n")]),
     ("X10", "the replay's total may fall below the run's own probe_end and end totals", T_REPLAY,
-     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}", "\"used\": rep + unrep}")]),
+     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap),", "\"used\": rep + unrep,")]),
     # E1': the verifier main thread, the validity gate, the trust split
     ("V1", "an invalid leg read as a measurement", "test_a_blackcat_main_thread_makes_every_e1_leg_invalid",
      [("    if not leg.get(\"valid\"):\n        return \"invalid\"\n",
@@ -249,8 +260,8 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("Q5", "every attempted call counted as decided", T_CUT,
      [("            \"decided\": any(i in errs or i in den for i in ids),\n", "            \"decided\": bool(ids),\n")]),
     ("Q6", "a run without its end counts only what it booked so far", T_OPEN,
-     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap)}",
-       "\"used\": max(rep + unrep, sum(ends.values()), end_usd)}")]),
+     [("\"used\": max(rep + unrep, sum(ends.values()), end_usd, open_cap),",
+       "\"used\": max(rep + unrep, sum(ends.values()), end_usd),")]),
     ("Q7", "a finished run still counts at its whole cap", T_OPEN,
      [("            end_usd, open_cap = float(usd), 0.0\n", "            end_usd = float(usd)\n")]),
     ("Q8", "a run in progress invisible to a second start", "test_a_second_run_started_while_one_runs_counts_it_at_its_cap",
@@ -271,6 +282,71 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      "test_a_helper_whose_preview_refuses_the_trust_env_skips_only_the_trusted_legs",
      [(PREVIEW, ("        except ValueError as e:\n            raise HelperRefused(type(e).__name__) from e\n"
                  "        s.overlay = overlay\n        opts = s.preview()\n"))]),
+    # sdk/probes-e3: the e3-2026-10-10 envelope (its own ledgers, its total, E1 only, a one-turn margin) and the E1
+    # rerun (the explicit overlay, uncontrolled, the reserve, trust unproven)
+    ("N1", "a run counts every envelope's ledgers", T_ENVS,
+     [("    mine = [s for s in spend if s[\"envelope\"] in (env.eid, None)]\n", "    mine = spend\n")]),
+    ("N2", "a ledger without an envelope event counts in no other envelope", T_ENVS,
+     [("s[\"envelope\"] in (env.eid, None)]", "s[\"envelope\"] in (env.eid,)]")]),
+    ("N3", "an envelope id the replay does not know is accepted", T_ENVS,
+     [("            if not isinstance(eid, str) or eid not in ENVELOPES:\n",
+       "            if not isinstance(eid, str):\n")]),
+    ("N4", "a second envelope event is accepted", T_ENVS,
+     [("            if eid is not None:\n                raise LedgerUnreadable(", "            if False:\n"
+       "                raise LedgerUnreadable(")]),
+    ("N5", "a ledger without an envelope id is read as the new envelope's", T_ENVS,
+     [("            eid = ev.get(\"envelope\", LEGACY_ENVELOPE)\n",
+       "            eid = ev.get(\"envelope\", E3_ENVELOPE)\n")]),
+    ("N6", "the gate compares with the first envelope's $2.00", T_E3GATE,
+     [(GATE, GATE.replace("cap > env.total_usd + 1e-9:", "cap > TOTAL_CAP_USD + 1e-9:"))]),
+    ("N7", "the envelope event does not name its envelope", T_E3GATE,
+     [("    return {\"ev\": \"envelope\", \"envelope\": env.eid, ", "    return {\"ev\": \"envelope\", ")]),
+    ("N8", "the e3 envelope admits any probe", T_E3FLAG,
+     [("    if env.probes is not None and (bad := ", "    if False and (bad := ")]),
+    ("N9", "the e3 run cap keeps no one-turn margin (0.40)", T_E3FLAG,
+     [("        return math.floor((self.total_usd - self.overshoot_usd) * 100 + 1e-6) / 100\n",
+       "        return self.total_usd\n")]),
+    ("N10", "an e3 run reads the first envelope's prior spend", T_E3GATE,
+     [("            prior = prior_spend(ledger_dirs(out, today), env.eid)\n",
+       "            prior = prior_spend(ledger_dirs(out, today))\n")]),
+    ("N11", "the dry run's paid command lacks --envelope", T_E3DRY,
+     [("\"\" if env.eid == LEGACY_ENVELOPE else \" --envelope \" + env.eid", "\"\"")]),
+    ("O1", "the explicit overlay leaves useAutoModeDuringPlan on (2026-10-10's overlay)", T_AUTO,
+     [("    \"explicit\": {\"sandbox\": {\"autoAllowBashIfSandboxed\": False}, \"useAutoModeDuringPlan\": False},\n",
+       "    \"explicit\": {\"sandbox\": {\"autoAllowBashIfSandboxed\": False}},\n")]),
+    ("O2", "the overlay replaces the Session's own settings", T_OWN,
+     [("    out = dict(settings_object(own))\n", "    out = {}\n")]),
+    ("O3", "as_installed gets the explicit overlay", T_AUTO,
+     [("(\"as_installed\", \"\", None, False, False)", "(\"as_installed\", \"\", \"explicit\", False, False)")]),
+    ("O4", "the as-installed settings sent are not recorded", T_OWN,
+     [("        s.probe_settings = settings_facts(opts.settings)\n",
+       "        s.probe_settings = settings_facts(None)\n")]),
+    ("U6", "a control that ran leaves its rule legs unknown", T_UNCTRL,
+     [("        elif control is not None and v.get(control) == \"ran\" and lv in MEASURED:\n",
+       "        elif False:\n")]),
+    ("U7", "a rule leg that decided nothing reads uncontrolled", T_UNCTRL,
+     [(" == \"ran\" and lv in MEASURED:\n", " == \"ran\":\n")]),
+    ("U8", "the reason ignores the sandbox auto-allow", T_UNCTRL,
+     [("    if f.get(control + \"_settings_sandbox_auto_allow\") is not False:\n", "    if False:\n")]),
+    ("U9", "the reason ignores the auto semantics", T_UNCTRL,
+     [("    if f.get(control + \"_settings_auto_mode_during_plan\") is not False:\n", "    if False:\n")]),
+    ("R6", "an E1 leg starts with less than a whole session left", T_RESERVE,
+     [("        budget = self.budget(usd=usd, need=MIN_SESSION_USD if usd is None else usd)\n",
+       "        budget = self.budget(usd=usd)\n")]),
+    ("R7", "the optional leg's reserve skip ends the probe (cap_used)", T_RESERVE,
+     [("                if optional:\n                    v[name] = f[name + \"_verdict\"] = \"reserve_skipped\"\n",
+       "                if False:\n                    v[name] = f[name + \"_verdict\"] = \"reserve_skipped\"\n")]),
+    ("R8", "as_installed before the trusted pair (not last)", T_RESERVE,
+     [("(\"trusted_control\", \"\", \"explicit\", True, False), "
+       "(\"stack_rule\", \"stack\", \"explicit\", False, False),\n"
+       "           (\"as_installed\", \"\", None, False, False),",
+       "(\"as_installed\", \"\", None, False, False), (\"stack_rule\", \"stack\", \"explicit\", False, False),\n"
+       "           (\"trusted_control\", \"\", \"explicit\", True, False),")]),
+    ("T5", "the trusted control runs although its rule leg had the trust warning", T_TRUST,
+     [("            if name == \"trusted_control\" and f.get(\"trusted_repo_rule_trust_warning\"):\n",
+       "            if False:\n")]),
+    ("T6", "E1bt not trust unproven after the warning", T_TRUST,
+     [("        elif leg == \"trusted_repo_rule\" and f.get(leg + \"_trust_warning\"):\n", "        elif False:\n")]),
 ]
 
 
