@@ -839,11 +839,14 @@ def forked_skill_agents(name, cwd, conf=None):
 # The child-side backstop (review F2): an --add-dir or /add-dir folder's .claude/agents can redefine a safe
 # name with permissionMode acceptEdits, and hooks never see add_dirs. So a spawn the plan gate allowed in plan
 # mode leaves a marker plan/<tool_use_id>; budget mode refuses every tool call of a subagent whose meta.json
-# toolUseId has one while its own permission_mode says it writes. Fail-open: no meta, no toolUseId or no
-# reported mode passes. It assumes a subagent's PreToolUse permission_mode is its own mode (unverified).
+# toolUseId has one while its own permission_mode says it writes. A Skill call allowed in plan mode leaves
+# plan/skill-<tool_use_id> instead: a forked skill's child has no toolUseId in its meta.json (probe E3c1, CLI
+# 2.1.287, 2026-10-09), so such a child is refused while any skill- marker exists. Fail-open: no meta.json or
+# no reported mode passes. A subagent's PreToolUse permission_mode is its own mode (probe E3b, 2026-10-09).
 PLAN_DIR = "plan"
 PLAN_CHILD_MODES = ("plan", "default")
 PLAN_MARKERS_MAX = 1024
+SKILL_MARK = "skill-"
 
 
 def mark_plan_spawn(d, tid):
@@ -874,8 +877,16 @@ def plan_child_reason(ev):
     folder = os.path.join(state_root(), safe(ev.get("session_id"), "nosession"), PLAN_DIR)
     if not os.path.isdir(folder):
         return None
-    tid = spawn_meta(ev, ident(aid)).get("toolUseId")
-    if not isinstance(tid, str) or not tid.strip() or not os.path.exists(os.path.join(folder, safe(tid.strip()))):
+    meta = spawn_meta(ev, ident(aid))               # a dict ({} when absent or not an object: stack_io.read_json)
+    tid = meta.get("toolUseId")
+    if isinstance(tid, str) and tid.strip():        # an Agent child: its own spawn's marker
+        hit = os.path.exists(os.path.join(folder, safe(tid.strip())))
+    else:                                           # a forked skill's child: meta.json without toolUseId (E3c1)
+        try:
+            hit = bool(meta) and any(n.startswith(SKILL_MARK) for n in os.listdir(folder))
+        except OSError:
+            hit = False
+    if not hit:
         return None
     return ("Plan mode: this agent was dispatched while planning but runs in '%s' (a definition of its type, "
             "e.g. from an --add-dir folder, sets that mode), so it runs no tool. Stop now: reply in one line "
@@ -895,8 +906,11 @@ def on_skill(ev, d):
             deny("Plan mode: the skill '%s' forks into '%s' (context: fork) while planning: %s. %s"
                  % (name.strip()[:80], a[:80], why, PLAN_APPROVE))
     # a definition the guard cannot read (an --add-dir or nested <subdir>/.claude/skills one) may still fork into
-    # a builder: the child-side backstop, assuming the fork's meta.json toolUseId is this call's (unverified)
-    mark_plan_spawn(d, ev.get("tool_use_id"))
+    # a builder: the child-side backstop. The fork's meta.json carries no toolUseId (probe E3c1), so the marker is
+    # skill-<tool_use_id> and plan_child_reason takes any such marker for a child without one
+    tid = ev.get("tool_use_id")
+    if tid:
+        mark_plan_spawn(d, SKILL_MARK + str(tid))
 
 
 def canonical_tool(name):

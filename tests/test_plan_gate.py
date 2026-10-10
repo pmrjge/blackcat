@@ -316,10 +316,21 @@ def test_plugin_and_user_skill_definitions_are_read(tmp_path):
 
 
 # ---------------------------------------------------------------- review F2: the child-side backstop
+FORK = object()      # child_call's tid for a forked skill's child: the real meta.json, no toolUseId (probe E3c1)
+NO_META = object()   # child_call's tid for a child whose meta.json does not exist (yet)
+
+
 def child_call(e, aid, tid, mode, ctype="code-reviewer"):
-    sub = os.path.join(e.proj, e.sid, "subagents")
-    with open(os.path.join(sub, "agent-%s.meta.json" % aid), "w") as f:
-        json.dump({"agentType": ctype, "toolUseId": tid, "spawnDepth": 1}, f)
+    path = os.path.join(e.proj, e.sid, "subagents", "agent-%s.meta.json" % aid)
+    if tid is NO_META:
+        if os.path.exists(path):
+            os.unlink(path)
+    else:
+        meta = ({"agentType": ctype, "spawnDepth": 1, "requestShape": "foreground", "requestNonInteractive": True}
+                if tid is FORK else tid if isinstance(tid, list)       # a list: written as is
+                else {"agentType": ctype, "toolUseId": tid, "spawnDepth": 1})
+        with open(path, "w") as f:
+            json.dump(meta, f)
     ev = e.base("PreToolUse", tool_name="Write", agent_id=aid, agent_type=ctype, tool_use_id="toolu_w",
                 tool_input={"file_path": "/x", "content": "y"})
     if mode is not None:
@@ -391,12 +402,85 @@ def test_plugin_commands_and_nested_names_resolve(tmp_path):
 
 def test_a_skill_allowed_in_plan_mode_leaves_the_backstop_marker():
     """Round 2 (MEDIUM): a definition the guard cannot read (--add-dir, nested .claude/skills) may fork into a
-    builder; the allowed Skill call's tool_use_id marks its child."""
+    builder; the allowed Skill call leaves plan/skill-<tool_use_id>, and a fork child (its meta.json has no
+    toolUseId: probe E3c1, CLI 2.1.287, 2026-10-09) running in its own writing mode (E3b) runs nothing."""
     e = env()
     assert ok(skill_call(e, "unseen-skill", tid="toolu_skillplan"))
-    assert os.path.exists(os.path.join(e.sdir(), "plan", "toolu_skillplan"))
-    r = child_call(e, "F1", "toolu_skillplan", "acceptEdits", "orchestrator")
+    assert os.listdir(os.path.join(e.sdir(), "plan")) == ["skill-toolu_skillplan"]
+    r = child_call(e, "F1", FORK, "acceptEdits", "orchestrator")
     assert refused(r) and "runs in 'acceptEdits'" in r.reason, r
+
+
+@pytest.mark.parametrize("mode", ["acceptEdits", "bypassPermissions", "auto", "dontAsk"])
+def test_e3_a_fork_child_in_a_writing_mode_is_refused_under_a_skill_marker(mode):
+    """E3a: under a plan-mode main thread, a fork into an acceptEdits agent wrote without a prompt."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3a"))
+    r = child_call(e, "F2", FORK, mode, "e3-writer")
+    assert refused(r) and "runs in '%s'" % mode in r.reason, r
+
+
+def test_e3_no_skill_marker_lets_a_fork_child_pass():
+    """Only a skill- marker covers a child without toolUseId: an Agent marker alone does not."""
+    e = env()
+    assert ok(child_call(e, "F3", FORK, "acceptEdits", "e3-writer"))           # no plan folder
+    pre = dict(e.pre_agent("explore", agent_type="blackcat", tid="toolu_agentonly"), permission_mode="plan")
+    assert ok(e.run(pre))
+    assert os.listdir(os.path.join(e.sdir(), "plan")) == ["toolu_agentonly"]
+    assert ok(child_call(e, "F3", FORK, "acceptEdits", "e3-writer"))           # an Agent marker, no skill- one
+
+
+def test_e3_a_child_with_an_unmarked_tool_use_id_passes_despite_a_skill_marker():
+    """An Agent child (meta.json names its Agent call) is judged by its own spawn's marker only."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3c"))
+    assert ok(child_call(e, "A1", "toolu_unmarked", "acceptEdits", "coder"))
+    pre = dict(e.pre_agent("coder", agent_type="blackcat", tid="toolu_defspawn"), permission_mode="default")
+    assert ok(e.run(pre))                                                      # dispatched outside plan
+    assert ok(child_call(e, "A2", "toolu_defspawn", "acceptEdits", "coder"))
+
+
+@pytest.mark.parametrize("mode", ["plan", "default", None, ""])
+def test_e3_a_fork_child_in_a_reading_or_unreported_mode_passes(mode):
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3b"))
+    assert ok(child_call(e, "F4", FORK, mode, "e3-writer")), mode
+
+
+def test_e3_a_child_without_meta_json_fails_open():
+    """Whether meta.json exists at a child's first tool call is unverified (probe E3e): without it, pass."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3e"))
+    assert ok(child_call(e, "F5", NO_META, "acceptEdits", "e3-writer"))
+    assert refused(child_call(e, "F5", FORK, "acceptEdits", "e3-writer"))     # the same child once it exists
+    r = child_call(e, "F5", ["not", "an", "object"], "acceptEdits", "e3-writer")      # not the CLI's shape
+    assert ok(r) and not r.stderr.strip(), r.stderr                     # read as absent (stack_io.read_json)
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads a mode-0 folder")
+def test_e3_an_unreadable_plan_folder_fails_open_quietly():
+    """Security review of 3f481922 (F2): a plan folder that cannot be listed is no hit, never a crash."""
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3u"))
+    folder = os.path.join(e.sdir(), "plan")
+    os.chmod(folder, 0)
+    try:
+        r = child_call(e, "F7", FORK, "acceptEdits", "e3-writer")
+    finally:
+        os.chmod(folder, 0o700)
+    assert ok(r) and not r.stderr.strip(), r.stderr
+
+
+def test_e3_skill_markers_lapse_once_the_main_thread_leaves_plan():
+    e = env()
+    assert ok(skill_call(e, "unseen-skill", tid="toolu_skE3l"))
+    assert refused(child_call(e, "F6", FORK, "acceptEdits", "e3-writer"))
+    main = e.base("PreToolUse", tool_name="Read", agent_type="blackcat", permission_mode="acceptEdits",
+                  tool_use_id="toolu_r", tool_input={"file_path": "/x"})
+    assert ok(e.run(main, args=["budget"]))
+    assert ok(child_call(e, "F6", FORK, "acceptEdits", "e3-writer"))
+    assert ok(skill_call(e, "unseen-skill", mode="default", tid="toolu_skE3d"))   # outside plan: no marker
+    assert not os.path.exists(os.path.join(e.sdir(), "plan"))
 
 
 def test_markers_lapse_once_the_main_thread_leaves_plan():
