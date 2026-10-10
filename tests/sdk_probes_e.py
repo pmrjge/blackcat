@@ -22,8 +22,11 @@ largest E1 turn measured on 2026-10-10, the first, $0.0611, rounded up to $0.065
 $0.38, and SDK_PROBES_E_CONSENT must equal it ("0.38"). Every ledger's envelope event names its envelope; one
 without the name (the runs before 2026-10-10's change) is the first envelope's. A run counts only the ledgers of
 its own envelope (a ledger with no envelope event at all counts in every envelope: fail closed), and is
-refused when their spend plus its cap exceeds its envelope's total; a ledger naming an unknown envelope, or
-two, refuses every run.
+refused when their spend plus its cap plus one turn (the envelope's overshoot_usd: E1_TURN_USD here, $0 in the
+first envelope) exceeds its envelope's total; a ledger naming an unknown envelope, or two, refuses every run. An
+E1 leg that ends without a result (its deadline, the CLI's exit) is booked at its cap plus one turn, so the next
+leg's start reads it at worst. A paid run that cannot locate the main checkout (where the ledgers are) is
+refused.
 
 Consent (the user's decision, 2026-10-09): at most $2.00 in all, ACROSS RUNS, E1+E2 at most $1.50 and E3+E3P at
 most $0.50 within a run. A paid run needs --paid and SDK_PROBES_E_CONSENT equal to the run's own cap: the sum
@@ -537,7 +540,7 @@ class Ctx(base.Ctx):
             opts = s.preview()          # the options it would connect with: a refusal may come here too
         except ValueError as e:         # e.g. a helper that refuses CLAUDE_CODE_SANDBOXED (sdk/env-channel)
             raise HelperRefused(type(e).__name__) from e
-        s.probe_settings = settings_facts(opts.settings)
+        s.probe_settings, s.probe_key = settings_facts(opts.settings), key
         self.reserve(key, opts)
         try:
             async with s:
@@ -968,6 +971,8 @@ async def e1(c: Ctx) -> None:
                     continue
                 f["reserve_skipped"] = [n for n, r, *_ in E1_LEGS[i:] if r != "stack"]
                 raise
+            if s.probe_key not in c.reported and s.probe_key not in c.unknown_keys:
+                c.rebook(s.probe_key, E1_SESSION_USD + E1_TURN_USD)     # no result: its cap and one turn past it
             leg = bash_leg(c.helper, msgs, out.get("permission_denials"), command, marker,
                            leg_validity(c.cfg.config_dir, msgs))
             leg["trust_warning"] = warned["trust"] > 0
@@ -1840,9 +1845,10 @@ def print_plan(probes: list[Probe], consent: str | None, prior: dict[str, Any] |
         print("prior spend: unreadable (%s): a paid run would be refused" % prior)
     else:
         print(prior_line(prior))
-        print("a paid run of this selection would %s (prior %.4f + cap %.2f %s %.2f)" % (
-            "START" if prior["used"] + cap <= env.total_usd + 1e-9 else "be REFUSED", prior["used"], cap,
-            "<=" if prior["used"] + cap <= env.total_usd + 1e-9 else ">", env.total_usd))
+        fits = prior["used"] + cap + env.overshoot_usd <= env.total_usd + 1e-9
+        print("a paid run of this selection would %s (prior %.4f + cap %.2f%s %s %.2f)" % (
+            "START" if fits else "be REFUSED", prior["used"], cap,
+            " + one turn %.3f" % env.overshoot_usd if env.overshoot_usd else "", "<=" if fits else ">", env.total_usd))
     if consent is not None:
         print("%s is set, but without --paid this is a dry run." % CONSENT_ENV)
     print("paid run: %s=%s uv run --locked --script tests/sdk_probes_e.py --paid%s --only %s" % (
@@ -1861,11 +1867,12 @@ def main(argv: list[str] | None = None) -> int:
                "envelope's run cap) as %%.2f (E1,E3P: 0.50; --envelope %s --only E1: %s); only a run with all of E1, "
                "E2 and E3 selected in the first envelope keeps the first run's value %s. A paid run is refused when "
                "its envelope's ledgers already in the default and the report directory (replayed at worst, a run "
-               "without its end at its cap) plus its cap exceed the envelope's total ($%.2f; %s: $%.2f). A run "
+               "without its end at its cap) plus its cap plus one turn exceed the envelope's total ($%.2f; %s: $%.2f, "
+               "one turn $%.3f). A paid run that cannot locate the main checkout is refused. A run "
                "killed without its end event (SIGKILL, SIGHUP, SIGTERM) counts at its whole cap for good; the only "
                "remedy is appending an end event to its ledger by hand." % (
                    CONSENT_ENV, E3_ENVELOPE, consent_value(PROBES[:1], E3_ENVELOPE), CONSENT_VALUE, TOTAL_CAP_USD,
-                   E3_ENVELOPE, E3_TOTAL_USD))
+                   E3_ENVELOPE, E3_TOTAL_USD, E1_TURN_USD))
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="print the plan, spend nothing (the default)")
     mode.add_argument("--paid", action="store_true", help="make the billed calls; needs %s=<the run's cap> too" %
@@ -1913,7 +1920,10 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("the installed %s/bin/stack_sdk.py lacks %s: reinstall the stack (./install.sh) or run "
                  "--only E2,E3,E3P (they need only options())" % (config, ", ".join(missing)))
     # every run's ledger goes to the default directory, wherever --out puts the report, so every later run reads
-    # it; the check and the envelope that books this run's cap happen under one exclusive lock there
+    # it; the check and the envelope that books this run's cap happen under one exclusive lock there. Without the
+    # main checkout that directory would fall back to this script's repository, where no earlier ledger is
+    if base.main_checkout() is None:
+        raise SystemExit("cannot locate the main checkout: the ledgers cannot be found")
     ldir = ledger_dirs(out, today)[0]
     try:
         os.makedirs(ldir, mode=0o700, exist_ok=True)
@@ -1928,9 +1938,10 @@ def main(argv: list[str] | None = None) -> int:
             ap.error("refused: a ledger in the default or the report directory cannot be replayed, so the prior "
                      "spend is unknown: %s" % e)
         print(prior_line(prior))
-        if prior["used"] + cap > env.total_usd + 1e-9:
-            ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f exceeds envelope %s's USD %.2f "
-                     "consent (left: USD %.4f)" % (prior["used"], cap, env.eid, env.total_usd, prior["left"]))
+        if prior["used"] + cap + env.overshoot_usd > env.total_usd + 1e-9:
+            ap.error("refused: the prior spend USD %.4f plus this run's cap USD %.2f%s exceeds envelope %s's USD %.2f "
+                     "consent (left: USD %.4f)" % (prior["used"], cap, " plus one turn USD %.3f" % env.overshoot_usd
+                                                   if env.overshoot_usd else "", env.eid, env.total_usd, prior["left"]))
         try:                                   # before any billed call, not after
             os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
             if not os.access(os.path.dirname(out), os.W_OK):

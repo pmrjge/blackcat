@@ -91,6 +91,7 @@ SWITCHES = dict(
                             # rule unless the session's settings say useAutoModeDuringPlan false (the CLI's default:
                             # true): the 2026-10-10 world, where the control ran
     overlay_ignored=False,  # E1: the CLI ignores useAutoModeDuringPlan in the session's settings
+    no_result=False,        # no turn ends with a result (the session is cut: its deadline, then the CLI exits)
     guard_decides=False,    # E1: a PreToolUse hook (the guard) denies the Bash call
     ro_guard=True,          # E1: the repo's agent_guard read-only rule (READONLY_TYPES main thread) runs for real
     silent_send=False,      # E3c2a: the model makes no SendMessage call, yet the child's transcript grows
@@ -308,7 +309,9 @@ class FakeCLI(Base):
             if self.user and self.o.include_hook_events:
                 self.spawn(self.session_start())
         self.emit({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": resp}})
-        if sub == "interrupt" and self.turn_open:
+        if sub == "interrupt" and self.w.no_result:            # cut without a result: the CLI exits
+            self.q.put_nowait(None)
+        elif sub == "interrupt" and self.turn_open:
             self.finish(terminal_reason="aborted_streaming")
         elif sub == "stop_task":
             self.stop(req["task_id"])
@@ -398,6 +401,9 @@ class FakeCLI(Base):
     def finish(self, **kw):
         self.turn_open = False
         cost = {} if self.w.cost is None else {"total_cost_usd": self.w.cost}
+        if self.w.no_result:
+            self.emit(self.sysm("session_state_changed", state="idle"))
+            return
         self.emit(dict({"type": "result", "subtype": "success", "duration_ms": 5, "duration_api_ms": 4, "is_error": False,
                         "num_turns": 1, "session_id": self.sid, "result": LEAK, "terminal_reason": "completed"},
                        **cost, **kw))
@@ -745,6 +751,7 @@ def probes_dir(monkeypatch, tmp_path):
     check reads only what a test puts there, never the real ledgers."""
     d = tmp_path / "default-probes"
     monkeypatch.setattr(P.base, "default_out", lambda today: str(d / (today + ".md")))
+    monkeypatch.setattr(P.base, "main_checkout", lambda: str(tmp_path))
     return d
 
 
@@ -1848,8 +1855,8 @@ def test_the_e3_gate_counts_its_own_runs_and_leaves_the_first_envelope_untouched
     assert P.prior_spend([str(pinned)], P.E3_ENVELOPE)["used"] == pytest.approx(0.10)
     with pytest.raises(SystemExit) as e:
         P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "c.md")])
-    assert e.value.code == 2 and "refused: the prior spend USD 0.1000 plus this run's cap USD 0.38 exceeds envelope " \
-        "%s's USD 0.45" % P.E3_ENVELOPE in capsys.readouterr().err and seen == [0.38]
+    assert e.value.code == 2 and "refused: the prior spend USD 0.1000 plus this run's cap USD 0.38 plus one turn USD " \
+        "0.065 exceeds envelope %s's USD 0.45" % P.E3_ENVELOPE in capsys.readouterr().err and seen == [0.38]
     assert not (pinned / "c.ledger.jsonl").exists()
     assert P.main(["--only", "E3P"]) == 0                       # the first envelope: still the four runs
     out = capsys.readouterr().out
@@ -1868,7 +1875,8 @@ def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(caps
     assert "paid run: %s=0.38 uv run --locked --script tests/sdk_probes_e.py --paid --envelope %s --only E1" % (
         P.CONSENT_ENV, P.E3_ENVELOPE) in out
     assert "= $0.445 <= the envelope's $0.45 (margin $0.005)" in out
-    assert "left of the 0.45: USD 0.4500" in out and "would START (prior 0.0000 + cap 0.38 <= 0.45)" in out
+    assert "left of the 0.45: USD 0.4500" in out
+    assert "would START (prior 0.0000 + cap 0.38 + one turn 0.065 <= 0.45)" in out
     assert "with the trust warning: control, session_rule, repo_rule, trusted_repo_rule, as_installed start, " \
            "$0.3375" in out
     assert not re.search(r"^E3P\s+\$", out, re.MULTILINE) and re.search(r"^E1\s+\$0\.40 ", out, re.MULTILINE)
@@ -1999,3 +2007,71 @@ def test_merged_settings_and_settings_facts(tmp_path):
                                                                  "sandbox_auto_allow": None}
     assert P.settings_facts(json.dumps({"useAutoModeDuringPlan": "no", "sandbox": []})) == {
         "auto_mode_during_plan": None, "sandbox_auto_allow": None}
+
+
+# ---------------------------------------------------------------- the spend review of sdk/probes-e3
+def test_the_e3_gate_keeps_one_turn_for_the_last_session(pinned, monkeypatch, tmp_path, capsys):
+    """F1: a first e3 run that ended early with real spend ($0.0611) leaves 0.3889: a second run at its cap 0.38
+    could reach 0.38 + one turn past it, 0.5061 in all; the gate counts that turn and refuses it. The first
+    envelope (no overshoot margin) keeps its rule: prior + cap <= 2.00."""
+    monkeypatch.setattr(P, "run_probes", None)
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    pinned.mkdir(parents=True, exist_ok=True)
+    e3_ledger(pinned, "e3a.ledger.jsonl", {"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08},
+              {"ev": "cost", "probe": "E1", "session": 0, "usd": 0.0611}, {"ev": "end", "usd": 0.0611})
+    with pytest.raises(SystemExit) as e:
+        P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert e.value.code == 2 and "refused" in capsys.readouterr().err
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "would be REFUSED (prior 0.0611 + cap 0.38 + one turn 0.065 > 0.45)" in capsys.readouterr().out
+    assert P.ENVELOPES[P.LEGACY_ENVELOPE].overshoot_usd == 0
+
+
+def test_an_e1_leg_without_a_result_is_booked_at_its_cap_and_one_turn(sdk, tmp_path):
+    """F2: a leg cut without a result (its deadline, then the CLI's exit) may have spent its cap and one turn: it
+    is booked so (the ledger says so), and the next leg's start reads that: three legs, at most the run's cap
+    plus one turn (before: four legs at $0.08 each, a worst case of the cap plus four turns)."""
+    events = []
+    w = World(tmp_path, no_result=True)
+    (row,) = run(w, [P.PROBES[0]], ledger=events.append, total=0.38, turn_s=0.5)
+    assert len(w.opened) <= 3 and row.cost <= 0.38 + P.E1_TURN_USD + 1e-9, (len(w.opened), row.cost)
+    assert len(w.opened) == 3 and row.cost == pytest.approx(3 * (P.E1_SESSION_USD + P.E1_TURN_USD))
+    rebooked = [e for e in events if e["ev"] == "reserve" and e.get("unproven")]
+    assert [e["usd"] for e in rebooked] == [pytest.approx(P.E1_SESSION_USD + P.E1_TURN_USD)] * 3
+    assert row.status == "cap_used" and row.facts["sessions_without_result"] == 3
+
+
+def test_every_session_is_booked_in_the_ledger_before_it_spawns(sdk, tmp_path):
+    """F3: at every session's spawn (the transport's connect: the CLI process starts there; E3P's client builds
+    its transport earlier, at construction), the ledger already holds one plain reservation per session started
+    so far, this one included: a crash or a kill after the spawn still counts its cap."""
+    ev, seen = [], []
+    w = World(tmp_path)
+    factory = w.factory
+
+    def counting(opts):
+        cli = factory(opts)
+        connect = cli.connect
+
+        async def spawn():
+            seen.append(sum(1 for e in ev if e["ev"] == "reserve" and not {"turn", "closed", "unproven"} & set(e)))
+            await connect()
+        cli.connect = spawn
+        return cli
+    w.factory = counting
+    run(w, [P.PROBES[0], P.PROBES[3]], ledger=ev.append)
+    assert len(seen) == len(w.opened) == 8 and seen == list(range(1, len(seen) + 1)), seen
+
+
+def test_a_paid_run_without_the_main_checkout_is_refused(pinned, monkeypatch, tmp_path, capsys):
+    """F4: git cannot tell the main checkout: the default directory would fall back to this script's repository
+    and miss every earlier ledger (the first envelope would look untouched), so a paid run is refused before
+    any ledger; the dry run still prints the plan."""
+    monkeypatch.setattr(P, "run_probes", None)
+    monkeypatch.setattr(P.base, "main_checkout", lambda: None)
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    with pytest.raises(SystemExit) as e:
+        P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert str(e.value.code) == "cannot locate the main checkout: the ledgers cannot be found"
+    assert not list(tmp_path.rglob("*.ledger.jsonl")) and not (tmp_path / "r.md").exists()
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0 and "DRY RUN" in capsys.readouterr().out

@@ -1018,15 +1018,22 @@ def write_report(path: str, text: str) -> str:
     return path
 
 
-def default_out(today: str) -> str:
-    """<main checkout>/.claude-work/sdk/probes/<date>.md, also when run from a linked worktree."""
+def main_checkout() -> str | None:
+    """The main checkout's root (git's common dir's parent), also from a linked worktree; None if git cannot
+    tell (no git, not a repository, a timeout)."""
     here = os.path.dirname(os.path.abspath(__file__))
     try:
         common = subprocess.run(["git", "-C", here, "rev-parse", "--path-format=absolute", "--git-common-dir"],
                                 capture_output=True, text=True, timeout=10, check=True).stdout.strip()
-        root = os.path.dirname(common)
     except (OSError, subprocess.SubprocessError):
-        root = os.path.dirname(here)
+        return None
+    return os.path.dirname(common) if common else None
+
+
+def default_out(today: str) -> str:
+    """<main checkout>/.claude-work/sdk/probes/<date>.md, also when run from a linked worktree (the script's own
+    repository root if git cannot tell: a paid run that reads other runs' ledgers must check main_checkout())."""
+    root = main_checkout() or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(root, ".claude-work", "sdk", "probes", today + ".md")
 
 
