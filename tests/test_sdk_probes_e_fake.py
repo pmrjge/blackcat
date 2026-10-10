@@ -86,7 +86,12 @@ SWITCHES = dict(
     refuse_any=False,       # E3c2a: every SendMessage resume is refused
     rules_bind=True,        # E1: an allow rule runs Bash under plan
     plan_open=False,        # E1: plan runs Bash without any rule
-    sandbox_auto=False,     # E1: the installed sandbox auto-allows Bash (no overlay)
+    sandbox_auto=False,     # E1: the installed sandbox auto-allows Bash (unless the session's settings turn it off)
+    auto_plan=False,        # E1: the installed defaultMode is auto, and under plan its classifier runs Bash with no
+                            # rule unless the session's settings say useAutoModeDuringPlan false (the CLI's default:
+                            # true): the 2026-10-10 world, where the control ran
+    overlay_ignored=False,  # E1: the CLI ignores useAutoModeDuringPlan in the session's settings
+    no_result=False,        # no turn ends with a result (the session is cut: its deadline, then the CLI exits)
     guard_decides=False,    # E1: a PreToolUse hook (the guard) denies the Bash call
     ro_guard=True,          # E1: the repo's agent_guard read-only rule (READONLY_TYPES main thread) runs for real
     silent_send=False,      # E3c2a: the model makes no SendMessage call, yet the child's transcript grows
@@ -128,7 +133,8 @@ class World:
         allow = ([P.STACK_RULE] if self.stack_rule else []) + ["mcp__exa", "Read"]
         (self.config / "settings.json").write_text(json.dumps({
             "agent": "blackcat", "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "guard"}]}]},
-            "permissions": {"allow": allow}, "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True}}))
+            "permissions": dict({"allow": allow}, **({"defaultMode": "auto"} if self.auto_plan else {})),
+            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True}}))
         self.cli = tmp / "bin" / "claude"
         self.cli.parent.mkdir()
         self.cli.write_text("#!/bin/sh\nexit 1\n")
@@ -263,6 +269,11 @@ class FakeCLI(Base):
             deny |= set(self.bg()["deny"])
         return allow, deny
 
+    def settings(self):
+        """The session's --settings overlay (JSON text, as the probe sends it; None or not an object: {})."""
+        obj = json.loads(self.o.settings) if self.o.settings else {}
+        return obj if isinstance(obj, dict) else {}
+
     def bash_ok(self, cmd):
         allow, deny = self.rules()
         rule = "Bash(%s)" % cmd
@@ -270,11 +281,16 @@ class FakeCLI(Base):
             return False
         if self.env.get("CLAUDE_CODE_SANDBOXED") == "1" and self.w.sandboxed_opens:
             return True
+        overlay = self.settings()
+        auto = self.w.overlay_ignored or overlay.get("useAutoModeDuringPlan", True) is not False
+        if self.mode == "plan" and self.user and self.w.auto_plan and auto:     # the classifier under plan
+            return True
         if rule in allow:
             return self.mode != "plan" or self.w.rules_bind
         if self.mode == "plan" and self.w.plan_open:
             return True
-        return self.user and self.w.sandbox_auto and '"autoAllowBashIfSandboxed": false' not in (self.o.settings or "")
+        return self.user and self.w.sandbox_auto and (overlay.get("sandbox") or {}).get("autoAllowBashIfSandboxed") \
+            is not False
 
     def read_ok(self, path):
         roots = [self.cwd, *map(Path, self.o.add_dirs or []), *map(Path, (self.bg() or {}).get("addDirs") or [])]
@@ -293,7 +309,9 @@ class FakeCLI(Base):
             if self.user and self.o.include_hook_events:
                 self.spawn(self.session_start())
         self.emit({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": resp}})
-        if sub == "interrupt" and self.turn_open:
+        if sub == "interrupt" and self.w.no_result:            # cut without a result: the CLI exits
+            self.q.put_nowait(None)
+        elif sub == "interrupt" and self.turn_open:
             self.finish(terminal_reason="aborted_streaming")
         elif sub == "stop_task":
             self.stop(req["task_id"])
@@ -383,6 +401,9 @@ class FakeCLI(Base):
     def finish(self, **kw):
         self.turn_open = False
         cost = {} if self.w.cost is None else {"total_cost_usd": self.w.cost}
+        if self.w.no_result:
+            self.emit(self.sysm("session_state_changed", state="idle"))
+            return
         self.emit(dict({"type": "result", "subtype": "success", "duration_ms": 5, "duration_api_ms": 4, "is_error": False,
                         "num_turns": 1, "session_id": self.sid, "result": LEAK, "terminal_reason": "completed"},
                        **cost, **kw))
@@ -617,8 +638,24 @@ class FakeCLI(Base):
         self.finish()
 
 
-def helper():
-    return load(HELPER, "stack_sdk_for_probes_e")
+def helper(flavour="main"):
+    """The repo's stack_sdk.py, freshly loaded. "shipped": as it is (sdk/plan-bash-gate: PLAN_GATE as --settings on
+    every host-none Session, every host-none settings overlay refused; sdk/env-channel: CLAUDE_CODE_SANDBOXED
+    refused). "main" (the default): as installed on 2026-10-10, main c1ded439's, without the two changes E1 sees: no
+    PLAN_GATE (a host-none Session sends no settings) and CLAUDE_CODE_SANDBOXED passed, so the trusted legs run."""
+    h = load(HELPER, "stack_sdk_for_probes_e")
+    if flavour == "shipped":
+        return h
+    assert flavour == "main", flavour
+    h.PLAN_GATE = None
+    h.ENV_REFUSED = re.compile(r"(?!CLAUDE_CODE_SANDBOXED\Z)(?:%s)" % h.ENV_REFUSED.pattern)
+
+    class Main(h.Session):
+        def build(self, plan):
+            o = super().build(plan)
+            return dataclasses.replace(o, settings=None) if self.host == "none" else o
+    h.Session = Main
+    return h
 
 
 _GUARD = []
@@ -634,11 +671,12 @@ def guard():
     return _GUARD[0]
 
 
-def run(world, probes=None, ledger=None, total=None, **cfg):
-    """The whole run, bounded; the world's config is the CLI's own (CLAUDE_CONFIG_DIR), as the probes require."""
+def run(world, probes=None, ledger=None, total=None, flavour="main", **cfg):
+    """The whole run, bounded; the world's config is the CLI's own (CLAUDE_CONFIG_DIR), as the probes require;
+    `flavour`: the helper's (helper())."""
     from unittest import mock
     with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(world.config)}):
-        return asyncio.run(asyncio.wait_for(P.run_probes(probes or P.PROBES, world.cfg(**cfg), helper(),
+        return asyncio.run(asyncio.wait_for(P.run_probes(probes or P.PROBES, world.cfg(**cfg), helper(flavour),
                                                          ledger=ledger, total=total), 120))
 
 
@@ -669,6 +707,7 @@ FLIPPED_ANSWERS = {"E1a": "no", "E1bu": "dropped (untrusted)", "E1bt": "no", "E1
                    "E2b": "no", "E2c1": "yes", "E2c2": "yes", "E3a": "yes", "E3b": "no", "E3c1": "no", "E3c2": "no",
                    "E3d": "no", "E3c2a": "no", "E3e": "no"}
 E1_PARTS = ["E1a", "E1bu", "E1bt", "E1c", "E1d"]
+GOOD_E1 = {k: GOOD[k] for k in E1_PARTS}
 E1_RUN = [x[0] for x in P.E1_LEGS if x[1] != "stack"]       # the legs E1 runs (E1C_NOT_RUN: not the stack's rule)
 LEDGERS = ROOT / "tests" / "fixtures" / "sdk" / "probes_e_ledgers"   # the first runs' three ledgers, 2026-10-09
 PRIOR_USED = 1.404122                       # their worst case (analysis §0: $1.4041), replayed by hand below
@@ -730,6 +769,7 @@ def probes_dir(monkeypatch, tmp_path):
     check reads only what a test puts there, never the real ledgers."""
     d = tmp_path / "default-probes"
     monkeypatch.setattr(P.base, "default_out", lambda today: str(d / (today + ".md")))
+    monkeypatch.setattr(P.base, "main_checkout", lambda: str(tmp_path))
     return d
 
 
@@ -860,7 +900,8 @@ def test_a_paid_run_logs_the_envelope_first_and_reports(pinned, monkeypatch, tmp
     assert lines[1]["note"] == P.base.WITHHELD and lines[-1]["ev"] == "end"
     assert os.stat(led).st_mode & 0o777 == 0o600
     text = (tmp_path / "r.md").read_text()
-    assert "Consent envelope: the user's decision of 2026-10-09" in text and "| E1 | ran |" in text
+    assert "Consent envelope 2026-10-09: the user's decision of 2026-10-09" in text and "| E1 | ran |" in text
+    assert lines[0]["envelope"] == P.LEGACY_ENVELOPE and lines[0]["consent_date"] == "2026-10-09"
     assert "main-thread models (each session's init frame): E1 m-1 x2" in text
     assert "This run's cap (%s): USD 2.00" % P.CONSENT_ENV in text
     assert "Ledger: %s" % led in capsys.readouterr().out
@@ -920,8 +961,9 @@ def test_the_first_runs_ledgers_replay_to_the_analysis_figure():
         "2026-10-09-e.ledger.jsonl": 0.256817, "2026-10-09-e-2.ledger.jsonl": 0.615173,
         "2026-10-09-e-3.ledger.jsonl": 0.532132}
     prior = P.prior_spend([str(LEDGERS)])
-    assert prior == {"ledgers": 3, "reported": 0.984122, "unreported": 0.42, "used": PRIOR_USED,
-                     "left": round(2.0 - PRIOR_USED, 6)}
+    assert prior == {"envelope": P.LEGACY_ENVELOPE, "total": 2.0, "ledgers": 3, "other_ledgers": 0,
+                     "reported": 0.984122, "unreported": 0.42, "used": PRIOR_USED, "left": round(2.0 - PRIOR_USED, 6)}
+    assert {P.ledger_spend(str(p))["envelope"] for p in LEDGERS.iterdir()} == {P.LEGACY_ENVELOPE}
     assert round(prior["left"], 4) == 0.5959 and PRIOR_USED + 0.50 <= 2.0
     # the same file reached twice (the default and the report directory are one) counts once
     assert P.prior_spend([str(LEDGERS), str(LEDGERS) + "/."])["used"] == PRIOR_USED
@@ -935,7 +977,7 @@ def test_ledger_replay_books_reservations_at_cap_and_fails_closed(tmp_path):
     r = {"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.2}
     assert spend(r)["used"] == 0.2 and spend(r)["unreported"] == 0.2             # never reported: its cap
     c = dict(r, ev="cost", usd=0.05)
-    assert spend(r, c) == {"reported": 0.05, "unreported": 0, "used": 0.05}     # a result replaces it
+    assert spend(r, c) == {"reported": 0.05, "unreported": 0, "used": 0.05, "envelope": None}   # a result replaces it
     turn = dict(r, turn=True)
     assert spend(r, c, turn)["used"] == 0.2                                     # an open turn: its cap again
     assert spend(r, c, turn, dict(c, usd=0.07))["used"] == 0.07
@@ -1110,18 +1152,20 @@ def test_every_part_answers_in_the_good_world_within_its_caps(sdk, tmp_path):
         scratch = re.search(r"^(.*/sdk-probe-e\d\w*-[^/]+)/", str(o.cwd) + "/").group(1)
         assert o.env["XDG_STATE_HOME"] == scratch + "/state" and str(tmp_path) in scratch
         assert "CLAUDE_CONFIG_DIR" not in o.env and o.cli_path == str(w.cli)     # the keychain entry stays the default
-    assert len(per["E1"]) == 6 and len(per["E2"]) == 4 and len(per["E3"]) == 2 and len(per["E3P"]) == 1
+    assert len(per["E1"]) == 7 and len(per["E2"]) == 4 and len(per["E3"]) == 2 and len(per["E3P"]) == 1
     for o in per["E1"]:             # stack_sdk.Session("verifier"), host none: plan, no prompts, the installed stack
         assert o.permission_mode == "plan" and o.extra_args["permission-prompts"] == "none" and o.can_use_tool is None
         assert "user" in o.setting_sources and "ExitPlanMode" in o.disallowed_tools and "Agent(coder)" in o.disallowed_tools
         assert o.extra_args["agent"] == "verifier" and callable(o.stderr) and o.max_budget_usd == 0.08
-    assert [o.settings for o in per["E1"]] == [P.SANDBOX_OVERLAY] * 5 + [None]
-    assert [o.env.get("CLAUDE_CODE_SANDBOXED") for o in per["E1"]] == [None, None, None, "1", "1", None]
+    explicit, plan_auto = (json.dumps(P.E1_OVERLAYS[k]) for k in ("explicit", "plan_auto"))
+    assert [o.settings for o in per["E1"]] == [explicit] * 5 + [None, plan_auto]     # as_installed: the Session's own
+    assert json.loads(explicit) == {"sandbox": {"autoAllowBashIfSandboxed": False}, "useAutoModeDuringPlan": False}
+    assert [o.env.get("CLAUDE_CODE_SANDBOXED") for o in per["E1"]] == [None, None, None, "1", "1", None, None]
     assert [Path(o.cwd).name for o in per["E1"]] == E1_RUN            # E1c's stack leg is not run
     script = Path(per["E1"][1].cwd) / ".claude-work" / "e1.sh"      # scratch: the read-only guard lets it run
     assert per["E1"][1].allowed_tools == ["Bash(sh %s)" % script]
     assert w.scripts["session_rule"] == "touch %s/.claude-work/e1-session_rule.marker\n" % per["E1"][1].cwd
-    for leg in (2, 4):              # the repo rule, untrusted and trusted: the same rule in the temp project
+    for leg in (2, 3):              # the repo rule, untrusted and trusted: the same rule in the temp project
         proj = w.projects[Path(per["E1"][leg].cwd).name]
         assert proj == {"permissions": {"allow": ["Bash(sh %s/.claude-work/e1.sh)" % per["E1"][leg].cwd]}}
     for o in per["E2"] + per["E3"] + per["E3P"]:  # only the temp project's settings
@@ -1152,9 +1196,15 @@ def test_every_part_answers_in_the_good_world_within_its_caps(sdk, tmp_path):
             "verifier", True, FAKE_SONNET, True), leg
     assert f1["repo_rule_trust_warning"] is True and f1["trusted_repo_rule_trust_warning"] is False
     assert f1["repo_rule_verdict"] == "denied" and f1["trusted_repo_rule_verdict"] == "ran"
-    assert f1["trusted_control_verdict"] == "denied"
+    assert f1["trusted_control_verdict"] == "denied" and f1["plan_auto_verdict"] == "denied"
+    assert f1["plan_auto_effect"] == "denied" and f1["installed_default_mode"] is None
+    assert (f1["control_settings_auto_mode_during_plan"], f1["control_settings_sandbox_auto_allow"]) == (False, False)
+    assert (f1["as_installed_settings_auto_mode_during_plan"], f1["as_installed_settings_sandbox_auto_allow"]) == (
+        None, None)                                             # main's Session sends no settings of its own
+    assert (f1["plan_auto_settings_auto_mode_during_plan"], f1["plan_auto_settings_sandbox_auto_allow"]) == (
+        True, False)
     models = {r.probe.pid: r.models for r in rows}
-    assert models == {"E1": [FAKE_SONNET] * 6, "E2": ["fake-haiku"] * 3, "E3": ["fake-haiku"] * 2,
+    assert models == {"E1": [FAKE_SONNET] * 7, "E2": ["fake-haiku"] * 3, "E3": ["fake-haiku"] * 2,
                       "E3P": ["fake-haiku"]}                    # E2c connects only: no init frame
     fp = next(r.facts for r in rows if r.probe.pid == "E3P")
     assert fp["e3p_meta_tool_use_id"] == fp["e3p_spawn_tool_use_id"] and fp["e3p_meta_tid_is_spawn"] is True
@@ -1174,18 +1224,24 @@ def test_the_report_and_ledger_of_a_full_run_have_no_prompt_text(sdk, tmp_path):
     for pid in PARTS:
         assert "| %s |" % pid in text
     assert str(w.config / "projects") in text and "Consent envelope" in text
-    assert "main-thread models (each session's init frame): E1 %s x6; E2 fake-haiku x3; E3 fake-haiku x2; " \
+    assert "main-thread models (each session's init frame): E1 %s x7; E2 fake-haiku x3; E3 fake-haiku x2; " \
            "E3P fake-haiku x1" % FAKE_SONNET in text
     kinds = [e["ev"] for e in events]
-    assert kinds.count("probe") == 4 and kinds.count("probe_end") == 4 and kinds.count("reserve") == 17
+    assert kinds.count("probe") == 4 and kinds.count("probe_end") == 4 and kinds.count("reserve") == 18
     assert kinds.count("cost") >= 13 and "cost_unknown" not in kinds
 
 
-def test_answers_follow_the_measurements_in_the_flipped_world(sdk, tmp_path):
-    rows = run(World(tmp_path, **FLIPPED))
-    assert answers(rows) == FLIPPED_ANSWERS, {r.probe.pid: r.facts for r in rows}
+@pytest.mark.parametrize("flavour", ["main", "shipped"])
+def test_answers_follow_the_measurements_in_the_flipped_world(sdk, tmp_path, flavour):
+    """The installed sandbox auto-allows Bash: the gate (the overlay's, or the shipped Session's own) turns it off
+    for the control; as installed (no --settings) it runs the command. The shipped helper refuses the trusted
+    pair (E1bt unknown) and reads the gate from the control (gate_verdict denied)."""
+    rows = run(World(tmp_path, **FLIPPED), flavour=flavour)
+    want = FLIPPED_ANSWERS if flavour == "main" else dict(FLIPPED_ANSWERS, E1bt="unknown")
+    assert answers(rows) == want, {r.probe.pid: r.facts for r in rows}
     f = next(r.facts for r in rows if r.probe.pid == "E1")
     assert f["control_verdict"] == "denied" and f["as_installed_verdict"] == "ran"
+    assert f["gate_verdict"] == ("not_shipped" if flavour == "main" else "denied")
 
 
 def test_a_child_in_its_callers_mode_gives_no_for_e3a(sdk, tmp_path):
@@ -1356,7 +1412,12 @@ def test_e1_rule_legs_need_a_denied_control(sdk, tmp_path):
     (row,) = run(World(tmp_path, plan_open=True), [P.PROBES[0]])
     assert row.facts["control_verdict"] == "ran" and row.facts["session_rule_verdict"] == "ran"
     assert row.facts["trusted_control_verdict"] == "ran"
-    assert [row.answers[k] for k in E1_PARTS] == ["unknown", "unknown", "unknown", "unknown", "yes"]
+    assert [row.answers[k] for k in E1_PARTS] == ["uncontrolled", "uncontrolled", "uncontrolled", "unknown", "yes"]
+    # a control neither denied nor ran (undecided, hook-decided): the rule leg's reading is unknown
+    for control in ("undecided", "hook_decided", "not_attempted"):
+        c = types.SimpleNamespace(facts={}, answers={})
+        P.e1_answers(c, {"control": control, "session_rule": "ran", "repo_rule": "denied"})
+        assert c.answers == {"E1a": "unknown", "E1bu": "unknown"}, control
 
 
 def test_e2a_needs_a_control_the_rules_do_not_touch(sdk, tmp_path):
@@ -1419,7 +1480,7 @@ def test_a_blackcat_main_thread_makes_every_e1_leg_invalid(sdk, tmp_path):
     assert row.answers == dict.fromkeys(E1_PARTS, "invalid"), row.facts
     assert row.facts["control_agent_setting"] == "blackcat" and row.facts["control_bash_tool"] is False
     assert row.facts["control_attempted"] is False and row.facts["control_verdict"] == "invalid"
-    assert row.models == [FAKE_SONNET] * 6
+    assert row.models == [FAKE_SONNET] * 7
 
 
 @pytest.mark.parametrize("switch", [dict(agent_setting_row=False), dict(init_model=False), dict(main_tools="Read")])
@@ -1443,12 +1504,16 @@ def test_e1b_reads_the_trust_warning_and_the_trusted_leg_reads_its_own_control(s
     # the warning absent from stderr: a denied untrusted repo rule reads plain no
     (row,) = run(World(tmp_path / "quiet", trust_warning=False), [P.PROBES[0]])
     assert (row.answers["E1bu"], row.answers["E1bt"]) == ("no", "yes") and row.facts["repo_rule_trust_warning"] is False
-    # the env does not trust: the trusted leg is dropped too, and the warning says so
-    (row,) = run(World(tmp_path / "untrusting", sandboxed_trusts=False), [P.PROBES[0]])
-    assert row.answers["E1bt"] == "dropped (untrusted)" and row.facts["trusted_repo_rule_trust_warning"] is True
-    # the env runs Bash with no rule: the trusted control ran, E1bt is unknown; the untrusted legs still read
+    # the env does not trust (2026-10-10): the warning on the trusted leg's stderr: trust unproven, and its
+    # control is not run ($0)
+    w = World(tmp_path / "untrusting", sandboxed_trusts=False)
+    (row,) = run(w, [P.PROBES[0]])
+    assert row.answers["E1bt"] == "trust unproven" and row.facts["trusted_repo_rule_trust_warning"] is True
+    assert row.facts["trusted_control_verdict"] == "trust_unproven" and "trusted_control_attempted" not in row.facts
+    assert "trusted_control" not in [Path(o.cwd).name for o in w.opened] and len(w.opened) == 6
+    # the env runs Bash with no rule: the trusted control ran, E1bt is uncontrolled; the untrusted legs still read
     (row,) = run(World(tmp_path / "opens", sandboxed_opens=True), [P.PROBES[0]])
-    assert row.facts["trusted_control_verdict"] == "ran" and row.answers["E1bt"] == "unknown"
+    assert row.facts["trusted_control_verdict"] == "ran" and row.answers["E1bt"] == "uncontrolled"
     assert row.answers["E1bu"] == "dropped (untrusted)" and row.answers["E1a"] == "yes"
     # no trust gate: the untrusted repo rule binds
     (row,) = run(World(tmp_path / "nogate", trust_gate=False), [P.PROBES[0]])
@@ -1470,8 +1535,8 @@ def test_a_helper_that_refuses_the_trust_env_skips_only_the_trusted_legs(sdk, tm
     with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(w.config)}):
         (row,) = asyncio.run(P.run_probes([P.PROBES[0]], w.cfg(), h))
     assert row.facts["trusted_control_verdict"] == row.facts["trusted_repo_rule_verdict"] == "helper_refused"
-    assert row.answers["E1bt"] == "unknown" and row.answers["E1a"] == "yes" and len(w.opened) == 4
-    assert row.cost == pytest.approx(0.04)
+    assert row.answers["E1bt"] == "unknown" and row.answers["E1a"] == "yes" and len(w.opened) == 5
+    assert row.cost == pytest.approx(0.05)
 
 
 def test_e1_cut_by_its_cap_keeps_what_it_measured(sdk, tmp_path):
@@ -1481,6 +1546,7 @@ def test_e1_cut_by_its_cap_keeps_what_it_measured(sdk, tmp_path):
     (row,) = run(w, [P.PROBES[0]])
     assert row.status == "cap_used" and len(w.opened) == 5
     assert row.answers == {"E1a": "yes", "E1bu": "dropped (untrusted)", "E1bt": "yes", "E1c": "unknown", "E1d": "skipped"}
+    assert row.facts["reserve_skipped"] == ["as_installed", "plan_auto"]
 
 
 def test_a_refused_resume_reads_terminal_for_e3d(sdk, tmp_path):
@@ -1692,4 +1758,521 @@ def test_a_helper_whose_preview_refuses_the_trust_env_skips_only_the_trusted_leg
     assert row.status == "ran", row.facts
     assert row.facts["trusted_control_verdict"] == row.facts["trusted_repo_rule_verdict"] == "helper_refused"
     assert row.answers["E1bt"] == "unknown" and row.answers["E1a"] == "yes" and row.answers["E1d"] == "no"
-    assert len(w.opened) == 4 and row.cost == pytest.approx(0.04)
+    assert len(w.opened) == 5 and row.cost == pytest.approx(0.05)
+
+
+# ---------------------------------------------------------------- the E1 rerun (sdk/probes-e3): envelope e3-2026-10-10
+LEDGER_1010 = ROOT / "tests" / "fixtures" / "sdk" / "probes_e_ledgers_2026-10-10" / "2026-10-10-e.ledger.jsonl"
+OLD_USED = 1.918793                         # the four runs' ledgers at worst: $1.9188 of the $2.00, $0.0812 left
+
+
+def seed_all(d):
+    """The four runs' ledgers before the e3 envelope: 2026-10-09 (three) and 2026-10-10 (E1+E3P, $0.5147)."""
+    seed(d)
+    (d / LEDGER_1010.name).write_text(LEDGER_1010.read_text())
+
+
+def e3_ledger(d, name, *events):
+    """A ledger of the e3 envelope: its envelope event, then `events`."""
+    head = {"ev": "envelope", "envelope": P.E3_ENVELOPE, "run_cap_usd": 0.38, "total_usd": 0.45}
+    (d / name).write_text("".join(json.dumps(e) + "\n" for e in (head, *events)))
+
+
+def test_envelopes_count_only_their_own_ledgers(tmp_path):
+    """The first envelope counts the four runs' ledgers ($1.9188, untouched by the new one); e3-2026-10-10 counts
+    none of them ($0.45 left); an e3 ledger counts only in e3; a ledger with no envelope event counts in both
+    (fail closed); an unknown envelope id, a null one or two envelope events cannot be replayed."""
+    d = tmp_path / "l"
+    seed_all(d)
+    assert P.ledger_spend(str(LEDGER_1010))["envelope"] == P.LEGACY_ENVELOPE        # no id: the first envelope
+    old, new = P.prior_spend([str(d)]), P.prior_spend([str(d)], P.E3_ENVELOPE)
+    assert (old["envelope"], old["ledgers"], old["other_ledgers"], old["used"]) == (P.LEGACY_ENVELOPE, 4, 0, OLD_USED)
+    assert round(old["left"], 4) == 0.0812 and old["total"] == 2.0
+    assert new == {"envelope": P.E3_ENVELOPE, "total": 0.45, "ledgers": 0, "other_ledgers": 4, "reported": 0,
+                   "unreported": 0, "used": 0, "left": 0.45}
+    e3_ledger(d, "e3a.ledger.jsonl", {"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08},
+              {"ev": "cost", "probe": "E1", "session": 0, "usd": 0.07}, {"ev": "end", "usd": 0.07})
+    new = P.prior_spend([str(d)], P.E3_ENVELOPE)
+    assert (new["ledgers"], new["other_ledgers"], new["used"], new["left"]) == (1, 4, 0.07, 0.38)
+    assert P.prior_spend([str(d)])["used"] == OLD_USED                             # the first envelope: untouched
+    e3_ledger(d, "e3b.ledger.jsonl", {"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08})
+    assert P.prior_spend([str(d)], P.E3_ENVELOPE)["used"] == pytest.approx(0.07 + 0.38)  # no end: at its run cap
+    (d / "e3b.ledger.jsonl").unlink()
+    (d / "bare.ledger.jsonl").write_text(json.dumps({"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.05}) + "\n")
+    assert P.prior_spend([str(d)])["used"] == pytest.approx(OLD_USED + 0.05)       # whose it is is unknown: both
+    assert P.prior_spend([str(d)], P.E3_ENVELOPE)["used"] == pytest.approx(0.12)
+    (d / "bare.ledger.jsonl").unlink()
+    env = {"ev": "envelope", "run_cap_usd": 0.1}
+    for bad in ([dict(env, envelope="e9-2026-10-11")], [dict(env, envelope=None)], [dict(env, envelope=["x"])],
+                [env, dict(env, envelope=P.E3_ENVELOPE)], [dict(env, envelope=P.E3_ENVELOPE), env]):
+        (d / "bad.ledger.jsonl").write_text("".join(json.dumps(e) + "\n" for e in bad))
+        for eid in (None, P.E3_ENVELOPE):                       # it refuses a run in either envelope
+            with pytest.raises(P.LedgerUnreadable):
+                P.prior_spend([str(d)], eid)
+
+
+def test_the_e3_envelope_is_e1_only_and_its_consent_is_its_cap_less_one_turn(pinned, monkeypatch, tmp_path, capsys):
+    """--envelope e3-2026-10-10: E1 only (the default selection, and nothing else admitted); its run cap is
+    min(E1's 0.40, floor((0.45 - E1_TURN_USD) * 100) / 100) = 0.38, which SDK_PROBES_E_CONSENT must equal; the
+    first envelope's rules are unchanged without the flag."""
+    env = P.ENVELOPES[P.E3_ENVELOPE]
+    assert (env.total_usd, env.consent_date, env.probes, env.overshoot_usd) == (0.45, "2026-10-10", {"E1"}, 0.065)
+    assert env.max_run_usd == 0.38 and P.E1_TURN_USD == 0.065 and P.E1_TURN_USD >= 0.0611
+    assert P.consent_value(P.PROBES[:1], P.E3_ENVELOPE) == "0.38" and P.run_cap(P.PROBES[:1], P.E3_ENVELOPE) == 0.38
+    assert env.max_run_usd + env.overshoot_usd <= env.total_usd                    # the one-turn margin fits
+    assert P.consent_value(P.PROBES[:1]) == "0.40" and P.ENVELOPES[P.LEGACY_ENVELOPE].max_run_usd == 2.0
+    seen = []
+
+    async def record(probes, cfg, helper, rows, ledger, total=None):
+        seen.append(([p.pid for p in probes], total))
+    monkeypatch.setattr(P, "run_probes", record)
+    for value in ("0.40", "0.45", "0.38 ", "2.00", None):
+        if value is None:
+            monkeypatch.delenv(P.CONSENT_ENV, raising=False)
+        else:
+            monkeypatch.setenv(P.CONSENT_ENV, value)
+        with pytest.raises(SystemExit) as e:
+            P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+        assert e.value.code == 2 and seen == [] and "%s=0.38" % P.CONSENT_ENV in capsys.readouterr().err
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    for only in ("E1,E3P", "E3P", "E2"):                        # the envelope admits E1 only
+        with pytest.raises(SystemExit) as e:
+            P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--only", only, "--cli", "/x", "--out",
+                    str(tmp_path / "r.md")])
+        assert e.value.code == 2 and seen == [] and "admits only E1" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        P.main(["--envelope", "e9-2026-10-11"])
+    with pytest.raises(SystemExit):                             # the first envelope is the default, not a choice
+        P.main(["--envelope", P.LEGACY_ENVELOPE])
+    capsys.readouterr()
+    P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert seen == [(["E1"], 0.38)]
+    head = json.loads((pinned / "r.ledger.jsonl").read_text().splitlines()[0])
+    assert (head["envelope"], head["consent_date"], head["total_usd"], head["run_cap_usd"], head["consent_value"]) == (
+        P.E3_ENVELOPE, "2026-10-10", 0.45, 0.38, "0.38")
+    assert "Consent envelope %s: the user's decision of 2026-10-10" % P.E3_ENVELOPE in (tmp_path / "r.md").read_text()
+
+
+def test_the_e3_gate_counts_its_own_runs_and_leaves_the_first_envelope_untouched(pinned, monkeypatch, tmp_path,
+                                                                                capsys):
+    """The four runs' ledgers in the default directory: the first envelope has $0.0812 left (E3P's 0.10 is
+    refused there), the e3 envelope all of its $0.45: E1 at 0.38 starts. That run books $0.10; a second e3 run
+    (0.10 + 0.38 > 0.45) is refused, and the first envelope still reads $1.9188."""
+    seed_all(pinned)
+    seen = []
+
+    async def spend(probes, cfg, helper, rows, ledger, total=None):
+        seen.append(total)
+        ledger({"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08})
+        ledger({"ev": "cost", "probe": "E1", "session": 0, "usd": 0.10})
+        rows.append(P.Row(probes[0], {"E1a": "yes"}, total, cost=0.10))
+    monkeypatch.setattr(P, "run_probes", spend)
+    monkeypatch.setenv(P.CONSENT_ENV, "0.10")
+    with pytest.raises(SystemExit) as e:                        # the first envelope: 1.9188 + 0.10 > 2.00
+        P.main(["--paid", "--only", "E3P", "--cli", "/x", "--out", str(tmp_path / "a.md")])
+    assert e.value.code == 2 and "refused: the prior spend USD 1.9188 plus this run's cap USD 0.10 exceeds envelope " \
+        "2026-10-09's USD 2.00" in capsys.readouterr().err and seen == []
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "b.md")])
+    out = capsys.readouterr().out
+    assert seen == [0.38] and "left of the 0.45: USD 0.4500 (envelope %s; 4 ledgers of other" % P.E3_ENVELOPE in out
+    assert P.prior_spend([str(pinned)], P.E3_ENVELOPE)["used"] == pytest.approx(0.10)
+    with pytest.raises(SystemExit) as e:
+        P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "c.md")])
+    assert e.value.code == 2 and "refused: the prior spend USD 0.1000 plus this run's cap USD 0.38 plus one turn USD " \
+        "0.065 exceeds envelope %s's USD 0.45" % P.E3_ENVELOPE in capsys.readouterr().err and seen == [0.38]
+    assert not (pinned / "c.ledger.jsonl").exists()
+    assert P.main(["--only", "E3P"]) == 0                       # the first envelope: still the four runs
+    out = capsys.readouterr().out
+    assert "prior spend: 4 ledgers" in out and "= USD 1.9188 at worst; left of the 2.00: USD 0.0812" in out
+    assert "1 ledgers of other envelopes not counted" in out and "would be REFUSED" in out
+
+
+def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(capsys, monkeypatch, probes_dir,
+                                                                            tmp_path):
+    monkeypatch.setattr(P, "run_probes", None)
+    monkeypatch.setattr(P.base, "load_helper", None)
+    monkeypatch.delenv(P.CONSENT_ENV, raising=False)
+    seed_all(probes_dir)
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("DRY RUN") and "this run's cap 0.38 (consent value 0.38)" in out
+    assert "paid run: %s=0.38 uv run --locked --script tests/sdk_probes_e.py --paid --envelope %s --only E1" % (
+        P.CONSENT_ENV, P.E3_ENVELOPE) in out
+    assert "= $0.445 <= the envelope's $0.45 (margin $0.005)" in out
+    assert "left of the 0.45: USD 0.4500" in out
+    assert "would START (prior 0.0000 + cap 0.38 + one turn 0.065 <= 0.45)" in out
+    assert "with the trust warning: control, session_rule, repo_rule, trusted_repo_rule, as_installed start, " \
+           "$0.3375" in out
+    assert not re.search(r"^E3P\s+\$", out, re.MULTILINE) and re.search(r"^E1\s+\$0\.40 ", out, re.MULTILINE)
+    assert P.e1_schedule(0.38, P.E1_EST_USD, True) == (
+        ["control", "session_rule", "repo_rule", "trusted_repo_rule", "as_installed"], 0.3375)
+    assert P.e1_schedule(0.38, P.E1_EST_USD, False) == (
+        ["control", "session_rule", "repo_rule", "trusted_repo_rule", "trusted_control"], 0.3375)
+    # the shipped helper refuses CLAUDE_CODE_SANDBOXED: neither trusted leg starts, plan_auto gets the fifth session
+    shipped = ["control", "session_rule", "repo_rule", "as_installed", "plan_auto"]
+    assert P.e1_schedule(0.38, P.E1_EST_USD, True, True) == P.e1_schedule(0.38, P.E1_EST_USD, False, True) == (
+        shipped, 0.3375)
+    assert "a helper refusing CLAUDE_CODE_SANDBOXED (sdk/env-channel, shipped with PLAN_GATE): %s start, $0.3375" % (
+        ", ".join(shipped)) in out
+    assert re.search(r"^  as_installed +settings none ", out, re.MULTILINE) and "the gate stripped" in out
+    assert "the gate as shipped: read from the control, $0, no extra session" in out
+    # F1 (spend review): which helper is installed, read as text ($0, no import), decides what E1 measures
+    cfg = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "unreadable: what E1 measures is unknown" in capsys.readouterr().out
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n# PLAN_GATE = {} in a comment, not an assignment\n")
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "has no PLAN_GATE (main's): gate_verdict reads not_shipped" in out and "ships PLAN_GATE" not in out
+    (cfg / "bin" / "stack_sdk.py").write_text('x = 1\nPLAN_GATE = {"useAutoModeDuringPlan": False}\n')
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "ships PLAN_GATE: the control is the gate as shipped (gate_verdict denied | ran)" in out
+    assert "gate_verdict reads not_shipped" not in out
+
+
+# ---------------------------------------------------------------- the E1 rerun: the explicit overlay and its readings
+AUTO_WORLD = dict(auto_plan=True, sandboxed_trusts=False)      # 2026-10-10: auto semantics, and the env does not trust
+
+
+def legs_opened(w):
+    return [(Path(o.cwd).name, o.settings) for o in w.opened]
+
+
+def test_the_explicit_overlay_denies_the_control_in_the_auto_world(sdk, tmp_path):
+    """The 2026-10-10 world (installed defaultMode auto, useAutoModeDuringPlan default true; the trust env not
+    trusting): with the explicit overlay the control is denied, so the rule legs read; E1bt is trust unproven
+    and its control is not run; as installed (the Session's own settings) the classifier runs the command;
+    plan_auto records the same on purpose."""
+    w = World(tmp_path, **AUTO_WORLD)
+    (row,) = run(w, [P.PROBES[0]])
+    f = row.facts
+    assert row.answers == {"E1a": "yes", "E1bu": "dropped (untrusted)", "E1bt": "trust unproven", "E1c": "unknown",
+                           "E1d": "yes"}, f
+    assert f["control_verdict"] == "denied" and f["installed_default_mode"] == "auto"
+    assert f["plan_auto_verdict"] == "ran" and f["plan_auto_effect"] == "runs" and f["as_installed_verdict"] == "ran"
+    explicit, plan_auto = (json.dumps(P.E1_OVERLAYS[k]) for k in ("explicit", "plan_auto"))
+    assert legs_opened(w) == [("control", explicit), ("session_rule", explicit), ("repo_rule", explicit),
+                              ("trusted_repo_rule", explicit), ("as_installed", None), ("plan_auto", plan_auto)]
+    assert row.status == "ran" and row.cost == pytest.approx(0.06)
+
+
+def test_a_control_that_runs_makes_its_rule_legs_uncontrolled(sdk, tmp_path, monkeypatch):
+    """The control RAN: a rule leg that decided its call reads uncontrolled (not unknown), its reason from the
+    control's own settings; a rule leg that decided nothing stays unknown."""
+    # 2026-10-10's overlay (sandbox auto-allow off only) in the auto world: the control runs by the auto semantics
+    monkeypatch.setitem(P.E1_OVERLAYS, "explicit", {"sandbox": {"autoAllowBashIfSandboxed": False}})
+    (row,) = run(World(tmp_path, auto_plan=True), [P.PROBES[0]])
+    f = row.facts
+    assert f["control_verdict"] == "ran" and f["trusted_control_verdict"] == "ran", f
+    assert [row.answers[k] for k in E1_PARTS] == ["uncontrolled", "uncontrolled", "uncontrolled", "unknown", "yes"]
+    assert f["E1a_uncontrolled_reason"] == f["E1bu_uncontrolled_reason"] == "control_ran:auto_mode_during_plan_not_off"
+    assert f["E1bt_uncontrolled_reason"] == "trusted_control_ran:auto_mode_during_plan_not_off"
+    # the sandbox auto-allow left on: that is the reason named first
+    monkeypatch.setitem(P.E1_OVERLAYS, "explicit", {"useAutoModeDuringPlan": False})
+    (row,) = run(World(tmp_path / "sandbox", sandbox_auto=True), [P.PROBES[0]])
+    assert row.answers["E1a"] == "uncontrolled" and row.facts["E1a_uncontrolled_reason"] == \
+        "control_ran:sandbox_auto_allow_not_off", row.facts
+    # both off, and the control still runs (the CLI ignores the overlay's useAutoModeDuringPlan)
+    monkeypatch.setitem(P.E1_OVERLAYS, "explicit", {"sandbox": {"autoAllowBashIfSandboxed": False},
+                                                    "useAutoModeDuringPlan": False})
+    (row,) = run(World(tmp_path / "ignored", auto_plan=True, overlay_ignored=True), [P.PROBES[0]])
+    assert row.answers["E1a"] == "uncontrolled" and row.facts["E1a_uncontrolled_reason"] == "control_ran:both_off"
+    c = types.SimpleNamespace(facts={}, answers={})
+    P.e1_answers(c, {"control": "ran", "session_rule": "undecided", "repo_rule": "denied"})
+    assert c.answers == {"E1a": "unknown", "E1bu": "uncontrolled"} and "E1a_uncontrolled_reason" not in c.facts
+
+
+def test_no_e1_leg_starts_below_a_whole_session(sdk, tmp_path):
+    """Sessions at the 2026-10-10 mean ($0.0675) under the e3 run cap ($0.38): every leg gets a whole $0.08; with
+    the trust warning five legs run and plan_auto is skipped (the probe still ran); without it the trusted pair
+    takes the fifth session and as_installed, short of $0.08, ends the probe (cap_used, E1d skipped)."""
+    w = World(tmp_path, cost=P.E1_EST_USD, sandboxed_trusts=False)
+    (row,) = run(w, [P.PROBES[0]], total=0.38)
+    assert [Path(o.cwd).name for o in w.opened] == P.e1_schedule(0.38, P.E1_EST_USD, True)[0]
+    assert {o.max_budget_usd for o in w.opened} == {0.08} and row.status == "ran", row.facts
+    assert row.facts["plan_auto_verdict"] == "reserve_skipped" and "reserve_skipped" not in row.facts
+    assert row.cost == pytest.approx(5 * P.E1_EST_USD) and row.answers["E1d"] == "no"
+    w = World(tmp_path / "trusted", cost=P.E1_EST_USD)
+    (row,) = run(w, [P.PROBES[0]], total=0.38)
+    assert [Path(o.cwd).name for o in w.opened] == P.e1_schedule(0.38, P.E1_EST_USD, False)[0]
+    assert {o.max_budget_usd for o in w.opened} == {0.08} and row.status == "cap_used"
+    assert row.facts["reserve_skipped"] == ["as_installed", "plan_auto"] and row.answers["E1d"] == "skipped"
+    assert row.answers["E1bt"] == "yes"
+
+
+def test_the_overlay_is_laid_over_the_sessions_own_settings(sdk, tmp_path):
+    """A helper whose Session sends settings of its own (useAutoModeDuringPlan false, not the whole gate): the
+    explicit legs keep its other keys under the overlay's (not the Session as shipped: gate not_shipped);
+    as_installed sends no settings, the Session's own recorded as facts; a Session whose settings cannot be read
+    starts no overlay leg ($0, helper_refused)."""
+    own = json.dumps({"useAutoModeDuringPlan": False, "keep": 1, "sandbox": {"enabled": True}})
+    w, h = World(tmp_path, **AUTO_WORLD), helper()
+
+    class Own(h.Session):
+        def build(self, plan):
+            return dataclasses.replace(super().build(plan), settings=own)
+    h.Session = Own
+    from unittest import mock
+    with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(w.config)}):
+        (row,) = asyncio.run(P.run_probes([P.PROBES[0]], w.cfg(), h))
+    sent = {name: s for name, s in legs_opened(w)}
+    assert json.loads(sent["control"]) == {"useAutoModeDuringPlan": False, "keep": 1,
+                                           "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": False}}
+    assert json.loads(sent["plan_auto"])["useAutoModeDuringPlan"] is True and json.loads(sent["plan_auto"])["keep"] == 1
+    assert sent["as_installed"] is None and row.facts["as_installed_session_settings_auto_mode_during_plan"] is False
+    assert row.facts["as_installed_settings_auto_mode_during_plan"] is None and not row.facts["as_installed_untouched"]
+    assert row.answers["E1d"] == "yes" and row.facts["as_installed_verdict"] == "ran"     # its own gate stripped
+    assert row.facts["control_untouched"] is False and row.facts["gate_shipped"] is False
+    assert (row.facts["control_settings_auto_mode_during_plan"], row.facts["control_settings_sandbox_auto_allow"]) == (
+        False, False)                                           # what the control sent: the merge
+    assert row.facts["gate_verdict"] == "not_shipped" and row.facts["control_verdict"] == "denied"
+    w2, h2 = World(tmp_path / "bad"), helper()
+
+    class Bad(h2.Session):
+        def build(self, plan):
+            return dataclasses.replace(super().build(plan), settings="[1]")
+    h2.Session = Bad
+    with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(w2.config)}):
+        (row,) = asyncio.run(P.run_probes([P.PROBES[0]], w2.cfg(), h2))
+    assert row.facts["control_verdict"] == "helper_refused" and row.facts["as_installed_verdict"] == "denied"
+    assert {Path(o.cwd).name for o in w2.opened} == {"as_installed"} and row.answers["E1a"] == "unknown"
+
+
+def test_merged_settings_and_settings_facts(tmp_path):
+    ov = P.E1_OVERLAYS["explicit"]
+    assert json.loads(P.merged_settings(None, ov)) == ov
+    own = {"sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True}, "useAutoModeDuringPlan": True, "x": 1}
+    merged = json.loads(P.merged_settings(json.dumps(own), ov))
+    assert merged == {"sandbox": {"enabled": True, "autoAllowBashIfSandboxed": False}, "useAutoModeDuringPlan": False,
+                      "x": 1} and own["sandbox"]["autoAllowBashIfSandboxed"] is True      # the input is not changed
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"x": 2}))
+    assert json.loads(P.merged_settings(str(path), ov))["x"] == 2
+    assert json.loads(P.merged_settings({"sandbox": "on"}, ov))["sandbox"] == {"autoAllowBashIfSandboxed": False}
+    for bad in ("[1]", "{not json", str(tmp_path / "missing.json"), 3):
+        with pytest.raises(ValueError):
+            P.merged_settings(bad, ov)
+    assert P.settings_facts(json.dumps(ov)) == {"auto_mode_during_plan": False, "sandbox_auto_allow": False}
+    assert P.settings_facts(None) == P.settings_facts("{bad") == {"auto_mode_during_plan": None,
+                                                                 "sandbox_auto_allow": None}
+    assert P.settings_facts(json.dumps({"useAutoModeDuringPlan": "no", "sandbox": []})) == {
+        "auto_mode_during_plan": None, "sandbox_auto_allow": None}
+
+
+# ---------------------------------------------------------------- the spend review of sdk/probes-e3
+def test_the_e3_gate_keeps_one_turn_for_the_last_session(pinned, monkeypatch, tmp_path, capsys):
+    """F1: a first e3 run that ended early with real spend ($0.0611) leaves 0.3889: a second run at its cap 0.38
+    could reach 0.38 + one turn past it, 0.5061 in all; the gate counts that turn and refuses it. The first
+    envelope (no overshoot margin) keeps its rule: prior + cap <= 2.00."""
+    monkeypatch.setattr(P, "run_probes", None)
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    pinned.mkdir(parents=True, exist_ok=True)
+    e3_ledger(pinned, "e3a.ledger.jsonl", {"ev": "reserve", "probe": "E1", "session": 0, "usd": 0.08},
+              {"ev": "cost", "probe": "E1", "session": 0, "usd": 0.0611}, {"ev": "end", "usd": 0.0611})
+    with pytest.raises(SystemExit) as e:
+        P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert e.value.code == 2 and "refused" in capsys.readouterr().err
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "would be REFUSED (prior 0.0611 + cap 0.38 + one turn 0.065 > 0.45)" in capsys.readouterr().out
+    assert P.ENVELOPES[P.LEGACY_ENVELOPE].overshoot_usd == 0
+
+
+def test_an_e1_leg_without_a_result_is_booked_at_its_cap_and_one_turn(sdk, tmp_path):
+    """F2: a leg cut without a result (its deadline, then the CLI's exit) may have spent its cap and one turn: it
+    is booked so (the ledger says so), and the next leg's start reads that: three legs, at most the run's cap
+    plus one turn (before: four legs at $0.08 each, a worst case of the cap plus four turns)."""
+    events = []
+    w = World(tmp_path, no_result=True)
+    (row,) = run(w, [P.PROBES[0]], ledger=events.append, total=0.38, turn_s=0.5)
+    assert len(w.opened) <= 3 and row.cost <= 0.38 + P.E1_TURN_USD + 1e-9, (len(w.opened), row.cost)
+    assert len(w.opened) == 3 and row.cost == pytest.approx(3 * (P.E1_SESSION_USD + P.E1_TURN_USD))
+    rebooked = [e for e in events if e["ev"] == "reserve" and e.get("unproven")]
+    assert [e["usd"] for e in rebooked] == [pytest.approx(P.E1_SESSION_USD + P.E1_TURN_USD)] * 3
+    assert row.status == "cap_used" and row.facts["sessions_without_result"] == 3
+
+
+def test_every_session_is_booked_in_the_ledger_before_it_spawns(sdk, tmp_path):
+    """F3: at every session's spawn (the transport's connect: the CLI process starts there; E3P's client builds
+    its transport earlier, at construction), the ledger already holds one plain reservation per session started
+    so far, this one included: a crash or a kill after the spawn still counts its cap."""
+    ev, seen = [], []
+    w = World(tmp_path)
+    factory = w.factory
+
+    def counting(opts):
+        cli = factory(opts)
+        connect = cli.connect
+
+        async def spawn():
+            seen.append(sum(1 for e in ev if e["ev"] == "reserve" and not {"turn", "closed", "unproven"} & set(e)))
+            await connect()
+        cli.connect = spawn
+        return cli
+    w.factory = counting
+    run(w, [P.PROBES[0], P.PROBES[3]], ledger=ev.append)
+    assert len(seen) == len(w.opened) == 8 and seen == list(range(1, len(seen) + 1)), seen
+
+
+def test_a_paid_run_without_the_main_checkout_is_refused(pinned, monkeypatch, tmp_path, capsys):
+    """F4: git cannot tell the main checkout: the default directory would fall back to this script's repository
+    and miss every earlier ledger (the first envelope would look untouched), so a paid run is refused before
+    any ledger; the dry run still prints the plan."""
+    monkeypatch.setattr(P, "run_probes", None)
+    monkeypatch.setattr(P.base, "main_checkout", lambda: None)
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    with pytest.raises(SystemExit) as e:
+        P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert str(e.value.code) == "cannot locate the main checkout: the ledgers cannot be found"
+    assert not list(tmp_path.rglob("*.ledger.jsonl")) and not (tmp_path / "r.md").exists()
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0 and "DRY RUN" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- sdk/plan-bash-gate: the gate as shipped
+def test_the_probes_gate_is_the_shipped_plan_gate():
+    """E1_GATE (the explicit overlay) is a copy of stack_sdk.PLAN_GATE: the two cannot drift."""
+    assert P.E1_GATE == load(HELPER, "stack_sdk_gate_pin").PLAN_GATE
+    assert P.E1_OVERLAYS["explicit"] == P.E1_GATE == {"useAutoModeDuringPlan": False,
+                                                      "sandbox": {"autoAllowBashIfSandboxed": False}}
+
+
+def test_the_shipped_helper_runs_the_control_as_shipped_and_strips_the_gate_as_installed(sdk, tmp_path):
+    """The shipped helper (PLAN_GATE, CLAUDE_CODE_SANDBOXED refused), the good world: the control and the rule legs
+    send the Session's own settings untouched (the control: a plain Session("verifier"), host none, no overlay, no
+    rule; its denial is the gate working: gate_verdict denied); as_installed sends no --settings and records the
+    Session's gate; the trusted pair is refused at $0 and plan_auto gets the fifth session."""
+    w = World(tmp_path)
+    (row,) = run(w, [P.PROBES[0]], flavour="shipped")
+    f, gate = row.facts, json.dumps(helper("shipped").PLAN_GATE)
+    assert row.answers == dict(GOOD_E1, E1bt="unknown"), f
+    assert legs_opened(w) == [("control", gate), ("session_rule", gate), ("repo_rule", gate), ("as_installed", None),
+                              ("plan_auto", json.dumps(dict(P.E1_GATE, useAutoModeDuringPlan=True)))]
+    assert f["trusted_repo_rule_verdict"] == f["trusted_control_verdict"] == "helper_refused"
+    assert (f["gate_shipped"], f["gate_verdict"], f["helper_plan_gate"]) == (True, "denied", True)
+    assert f["control_untouched"] is True and f["session_rule_untouched"] is True and f["plan_auto_untouched"] is False
+    assert (f["as_installed_settings_auto_mode_during_plan"], f["as_installed_settings_sandbox_auto_allow"]) == (
+        None, None) and f["as_installed_untouched"] is False
+    assert (f["as_installed_session_settings_auto_mode_during_plan"],
+            f["as_installed_session_settings_sandbox_auto_allow"]) == (False, False)
+    assert row.status == "ran" and row.cost == pytest.approx(0.05)
+    # main's helper (the default): no gate shipped, the overlay supplies it
+    (row,) = run(World(tmp_path / "main"), [P.PROBES[0]])
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"], row.facts["helper_plan_gate"]) == (
+        False, "not_shipped", None)
+    assert row.facts["control_untouched"] is False and row.answers == GOOD_E1
+
+
+def test_the_shipped_gate_in_the_auto_world_and_where_it_fails(sdk, tmp_path):
+    """2026-10-10's world (installed defaultMode auto, useAutoModeDuringPlan default true): the shipped gate denies
+    the control (gate_verdict denied, the rule legs read), and the gate stripped (as_installed) the classifier runs
+    the command (E1d yes). A CLI that ignores useAutoModeDuringPlan: the plain Session's control runs, gate_verdict
+    ran (the gate does not work) and the rule legs read uncontrolled."""
+    (row,) = run(World(tmp_path, **AUTO_WORLD), [P.PROBES[0]], flavour="shipped")
+    assert (row.facts["gate_verdict"], row.answers["E1d"], row.answers["E1a"]) == ("denied", "yes", "yes"), row.facts
+    (row,) = run(World(tmp_path / "ignored", auto_plan=True, overlay_ignored=True), [P.PROBES[0]], flavour="shipped")
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"]) == (True, "ran"), row.facts
+    assert row.answers["E1a"] == "uncontrolled" and row.facts["E1a_uncontrolled_reason"] == "control_ran:both_off"
+
+
+def test_shipped_at_the_mean_under_the_e3_cap(sdk, tmp_path):
+    """The shipped helper at the 2026-10-10 mean under the e3 run cap: the five legs e1_schedule plans, each with a
+    whole $0.08, $0.3375 in all."""
+    w = World(tmp_path, cost=P.E1_EST_USD, sandboxed_trusts=False)
+    (row,) = run(w, [P.PROBES[0]], total=0.38, flavour="shipped")
+    assert [Path(o.cwd).name for o in w.opened] == P.e1_schedule(0.38, P.E1_EST_USD, True, True)[0]
+    assert {o.max_budget_usd for o in w.opened} == {0.08} and row.status == "ran", row.facts
+    assert row.cost == pytest.approx(5 * P.E1_EST_USD) and row.facts["plan_auto_verdict"] == "denied"
+
+
+def test_a_gate_sent_in_another_form_is_sent_untouched(sdk, tmp_path, monkeypatch):
+    """A Session whose gate text differs from the probe's JSON (compact separators) is still sent as the Session
+    built it, so its control is the Session as shipped; an overlay with more than the gate changes the control's
+    settings: no longer the plain Session (gate not_shipped)."""
+    w, h = World(tmp_path), helper("shipped")
+    compact = json.dumps(h.PLAN_GATE, separators=(",", ":"))
+
+    class Compact(h.Session):
+        def build(self, plan):
+            return dataclasses.replace(super().build(plan), settings=compact)
+    h.Session = Compact
+    from unittest import mock
+    with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(w.config)}):
+        (row,) = asyncio.run(P.run_probes([P.PROBES[0]], w.cfg(), h))
+    assert dict(legs_opened(w))["control"] == compact and row.facts["gate_verdict"] == "denied", row.facts
+    monkeypatch.setitem(P.E1_OVERLAYS, "explicit", dict(P.E1_GATE, extra=1))
+    w = World(tmp_path / "more")
+    (row,) = run(w, [P.PROBES[0]], flavour="shipped")
+    assert json.loads(dict(legs_opened(w))["control"])["extra"] == 1
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"]) == (False, "not_shipped"), row.facts
+
+
+def test_the_gate_verdict_reading():
+    """gate_shipped needs the control's settings untouched AND both gate keys false in what the Session built;
+    gate_verdict is then the control's verdict (a denial missing from permission_denials: denied_uncalibrated);
+    without the control's settings, its verdict (or None)."""
+    def read(v, **facts):
+        c = types.SimpleNamespace(facts=dict(facts), answers={})
+        P.e1_answers(c, v)
+        return c.facts["gate_shipped"], c.facts["gate_verdict"]
+    both = dict(control_session_settings_auto_mode_during_plan=False, control_session_settings_sandbox_auto_allow=False)
+    assert read({"control": "denied"}, control_untouched=True, control_denied=True, **both) == (True, "denied")
+    # a denial that is not in permission_denials (the script failed, the sandbox refused): not the gate's
+    assert read({"control": "denied"}, control_untouched=True, control_denied=False, **both) == (
+        True, "denied_uncalibrated")
+    assert read({"control": "ran"}, control_untouched=True, **both) == (True, "ran")
+    assert read({"control": "invalid"}, control_untouched=True, **both) == (True, "invalid")
+    assert read({"control": "denied"}, control_untouched=False, **both) == (False, "not_shipped")
+    for k in both:
+        assert read({"control": "denied"}, control_untouched=True, **dict(both, **{k: None})) == (False, "not_shipped")
+    assert read({"control": "helper_refused"}) == (None, "helper_refused") and read({}) == (None, None)
+
+
+def test_the_paid_run_says_which_helper_it_measures_before_it_spends(pinned, monkeypatch, tmp_path, capsys):
+    """F1 (spend review): the paid E1 run prints the installed helper's line before run_probes is called."""
+    seen = []
+
+    async def record(*a, **k):
+        seen.append(capsys.readouterr().out)
+    monkeypatch.setattr(P, "run_probes", record)
+    cfg = tmp_path / "cfg"
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert len(seen) == 1 and "gate_verdict reads not_shipped" in seen[0], seen
+
+
+def test_the_dry_run_warns_of_an_env_the_shipped_session_refuses(monkeypatch, tmp_path, capsys, probes_dir):
+    """(b) of the spend review, checked at $0: the shipped Session's check() raises UsageError when
+    CLAUDE_CODE_SESSION_KIND or CLAUDE_CODE_SANDBOXED is in os.environ (a shell started inside Claude Code), which a
+    paid E1 would meet only at its first connect, its $0.08 booked; the dry run warns of it. E1_ENV_REFUSED is a
+    copy of the shipped ENV_REFUSED."""
+    h = helper("shipped")
+    assert P.E1_ENV_REFUSED.pattern == h.ENV_REFUSED.pattern
+    monkeypatch.setattr(P, "run_probes", None)
+    cfg = tmp_path / "cfg"
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text(HELPER.read_text())
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    for k in [k for k in os.environ if P.E1_ENV_REFUSED.fullmatch(k)]:
+        monkeypatch.delenv(k)
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "WARNING" not in capsys.readouterr().out
+    for name in ("CLAUDE_CODE_SESSION_KIND", "CLAUDE_CODE_SANDBOXED"):
+        monkeypatch.setenv(name, "bg")
+        with pytest.raises(h.UsageError):
+            h.Session("verifier", budget_usd=0.08).check()
+        assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+        out = capsys.readouterr().out
+        assert "WARNING: %s set in this environment" % name in out, out
+        assert "the installed stack_sdk.py refuses it in os.environ" in out
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_KIND", "bg")
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n")          # main's: no ENV_REFUSED
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "WARNING: CLAUDE_CODE_SESSION_KIND set" in out and "passes it on to the CLI" in out
