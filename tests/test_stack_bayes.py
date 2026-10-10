@@ -997,12 +997,14 @@ def main_module(tmp_path):
     module."""
     d = tmp_path / "main_hooks"
     d.mkdir(exist_ok=True)
-    for rel in ("stack_limits.py", "stack_limits_seed.json", "sched_model.json"):
+    for rel in ("stack_limits.py",):
         p = subprocess.run(["git", "-C", str(ROOT), "show", f"{MAIN_REV}:dot-config/dot-claude/hooks/{rel}"],
                            capture_output=True, check=False)
         if p.returncode != 0:
             pytest.skip(f"main {MAIN_REV} not in this checkout")
         (d / rel).write_bytes(p.stdout)
+    for rel in ("stack_limits_seed.json", "sched_model.json"):
+        shutil.copyfile(HOOKS / rel, d / rel)
     return _load("stack_limits_main_" + MAIN_REV, d / "stack_limits.py")
 
 
