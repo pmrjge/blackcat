@@ -6,13 +6,9 @@
 # exclude-newer = "2026-10-02T00:00:00Z"
 # ///
 """claude-agent-stack for Agent SDK apps (optional; nothing loads it). Hash-locked by stack_sdk.py.lock beside it
-(`uv run --locked --script`; install.sh stages both, doctor.sh checks the lock offline). Session: the supported path
-(ClaudeSDKClient). It connects, checks that the stack loaded before any prompt (StackNotLoaded: the agents, the
-SessionStart hooks, agent_guard's session-start marker), answers permission requests through one host (none:
-unattended, deny by default, stops at the plan; tty; an app callable), bounds the run and returns one dict per prompt.
-run(): the legacy one-shot (query()), no load check. parse_stream(lines): the same dict from `claude -p --output-format
-stream-json --verbose`. options() and parse_report() as in v1. Import: sys.path.insert(0, "<config>/bin"). CLI:
-stack_sdk.py --help. Docs: skills/claude-code-extensions/references/agent-sdk.md"""
+(`uv run --locked --script`; install.sh stages both, doctor.sh checks the lock offline). Session (ClaudeSDKClient,
+load-checked, one permission host), the legacy run(), parse_stream(), options(), parse_report(). Import:
+sys.path.insert(0, "<config>/bin"). CLI: stack_sdk.py --help. Docs: skills/claude-code-extensions/references/agent-sdk.md"""
 import argparse
 import asyncio
 import contextlib
@@ -217,19 +213,16 @@ class Reducer:
         k = self.keys.setdefault(tid, d.get("tool_use_id") or tid)
         t = self.tasks.setdefault(k, {"task_id": tid})       # v1's per-subagent view (`agents`)
         t.update({a: v for a in ("description", "status", "usage", "task_type") if (v := d.get(a) or patch.get(a))})
-        n = self.tree.setdefault(tid, {"task_id": tid, "tool_use_id": None, "task_type": None, "status": "running",
-                                       "ended": False})
-        n["tool_use_id"] = d.get("tool_use_id") or n["tool_use_id"]
-        n["task_type"] = d.get("task_type") or n["task_type"]
-        n["label"] = n.get("label") or d.get("description")
+        n = self.tree.setdefault(tid, {"task_id": tid, "tool_use_id": None, "task_type": None, "description": None,
+                                       "status": "running", "ended": False, "usage": None})   # the first label kept
         st = d.get("status") or patch.get("status")
-        n["status"] = st or n["status"]
-        n["ended"] = n["ended"] or d.get("subtype") == "task_notification" or st in TERMINAL
-        n["usage"] = d.get("usage") or patch.get("usage") or n.get("usage")
+        n.update(tool_use_id=d.get("tool_use_id") or n["tool_use_id"], task_type=d.get("task_type") or n["task_type"],
+                 description=n["description"] or d.get("description"), status=st or n["status"],
+                 ended=n["ended"] or d.get("subtype") == "task_notification" or st in TERMINAL,
+                 usage=d.get("usage") or patch.get("usage") or n["usage"])
 
     def inflight(self):
-        return [{"task_id": n["task_id"], "task_type": n["task_type"],
-                 "agent": agent_of({"description": n.get("label"), "task_type": n["task_type"]})}
+        return [{"task_id": n["task_id"], "task_type": n["task_type"], "agent": agent_of(n)}
                 for n in self.tree.values() if not n["ended"] and n["task_type"] in AGENT_TASKS]
 
     def summary(self, host=None, ended_by=None, env=None):
@@ -273,8 +266,7 @@ class Reducer:
                                                                 for k, t in self.tasks.items()],
                "tasks": [{"task_id": n["task_id"], "tool_use_id": n["tool_use_id"], "task_type": n["task_type"],
                           "parent_tool_use_id": self.parent.get(n["tool_use_id"]), "status": n["status"],
-                          "agent": agent_of({"description": n.get("label"), "task_type": n["task_type"]}),
-                          "usage": n.get("usage")} for n in self.tree.values()],
+                          "agent": agent_of(n), "usage": n["usage"]} for n in self.tree.values()],
                "inflight_at_end": self.inflight(), "rate_limits": self.rate,
                "system_subtypes": dict(self.subtypes), "hook_events": dict(self.hooks),
                "ledger": sid and os.path.join(state, "claude-agent-stack", sid, "delegations.md"),
@@ -357,11 +349,10 @@ def stack_agents(config):
 
 
 def project_agent_files(cwd, config, extra=()):
-    """Every .claude/agents directory the CLI may read project agents from (2.1.287: recursively, dotfiles too):
-    cwd up to the repository root (or /), a linked worktree's main checkout, and `extra` (add_dirs). Any one,
-    whatever it holds, fails the D3 plan gate: no deny rule can cover what it shadows (SDK-2r S1, R1). Measured (probe
-    E2c, 2.1.287, 2026-10-09, two runs): the CLI loads an add_dir's own .claude/agents, not one above the repository
-    root nor one in an add_dir's subdirectory."""
+    """Every .claude/agents the CLI may read (2.1.287: recursively, dotfiles too): cwd up to the repository root (or /),
+    a linked worktree's main checkout, `extra` (add_dirs). Any one fails the D3 plan gate: no deny rule covers what it
+    shadows (SDK-2r S1, R1). Probe E2c (2.1.287, 2026-10-09, two runs): an add_dir's own .claude/agents loads, not one
+    above the repository root nor one in an add_dir's subdirectory."""
     def text(p):
         with open(p, encoding="utf-8") as fh:
             return fh.read().strip()
@@ -383,8 +374,7 @@ def project_agent_files(cwd, config, extra=()):
 def session_start_hooks(config, source):
     """How many SessionStart hooks <config>/settings.json configures for `source` (plugins may add more)."""
     try:
-        with open(os.path.join(config, "settings.json"), encoding="utf-8") as fh:
-            groups = (json.load(fh).get("hooks") or {}).get("SessionStart") or []
+        groups = ((read_json(os.path.join(config, "settings.json")) or {}).get("hooks") or {}).get("SessionStart") or []
         return sum(len(g.get("hooks") or []) for g in groups if isinstance(g, dict) and (
             g.get("matcher") in (None, "", "*") or re.fullmatch(str(g["matcher"]), source)))
     except (OSError, ValueError, AttributeError, TypeError, re.error):
@@ -417,7 +407,7 @@ def resolve_cli(cli):
         return None
     p = shutil.which("claude") if cli is None else cli
     if not p or not os.path.isfile(p) or not os.access(p, os.X_OK):
-        raise CliNotFound("no claude CLI at %r: install Claude Code or pass --cli PATH (or --cli bundled)" % (p or "PATH"))
+        raise CliNotFound(f"no claude CLI at {p or 'PATH'!r}: install Claude Code or pass --cli PATH (or --cli bundled)")
     return p
 
 
@@ -436,18 +426,18 @@ def one_line(s, cap):
 def keep_rules(updates, tool):
     """D3 callable: only session addRules (allow, deny, ask) whose rules name `tool`; nothing else."""
     from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
+    def g(o, key, attr=None):                    # the wire's dict (camelCase) or the SDK's dataclass
+        return o.get(key) if isinstance(o, dict) else getattr(o, attr or key, None)
     out = []
     for u in updates or []:
-        def g(a, u=u):
-            return u.get(a) if isinstance(u, dict) else getattr(u, a, None)
-        if g("type") != "addRules" or g("destination") != "session" or g("behavior") not in ("allow", "deny", "ask"):
+        if g(u, "type") != "addRules" or g(u, "destination") != "session" or (
+                g(u, "behavior") not in ("allow", "deny", "ask")):
             continue
         rules = [PermissionRuleValue(tool_name=tool, rule_content=c if isinstance(c, str) else None)
-                 for x in g("rules") or [] for n, c in [(x.get("toolName"), x.get("ruleContent")) if isinstance(x, dict)
-                                                        else (getattr(x, "tool_name", None), getattr(x, "rule_content", None))]
-                 if n == tool]
+                 for x in g(u, "rules") or [] if g(x, "toolName", "tool_name") == tool
+                 for c in [g(x, "ruleContent", "rule_content")]]
         if rules:
-            out.append(PermissionUpdate(type="addRules", destination="session", behavior=g("behavior"), rules=rules))
+            out.append(PermissionUpdate(type="addRules", destination="session", behavior=g(u, "behavior"), rules=rules))
     return out
 
 
@@ -590,12 +580,10 @@ class TtyHost:
 
 # ---------------------------------------------------------------- Session (D1-D3, D5-D10)
 class Session:
-    """A stack session on ClaudeSDKClient: `async with Session(...) as s: out = await s.ask(prompt)`.
-    host: "none" (default; unattended: --permission-prompts none, PLAN_GATE in --settings, ExitPlanMode denied
-    and, under plan, every builder agent and Workflow; budget_usd required; deadline_s 3600), "tty", or a callable
-    can_use_tool(tool, input, context). cli: None (the `claude` on PATH), "bundled" or a path. The rest goes to
-    options(). `client` is the raw ClaudeSDKClient, an escape hatch: its stop_task fires no hook;
-    agent_guard releases the child at the next Agent/SendMessage from meta.json stoppedByUser (reap_host_stopped)."""
+    """`async with Session(...) as s: out = await s.ask(prompt)`. host: "none" (unattended; agent-sdk.md "Hosts"), "tty"
+    or a callable can_use_tool(tool, input, context); cli: None (`claude` on PATH), "bundled" or a path; the rest goes
+    to options(). `client`, the raw ClaudeSDKClient, is an escape hatch: its stop_task fires no hook; agent_guard
+    releases the child at the next Agent/SendMessage from meta.json stoppedByUser (reap_host_stopped)."""
 
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
                  deadline_s=None, cli=None, config_dir=None, forward_subagent_text=False, transport=None,
@@ -604,8 +592,8 @@ class Session:
                                                     or v is not None and (k == "verbose" or str(v).startswith("-"))]  # N3
         bad += [k for k in (kw.get("env") or {}) if ENV_REFUSED.fullmatch(str(k))]       # E2a: the CLI's env channel
         if bad or permission_mode == "bypassPermissions":
-            raise ValueError("refused: %s (the host and the stack's files decide; bypassPermissions never)"
-                             % (", ".join(map(str, bad)) or "bypassPermissions"))
+            raise ValueError(f"refused: {', '.join(map(str, bad)) or 'bypassPermissions'} (the host and the stack's files "
+                             "decide; bypassPermissions never)")
         if kw.get("output_format") and agent:
             raise ValueError("output_format with an agent main thread: the report is parsed from the text (D6)")
         own = {} if kw.get("settings") is None else policy_overlay(kw["settings"])
@@ -698,9 +686,8 @@ class Session:
             await self._client.connect()
             info = await self._client.get_server_info() or {}
             items = info.get("agents") if isinstance(info, dict) else None
-            have = {i.get("name") if isinstance(i, dict) else i for i in items or []
-                    if isinstance(i, (dict, str))} if isinstance(items, list) else set()
-            have = {h for h in have if isinstance(h, str)}
+            have = {n for i in (items if isinstance(items, list) else ())
+                    for n in [i.get("name") if isinstance(i, dict) else i] if isinstance(n, str)}
             missing = sorted(set(self.agents) - have)
             if missing:
                 raise StackNotLoaded(f"agents missing from server_info: {', '.join(missing[:20])}")
@@ -711,16 +698,17 @@ class Session:
                 if actual != "plan":                     # S3, C1: the gate fails closed, never reconnects without it
                     raise StackNotLoaded(f"the permission mode drifted off plan: {actual!r} (pass permission_mode "
                                          "explicitly to waive the plan gate: logged gate_waived)")
-                odd = sorted(h for h in have - set(self.agents) if ":" not in h)   # plugin agents keep no mode
-                odd += project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())
-                if odd:                                  # S1: no deny rule can cover agents from elsewhere
-                    raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: "
-                                         + ", ".join(map(str, odd[:10])))
+                self._gate_agents(sorted(h for h in have - set(self.agents) if ":" not in h))  # plugins keep no mode
             await self._load_check()
             self.loaded = True
         except BaseException:
             await self.disconnect()
             raise
+
+    def _gate_agents(self, odd=()):
+        """S1, N2: agents from outside <config>/agents fail the unattended plan gate (no deny rule can cover them)."""
+        if odd := [*odd, *project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())]:
+            raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: " + ", ".join(odd[:10]))
 
     async def _load_check(self):
         """D2(b1) every SessionStart hook_started has a success hook_response (hook_id), at least as many
@@ -795,9 +783,8 @@ class Session:
         if not self.loaded:
             raise StackNotLoaded("not connected, or the load check did not pass")
         # defence in depth: E2b measured no load 3 s after a late write; the CLI recomputes agent_listing_delta per turn
-        if self.host == "none" and (self.permission_mode or "plan") == "plan" and (     # N2: before every prompt
-                odd := project_agent_files(self.kw.get("cwd"), self.config, self.kw.get("add_dirs") or ())):
-            raise StackNotLoaded("agents outside <config>/agents under the unattended plan gate: " + ", ".join(odd[:10]))
+        if self.host == "none" and (self.permission_mode or "plan") == "plan":     # N2: before every prompt
+            self._gate_agents()
         r = Reducer()
         for m in self.early:
             r.feed(wire(m))
