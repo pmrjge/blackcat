@@ -5,15 +5,14 @@
 # [tool.uv]
 # exclude-newer = "2026-10-02T00:00:00Z"
 # ///
-"""claude-agent-stack for Agent SDK apps (optional; nothing loads it). Hash-locked by stack_sdk.py.lock
-beside it (`uv run --locked --script`; install.sh stages both, doctor.sh checks the lock offline).
-Session: the supported path (ClaudeSDKClient). It connects, checks that the stack loaded before any prompt
-(StackNotLoaded: the agents, the SessionStart hooks, agent_guard's session-start marker), answers permission
-requests through one host (none: unattended, deny by default, stops at the plan; tty; an app callable),
-bounds the run and returns one dict per prompt. run(): the legacy one-shot (query()), no load check.
-parse_stream(lines): the same dict from `claude -p --output-format stream-json --verbose`. options() and
-parse_report() as in v1. Import: sys.path.insert(0, "<config>/bin"). CLI: stack_sdk.py --help.
-Docs: skills/claude-code-extensions/references/agent-sdk.md"""
+"""claude-agent-stack for Agent SDK apps (optional; nothing loads it). Hash-locked by stack_sdk.py.lock beside it
+(`uv run --locked --script`; install.sh stages both, doctor.sh checks the lock offline). Session: the supported path
+(ClaudeSDKClient). It connects, checks that the stack loaded before any prompt (StackNotLoaded: the agents, the
+SessionStart hooks, agent_guard's session-start marker), answers permission requests through one host (none:
+unattended, deny by default, stops at the plan; tty; an app callable), bounds the run and returns one dict per prompt.
+run(): the legacy one-shot (query()), no load check. parse_stream(lines): the same dict from `claude -p --output-format
+stream-json --verbose`. options() and parse_report() as in v1. Import: sys.path.insert(0, "<config>/bin"). CLI:
+stack_sdk.py --help. Docs: skills/claude-code-extensions/references/agent-sdk.md"""
 import argparse
 import asyncio
 import contextlib
@@ -46,7 +45,8 @@ EXTRA_OK = ("debug", "debug-file", "verbose", "model", "fallback-model", "effort
 #   an allowlist (D5): the CLI's flag namespace, hidden flags included, is too large to deny by name
 REFUSED_KW = ("hooks", "agents", "can_use_tool", "permission_prompt_tool_name", "sandbox",  # D4: files are the truth
               "max_budget_usd", "setting_sources")                        # budget_usd= and sources= own these
-POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox")
+POLICY_KEYS = ("hooks", "disableAllHooks", "permissions", "defaultMode", "sandbox", "useAutoModeDuringPlan")
+PLAN_GATE = {"useAutoModeDuringPlan": False, "sandbox": {"autoAllowBashIfSandboxed": False}}  # host none's (probe E1)
 CEILING_ENV, STATE_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"
 ENV_REFUSED = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_\w*")  # E2a
 HOST_WAIT_S, LOAD_WAIT_S, INTERRUPT_S, GRACE_S, DEADLINE_NONE_S, GAP_S = 300.0, 20.0, 10.0, 2.0, 3600.0, 0.5
@@ -168,13 +168,11 @@ def wire(m):
 
 
 def state_root(env=None):
-    return (env or {}).get("XDG_STATE_HOME") or os.environ.get("XDG_STATE_HOME") or \
-        os.path.expanduser("~/.local/state")
+    return (env or {}).get("XDG_STATE_HOME") or os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
 
 
 def config_root(env=None):
-    return (env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR") or \
-        os.path.expanduser("~/.claude")
+    return (env or {}).get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
 
 
 class Reducer:
@@ -283,9 +281,8 @@ class Reducer:
                "transcript": next(iter(sorted(glob.glob(os.path.join(glob.escape(config), "projects", "*",
                                                                       glob.escape(sid) + ".jsonl")))), None)
                if sid and SID.fullmatch(sid) else None}
-        for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms", "terminal_reason",
-                  "stop_reason", "api_error_status", "usage", "total_cost_usd"):
-            out[k] = res.get(k)
+        out.update({k: res.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms",
+                                            "terminal_reason", "stop_reason", "api_error_status", "usage", "total_cost_usd")})
         if not self.results:
             out["error"] = "no ResultMessage"
         return out
@@ -396,15 +393,15 @@ def session_start_hooks(config, source):
 
 
 def policy_overlay(settings):
-    """True if a `settings` overlay (JSON text or a file) touches hooks, permissions or the mode."""
+    """A `settings` overlay (JSON text, a file, a dict) as a fresh dict; None if unreadable or touching POLICY_KEYS."""
     try:
         if isinstance(settings, str) and not settings.lstrip().startswith("{"):
             with open(settings, encoding="utf-8") as fh:
                 settings = fh.read()
-        obj = json.loads(settings) if isinstance(settings, str) else settings
-    except (OSError, ValueError):
-        return True
-    return not isinstance(obj, dict) or any(k in obj for k in POLICY_KEYS)
+        obj = json.loads(json.dumps(json.loads(settings) if isinstance(settings, str) else settings, allow_nan=False))
+    except (OSError, ValueError, TypeError):
+        return None
+    return obj if isinstance(obj, dict) and not any(k in obj for k in POLICY_KEYS) else None
 
 
 def read_json(path):
@@ -595,10 +592,10 @@ class TtyHost:
 # ---------------------------------------------------------------- Session (D1-D3, D5-D10)
 class Session:
     """A stack session on ClaudeSDKClient: `async with Session(...) as s: out = await s.ask(prompt)`.
-    host: "none" (default; unattended: --permission-prompts none, ExitPlanMode denied and, under plan,
-    every builder agent and Workflow; budget_usd required; deadline_s 3600), "tty", or a callable
-    can_use_tool(tool, input, context). cli: None (the `claude` on PATH), "bundled" or a path. The rest
-    goes to options(). `client` is the raw ClaudeSDKClient, an escape hatch: its stop_task fires no hook;
+    host: "none" (default; unattended: --permission-prompts none, PLAN_GATE in --settings, ExitPlanMode denied
+    and, under plan, every builder agent and Workflow; budget_usd required; deadline_s 3600), "tty", or a callable
+    can_use_tool(tool, input, context). cli: None (the `claude` on PATH), "bundled" or a path. The rest goes to
+    options(). `client` is the raw ClaudeSDKClient, an escape hatch: its stop_task fires no hook;
     agent_guard releases the child at the next Agent/SendMessage from meta.json stoppedByUser (reap_host_stopped)."""
 
     def __init__(self, agent="blackcat", *, host="none", budget_usd=None, permission_mode=None, bg_wait_s=600.0,
@@ -612,7 +609,8 @@ class Session:
                              % (", ".join(map(str, bad)) or "bypassPermissions"))
         if kw.get("output_format") and agent:
             raise ValueError("output_format with an agent main thread: the report is parsed from the text (D6)")
-        if "user" not in kw.get("sources", ("user",)) or kw.get("settings") is not None and policy_overlay(kw["settings"]):
+        own = {} if kw.get("settings") is None else policy_overlay(kw["settings"])
+        if "user" not in kw.get("sources", ("user",)) or own is None:
             raise ValueError(f"setting_sources must include user, and no settings overlay may touch {POLICY_KEYS}")
         if not (host in ("none", "tty") or callable(host)):
             raise ValueError("host: none, tty or a callable")
@@ -629,7 +627,7 @@ class Session:
         self.config = config_dir or config_root(self.env)
         if config_dir and self.env.setdefault("CLAUDE_CONFIG_DIR", config_dir) != config_dir:    # R6: one config
             raise ValueError("config_dir and env CLAUDE_CONFIG_DIR differ: the CLI would load another config")
-        self.extra, self.kw = dict(kw.pop("extra_args", None) or {}), kw
+        self.extra, self.kw, self.caller_settings = dict(kw.pop("extra_args", None) or {}), kw, own
         self.forward_subagent_text, self.load_timeout_s, self.row = forward_subagent_text, load_timeout_s, row
         self.tty, self._own_tty = tty or (TtyHost() if host == "tty" else None), tty is None
         self._client = self._it = self._scope = self._stop = None
@@ -659,6 +657,8 @@ class Session:
             deny += ["ExitPlanMode"] + ([*(f"Agent({n})" for n, m in sorted(self.agents.items())
                                            if m not in (None, "plan", "default")), "Workflow"] if plan else [])
         extra = dict(self.extra, **({"permission-prompts": "none"} if self.host == "none" else {}))
+        if self.host == "none":                          # E1: the overlay as read at __init__, the gate's keys set last
+            kw["settings"] = json.dumps(dict(self.caller_settings, **PLAN_GATE))
         mode = self.permission_mode or ("plan" if self.host == "none" else None)   # the flag outranks repo settings
         return options(self.agent, **dict(kw, budget_usd=self.budget_usd, permission_mode=mode,
                                           disallowed_tools=deny, extra_args=extra, env=self.env, cli_path=self.cli_path,

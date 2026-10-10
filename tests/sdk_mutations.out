@@ -1,33 +1,33 @@
-BASE  59 named tests: PASS (21.1s)
+BASE  61 named tests: PASS (21.1s)
 KILLED M1   test_load_fails_closed                               agent name counted anywhere in server_info [1.7s] E           Failed: DID NOT RAISE StackNotLoaded
 KILLED M1   test_load_fails_closed                               a missing marker passes [1.7s] E           Failed: DID NOT RAISE StackNotLoaded
-KILLED M2   test_host_none                                       host none drops permission-prompts [1.6s] E       AssertionError: assert {'debug': Non...': 'blackcat'} == {'debug': Non...': 'blackcat'}
-KILLED M2   test_host_none                                       host none sets can_use_tool [1.6s] E       AssertionError: assert (_can_use_tool is None)
-KILLED M2   test_host_none                                       host none omits ExitPlanMode [1.3s] E       AssertionError: assert (None is None and 'ExitPlanMode' in ['Workflow'])
-KILLED M2   test_host_none                                       caller permission-prompts allowed in extra_args [1.3s] E           Failed: DID NOT RAISE ValueError
+KILLED M2   test_host_none                                       host none drops permission-prompts [1.7s] E       AssertionError: assert {'debug': Non...': 'blackcat'} == {'debug': Non...': 'blackcat'}
+KILLED M2   test_host_none                                       host none sets can_use_tool [1.7s] E       AssertionError: assert (_can_use_tool is None)
+KILLED M2   test_host_none                                       host none omits ExitPlanMode [1.7s] E       AssertionError: assert (None is None and 'ExitPlanMode' in ['Workflow'])
+KILLED M2   test_host_none                                       caller permission-prompts allowed in extra_args [1.5s] E           Failed: DID NOT RAISE ValueError
 KILLED M3   test_no_persist                                      updated_permissions kept unfiltered [1.3s] E       AssertionError: assert [{'type': 'ad...'allow'}, ...] == [{'type': 'ad...ent': None}]}]
 KILLED M3   test_no_persist                                      non-session destinations kept [1.3s] E       AssertionError: assert [{'type': 'ad...or': 'allow'}] == [{'type': 'ad...ent': None}]}]
 KILLED M3   test_no_persist                                      rules for other tools kept [1.3s] E       AssertionError: assert [{'type': 'ad...or': 'allow'}] == [{'type': 'ad...ent': None}]}]
 KILLED M4   test_ask_requires_callable                           AskUserQuestion allowed without answers [1.3s] E       AssertionError: assert 'allow' == 'deny'
-KILLED M5   test_budget_required                                 no budget check [21.3s] E       anyio.WouldBlock
-KILLED M6   test_cli_modes                                       bypassPermissions accepted [1.2s] E       AssertionError: assert 3 == 2
+KILLED M5   test_budget_required                                 no budget check [21.4s] E       anyio.WouldBlock
+KILLED M6   test_cli_modes                                       bypassPermissions accepted [1.3s] E       AssertionError: assert 3 == 2
 KILLED M6   test_cli_modes                                       dangerously-skip-permissions allowed in extra_args [1.3s] E           Failed: DID NOT RAISE ValueError
-KILLED M7   test_parity                                          SDK adapter loses parent_tool_use_id [1.2s] E       AssertionError: assert {'outcome': '...': False, ...} == {'outcome': '...': False, ...}
-KILLED M8   test_row_no_text                                     row keeps text [1.2s] E       assert ('ZEBRA-LEAK-42' not in '{"v":1,"ts"...imited":1}\n'
+KILLED M7   test_parity                                          SDK adapter loses parent_tool_use_id [1.3s] E       AssertionError: assert {'outcome': '...': False, ...} == {'outcome': '...': False, ...}
+KILLED M8   test_row_no_text                                     row keeps text [1.3s] E       assert ('ZEBRA-LEAK-42' not in '{"v":1,"ts"...imited":1}\n'
 KILLED M8   test_row_no_text                                     row not 0600 [1.3s] E       AssertionError: assert ('/private/tmp...dk-runs.jsonl' == '/private/tmp...dk-runs.jsonl'
-KILLED M9   test_graceful_close                                  no disconnect on exception or cancellation [1.2s] E       assert 0 == 1
-KILLED M9   test_graceful_close                                  CLI run without disconnect (SIGTERM/SIGHUP) [1.5s] E           AssertionError: SIGTERM
+KILLED M9   test_graceful_close                                  no disconnect on exception or cancellation [1.3s] E       assert 0 == 1
+KILLED M9   test_graceful_close                                  CLI run without disconnect (SIGTERM/SIGHUP) [1.6s] E           AssertionError: SIGTERM
 KILLED M10  test_ratelimit                                       rate limits counted without status [1.2s] E       AssertionError: assert {'any': {'fiv...even_day': 1}} == {'allowed': {...ive_hour': 1}}
-KILLED M11  test_no_sdk_hooks                                    a hook registered by default [1.2s] E           AssertionError: assert {'PreToolUse': []} is None
-KILLED M12  test_last_result                                     report from the first result [1.2s] E       AssertionError: assert (2 == 2 and 'text' == 'clean'
-KILLED M13  test_bg_wait_keeps_reading                           run ends at the first result with an agent in flight [1.2s] E       AssertionError: assert (1 == 2)
-KILLED M14  test_bg_wait_ceiling                                 bg ceiling not enforced [21.3s] E       anyio.WouldBlock
+KILLED M11  test_no_sdk_hooks                                    a hook registered by default [1.3s] E           AssertionError: assert {'PreToolUse': []} is None
+KILLED M12  test_last_result                                     report from the first result [1.3s] E       AssertionError: assert (2 == 2 and 'text' == 'clean'
+KILLED M13  test_bg_wait_keeps_reading                           run ends at the first result with an agent in flight [1.3s] E       AssertionError: assert (1 == 2)
+KILLED M14  test_bg_wait_ceiling                                 bg ceiling not enforced [21.4s] E       anyio.WouldBlock
 KILLED M14  test_bg_wait_ceiling                                 host none default deadline not 3600 [3.1s] E       assert (None == 3600)
-KILLED M14  test_bg_wait_ceiling                                 deadline not enforced [23.3s] E       anyio.WouldBlock
+KILLED M14  test_bg_wait_ceiling                                 deadline not enforced [23.2s] E       anyio.WouldBlock
 KILLED M15  test_inflight_agent_types_only                       local_bash holds the run [4.2s] E       AssertionError: assert ('bg_wait_ceiling' == 'result'
 KILLED M16  test_no_schema_with_agent                            schema accepted with an agent [1.2s] E       Failed: DID NOT RAISE ValueError
-KILLED M17  test_plan_gate_unattended                            gate plan only on blocked [1.2s] E       AssertionError: assert ('unknown', None, None, 1) == ('unknown', 'plan', None, 5)
-KILLED M18  test_cli_path_policy                                 silent fallback to the bundled CLI [1.1s] E       Failed: DID NOT RAISE CliNotFound
+KILLED M17  test_plan_gate_unattended                            gate plan only on blocked [1.1s] E       AssertionError: assert ('unknown', None, None, 1) == ('unknown', 'plan', None, 5)
+KILLED M18  test_cli_path_policy                                 silent fallback to the bundled CLI [1.2s] E       Failed: DID NOT RAISE CliNotFound
 KILLED M19  test_interrupt_outcome                               aborted_* reported by the text [1.2s] E       AssertionError: assert ('done' == 'interrupted'
 KILLED M20  test_tty_sanitizes                                   unsanitised text reaches the tty [1.7s] E       assert not <re.Match object; span=(87, 88), match='\u202e'>
 KILLED M20  test_tty_sanitizes                                   uncapped text reaches the tty [1.7s] E       assert ('more chars]' in 'k_sdk: main thread wants Bash:{"command": "\\u001b[2J\\u001b]0;pwned\\u0007?evil? ?31m
@@ -43,11 +43,11 @@ KILLED M27  test_tty_no_stale_answer                             a late line ans
 KILLED M28  test_tty_plan_nonce                                  plan approved without the nonce [1.7s] E       AssertionError: assert False
 KILLED M29  test_text_report_outcome                             text report gives done [1.2s] E       AssertionError: assert ('done', None, None, 0) == ('unknown', None, None, 1)
 KILLED M29  test_text_report_outcome                             text report gives needs_user False [1.2s] E       AssertionError: assert ('unknown', False, None, 1) == ('unknown', None, None, 1)
-KILLED M30  test_bg_wait_ceiling                                 CLI ceiling env left unset [3.5s] E       KeyError: 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS'
-KILLED M30  test_bg_wait_ceiling                                 CLI ceiling 0 accepted [3.5s] E           Failed: DID NOT RAISE ValueError
+KILLED M30  test_bg_wait_ceiling                                 CLI ceiling env left unset [3.4s] E       KeyError: 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS'
+KILLED M30  test_bg_wait_ceiling                                 CLI ceiling 0 accepted [3.4s] E           Failed: DID NOT RAISE ValueError
 KILLED M31  test_host_none_denies_builders                       explicit non-plan mode not logged gate_waived [1.2s] E       assert (False is True)
-KILLED M32  test_load_fails_closed                               t0 taken after connect() returns [1.3s] E           stack_sdk_v2.StackNotLoaded: agent_guard's session-start marker is missing or stale (/private/tmp/claude-501
-KILLED M32  test_load_fails_closed                               marker read before every SessionStart response [1.2s] E           stack_sdk_v2.StackNotLoaded: no session id in the SessionStart events
+KILLED M32  test_load_fails_closed                               t0 taken after connect() returns [1.2s] E           stack_sdk_v2.StackNotLoaded: agent_guard's session-start marker is missing or stale (/private/tmp/claude-501
+KILLED M32  test_load_fails_closed                               marker read before every SessionStart response [1.3s] E           stack_sdk_v2.StackNotLoaded: no session id in the SessionStart events
 KILLED M33  test_load_fails_closed                               include_hook_events omitted [3.3s] E               stack_sdk_v2.StackNotLoaded: SessionStart hooks: 0 of 2 answered in 2 s (include_hook_events)
 KILLED S1   test_project_agents_do_not_pass_the_plan_gate        repository .claude/agents ignored [1.2s] E       Failed: DID NOT RAISE StackNotLoaded
 KILLED S1   test_project_agents_do_not_pass_the_plan_gate        unknown server_info agents ignored [1.2s] E       Failed: DID NOT RAISE StackNotLoaded
@@ -56,7 +56,7 @@ KILLED S2   test_refusals_hold_for_every_spelling                settings allowe
 KILLED S2   test_refusals_hold_for_every_spelling                sandbox accepted (keyword and overlay) [1.2s] E           Failed: DID NOT RAISE ValueError
 KILLED S2   test_refusals_hold_for_every_spelling                server bypassPermissions accepted [1.2s] E           Failed: DID NOT RAISE StackNotLoaded
 KILLED C2   test_refusals_hold_for_every_spelling                max_budget_usd/setting_sources aliases accepted [1.2s] E           Failed: DID NOT RAISE ValueError
-KILLED S3   test_mode_check_fails_closed                         mode drift off plan accepted [1.3s] E           Failed: DID NOT RAISE StackNotLoaded
+KILLED S3   test_mode_check_fails_closed                         mode drift off plan accepted [1.2s] E           Failed: DID NOT RAISE StackNotLoaded
 KILLED S4   test_ask_model_supplied_answers_do_not_count         model answers passed to the host [1.2s] E       AssertionError: assert ('allow' == 'deny'
 KILLED S5   test_tty_option_labels_cannot_forge_lines            labels keep newlines [2.3s] E       AssertionError: assert ['stack_sdk: ...once? [y/N]:'] == ['allow once? [y/N]:']
 KILLED S6   test_tty_no_stale_answer_when_queued                 no gap between prompts [1.6s] E       AssertionError: assert False
@@ -70,17 +70,17 @@ KILLED C5   test_first_message_s_measures_the_prompt             first_message_s
 KILLED C6   test_stop_with_a_reason_interrupts                   stop(why) not mapped [1.5s] E       AssertionError: assert ('unknown', 'user', 0) == ('interrupted...cancelled', 1)
 KILLED C7   test_reconnect_after_eof_still_bounds                _eof survives disconnect [1.7s] E       AssertionError: assert ('eof', 'error', 0) == ('deadline', 'partial', 1)
 KILLED C8   test_closed_tty_reader_does_not_steal_a_reused_fd    close() not idempotent [1.8s] E       OSError: [Errno 9] Bad file descriptor
-KILLED C8   test_closed_tty_reader_does_not_steal_a_reused_fd    reader thread never stops [2.4s] E       assert (not False and (658343.451345916 - 658342.448495) < 0.8)
+KILLED C8   test_closed_tty_reader_does_not_steal_a_reused_fd    reader thread never stops [2.4s] E       assert (not False and (663722.416451916 - 663721.411356125) < 0.8)
 KILLED C9   test_load_fails_closed                               M32: marker read after the first success response [1.3s] E           stack_sdk_v2.StackNotLoaded: agent_guard's session-start marker is missing or stale (/private/tmp/claude-501
 KILLED C9   test_plan_gate_unattended                            M17: gate plan regardless of host [1.2s] E       AssertionError: assert ('plan', 5) == (None, 1)
-KILLED R1   test_project_agents_any_layout_fail_closed           project agents: only top-level *.md files count [1.3s] E           Failed: DID NOT RAISE StackNotLoaded
+KILLED R1   test_project_agents_any_layout_fail_closed           project agents: only top-level *.md files count [1.2s] E           Failed: DID NOT RAISE StackNotLoaded
 KILLED R1   test_project_agents_any_layout_fail_closed           a linked worktree's main checkout not read [1.3s] E       Failed: DID NOT RAISE StackNotLoaded
 KILLED R1   test_project_agents_any_layout_fail_closed           add_dirs not checked [1.3s] E       Failed: DID NOT RAISE StackNotLoaded
-KILLED R2   test_extra_args_allowlist                            inherit-permission-mode allowed [1.3s] E           Failed: DID NOT RAISE ValueError
+KILLED R2   test_extra_args_allowlist                            inherit-permission-mode allowed [1.2s] E           Failed: DID NOT RAISE ValueError
 KILLED R2   test_extra_args_allowlist                            sandbox allowed in extra_args [1.3s] E           Failed: DID NOT RAISE ValueError
 KILLED R3   test_tty_rows_never_start_with_model_text            no hard wrap [2.9s] E       AssertionError: ['', 'stack_sdk: question (main thread):', '  | May I delete the backup?                        
 KILLED R3   test_tty_rows_never_start_with_model_text            options not quoted [2.9s] E       AssertionError: ['', 'stack_sdk: question (main thread):', '  | May I delete the backup?              ', '  |   
-KILLED R3   test_tty_rows_never_start_with_model_text            tabs not expanded [2.8s] E       AssertionError: ['', 'stack_sdk: question (main thread):', '  | May I delete the backup?              ', '  |   
+KILLED R3   test_tty_rows_never_start_with_model_text            tabs not expanded [2.9s] E       AssertionError: ['', 'stack_sdk: question (main thread):', '  | May I delete the backup?              ', '  |   
 KILLED R4   test_crash_after_a_result_is_an_error                crash after a result keeps the report's outcome [1.2s] E       AssertionError: assert ('done' == 'error'
 KILLED R4   test_crash_after_a_result_is_an_error                a CLI error result loses its class on a crash [1.2s] E       AssertionError: assert 'error' == 'partial'
 KILLED R5   test_ask_model_supplied_annotations_do_not_count     annotations reach the callable host [1.2s] E       AssertionError: assert ('annotations' not in {'questions': [{'question': 'May I push?', 'options': [{'label': 'y
@@ -93,12 +93,12 @@ KILLED V2   test_no_state_frames_agent_in_flight_keeps_reading   grace without s
 KILLED V2   test_no_state_frames_agent_in_flight_keeps_reading   grace once no agent is in flight, state frames or not [1.3s] E       AssertionError: assert (1, 'result', 'unknown', 0) == (2, 'result', 'done', 0)
 KILLED N1   test_relative_add_dirs_resolve_against_the_session_cwd relative add_dirs resolved against the app cwd [1.2s] E       Failed: DID NOT RAISE StackNotLoaded
 KILLED N2   test_project_agents_appearing_after_connect_fail_the_ask no plan-gate re-check before a prompt [1.2s] E       Failed: DID NOT RAISE StackNotLoaded
-KILLED N3   test_extra_args_values_cannot_carry_flags            extra_args values unchecked [1.2s] E           Failed: DID NOT RAISE ValueError
+KILLED N3   test_extra_args_values_cannot_carry_flags            extra_args values unchecked [1.3s] E           Failed: DID NOT RAISE ValueError
 KILLED N3   test_extra_args_values_cannot_carry_flags            a value for verbose accepted [1.2s] E           Failed: DID NOT RAISE ValueError
 KILLED N4   test_tty_answer_line_names_the_tool                  no host row naming the tool next to the answer [1.8s] E       AssertionError: ['(51 rows above)', 'allow once? [y/N]:']
 KILLED OWN1 test_agents_path_of_any_kind_fails_closed            only directories count as agent paths (isdir) [1.3s] E       Failed: DID NOT RAISE StackNotLoaded
 KILLED OWN2 test_agents_found_up_the_parent_chain                the walk skips the parents of cwd [1.2s] E       Failed: DID NOT RAISE StackNotLoaded
-KILLED E2a  test_env_channel_refused_in_the_callers_env          the caller's env not checked [1.3s] E           Failed: DID NOT RAISE ValueError
+KILLED E2a  test_env_channel_refused_in_the_callers_env          the caller's env not checked [1.4s] E           Failed: DID NOT RAISE ValueError
 KILLED E2a  test_env_channel_refused_in_os_environ_at_connect    os.environ not checked at connect [1.4s] E       Failed: DID NOT RAISE UsageError
 KILLED E2a  test_env_channel_forced_off_and_unrelated_keys_pass  CLAUDE_CODE_SESSION_KIND not forced empty [1.3s] E       KeyError: 'CLAUDE_CODE_SESSION_KIND'
 KILLED E2a  test_env_channel_refused_in_the_callers_env          CLAUDE_BG_* not refused [1.3s] E           Failed: DID NOT RAISE ValueError
@@ -110,4 +110,18 @@ KILLED E2a  test_env_channel_forced_off_and_unrelated_keys_pass  env keys matche
 KILLED E2a  test_env_channel_forced_off_and_unrelated_keys_pass  env keys matched anywhere [1.3s] E           ValueError: refused: CLAUDE_CODE_SESSION_KIND_X, MY_CLAUDE_BG_X (the host and the stack's files decide; bypa
 KILLED E2a  test_env_channel_forced_off_and_unrelated_keys_pass  os.environ keys matched by prefix [1.3s] E           stack_sdk_v2.UsageError: refused: CLAUDE_CODE_SESSION_KIND_X in os.environ (permission rules or trust by env
 KILLED E2a  test_env_channel_forced_off_and_unrelated_keys_pass  keys matched case-insensitively [1.3s] E           ValueError: refused: claude_bg_x, claude_code_session_kind (the host and the stack's files decide; bypassPer
-111 of 111 killed
+KILLED E1   test_plan_gate_overlay                               useAutoModeDuringPlan dropped from the overlay [1.2s] E           AssertionError: assert {'sandbox': {...oxed': False}} == {'useAutoMode...oxed': False}}
+KILLED E1   test_plan_gate_overlay                               useAutoModeDuringPlan true in the overlay [1.3s] E           AssertionError: assert {'useAutoMode...oxed': False}} == {'useAutoMode...oxed': False}}
+KILLED E1   test_plan_gate_overlay                               autoAllowBashIfSandboxed dropped from the overlay [1.2s] E           AssertionError: assert {'useAutoMode...'sandbox': {}} == {'useAutoMode...oxed': False}}
+KILLED E1   test_plan_gate_overlay                               autoAllowBashIfSandboxed true in the overlay [1.2s] E           AssertionError: assert {'useAutoMode...boxed': True}} == {'useAutoMode...oxed': False}}
+KILLED E1   test_plan_gate_overlay                               host none passes no overlay [1.2s] E               TypeError: the JSON object must be str, bytes or bytearray, not NoneType
+KILLED E1   test_print_options_diff                              host none passes no overlay (print-options) [1.2s] E       AssertionError: assert {'disallowed_...mission_mode'} == {'disallowed_...', 'settings'}
+KILLED E1   test_plan_gate_overlay                               the overlay only under plan [1.2s] E               TypeError: the JSON object must be str, bytes or bytearray, not NoneType
+KILLED E1   test_plan_gate_overlay                               a caller's keys set after the gate's [1.2s] E           AssertionError: assert {'useAutoMode... 'model': 'x'} == {'useAutoMode... 'model': 'x'}
+KILLED E1   test_plan_gate_overlay                               useAutoModeDuringPlan not a policy key [1.2s] E               Failed: DID NOT RAISE ValueError
+KILLED E1   test_plan_gate_overlay                               the overlay re-read at build (swapped file) [1.2s] E           AssertionError: assert {'useAutoMode...oxed': False}} == {'useAutoMode... 'model': 'x'}
+KILLED E1   test_plan_gate_overlay                               the caller's dict kept, not copied [1.2s] E           AssertionError: assert {'model': 'x'...oxed': False}} == {'useAutoMode... 'model': 'x'}
+KILLED E1   test_no_policy_overlay                               NaN and Infinity accepted (JSON.parse rejects them) [1.2s] E           Failed: DID NOT RAISE ValueError
+KILLED E1   test_no_policy_overlay                               a non-object overlay accepted [1.2s] E           Failed: DID NOT RAISE ValueError
+KILLED E1   test_no_policy_overlay                               the overlay for every host [1.2s] E       assert '{"useAutoModeDuringPlan": false, "sandbox": {"autoAllowBashIfSandboxed": false}}' is None
+125 of 125 killed

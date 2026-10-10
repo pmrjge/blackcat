@@ -7,6 +7,7 @@ Run: uv run --no-project --python 3.13 --with pytest --with claude-agent-sdk==0.
 """
 import asyncio
 import contextlib
+import dataclasses
 import importlib.util
 import itertools
 import json
@@ -26,6 +27,7 @@ from claude_agent_sdk import (
     Transport,
 )
 from claude_agent_sdk._internal.message_parser import parse_message
+from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -645,18 +647,53 @@ def test_no_sdk_hooks(tmp_path):
             w.session(**{k: {"x": 1}})
 
 
+GATE = {"useAutoModeDuringPlan": False, "sandbox": {"autoAllowBashIfSandboxed": False}}   # probe E1
+
+
 def test_no_policy_overlay(tmp_path):
-    """M21: no settings overlay by default, user always a source; overlays touching the policy are refused."""
+    """M21: no caller overlay by default (host none: the E1 gate only), user always a source; overlays touching
+    the policy, not an object or not strict JSON are refused."""
     w = World(tmp_path)
     o = w.session().build(True)
-    assert o.settings is None and "user" in o.setting_sources
+    assert json.loads(o.settings) == GATE and "user" in o.setting_sources
+    assert w.session(host=lambda *a: None).build(True).settings is None
     for bad in ('{"hooks": {}}', '{"permissions": {"allow": ["Bash"]}}', '{"defaultMode": "acceptEdits"}',
-                '{"disableAllHooks": true}', "/nonexistent/settings.json"):
+                '{"disableAllHooks": true}', "/nonexistent/settings.json", [1], '{"x": NaN}', {"x": float("inf")}):
         with pytest.raises(ValueError):
             w.session(settings=bad)
     with pytest.raises(ValueError):
         w.session(sources=("project", "local"))
-    assert w.session(settings='{"model": "sonnet"}').build(True).settings == '{"model": "sonnet"}'
+    assert json.loads(w.session(settings='{"model": "sonnet"}').build(True).settings) == dict(GATE, model="sonnet")
+    assert w.session(settings='{"model": "sonnet"}', host=lambda *a: None).build(True).settings == '{"model": "sonnet"}'
+
+
+def test_plan_gate_overlay(tmp_path):
+    """E1: host none's --settings turns plan's auto-mode classifier and the sandbox's Bash auto-allow off, under
+    plan and a waived gate alike; no caller overlay (text, file, dict) can set either key, nor change after the check."""
+    w = World(tmp_path)
+    f = tmp_path / "s.json"
+    for v in ('{"useAutoModeDuringPlan": true}', '{"sandbox": {"autoAllowBashIfSandboxed": true}}', str(f),
+              {"useAutoModeDuringPlan": True}, '{"model": "x", "useAutoModeDuringPlan": null}'):
+        f.write_text('{"useAutoModeDuringPlan": true}')
+        for host in ("none", lambda *a: None):
+            with pytest.raises(ValueError, match="useAutoModeDuringPlan"):
+                w.session(settings=v, host=host)
+    for mode in (None, "plan", "acceptEdits", "default"):
+        assert json.loads(w.session(permission_mode=mode).build(mode in (None, "plan")).settings) == GATE
+    f.write_text('{"model": "x"}')
+    for v in (str(f), {"model": "x"}):
+        s = w.session(settings=v)
+        f.write_text('{"model": "y", "hooks": {}}')                 # swapped after the check: never read again
+        if isinstance(v, dict):
+            v["hooks"] = {}                                          # the caller's dict, changed after the check
+        s.kw["settings"] = '{"useAutoModeDuringPlan": true}'
+        assert json.loads(s.build(True).settings) == dict(GATE, model="x")
+        s.caller_settings["useAutoModeDuringPlan"] = True                    # the gate's keys are set last
+        assert json.loads(s.build(True).settings) == dict(GATE, model="x", useAutoModeDuringPlan=False)
+        f.write_text('{"model": "x"}')
+    o = dataclasses.replace(w.session(settings='{"model": "x"}').build(True), cli_path=sys.executable)
+    cmd = SubprocessCLITransport(prompt="x", options=o)._build_command()             # what the CLI would get
+    assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == dict(GATE, model="x")
 
 
 def test_cli_path_policy(tmp_path, monkeypatch, capsys):
@@ -686,8 +723,8 @@ def test_print_options_diff(tmp_path, monkeypatch, capsys):
     o = sdk.options("coder", 3, 0.5, ["Read", "Grep"], ["WebFetch"], None, "sess-1", json_reports=True)
     old = json.loads(json.dumps({f.name: getattr(o, f.name) for f in __import__("dataclasses").fields(o)}, default=repr))
     diff = {k for k in old if old[k] != new[k]}
-    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events", "permission_mode"}
-    assert new["permission_mode"] == "plan"                          # host none passes the gate explicitly
+    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events", "permission_mode", "settings"}
+    assert new["permission_mode"] == "plan" and json.loads(new["settings"]) == GATE   # host none: the gate explicitly
     assert new["disallowed_tools"] == ["WebFetch", "ExitPlanMode", "Agent(coder)", "Agent(newbie)", "Workflow"]
     assert new["extra_args"] == {"permission-prompts": "none", "agent": "coder"} and new["include_hook_events"]
     assert new["env"] == {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "3000", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
