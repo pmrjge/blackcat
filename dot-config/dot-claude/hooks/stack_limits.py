@@ -913,11 +913,12 @@ def censor_flags(row, fam, lim_in_force, win_hits):
     docs/BAYES.md A.3. Agent rows: fam "turns" (api_calls) or "ctx"; first match wins:
     1 not complete, 2 compacted, 3 turn-limited or hit_turn, 4 any measured hit_* = 1, 5 its prompt
     window's main row hit soft or hard.prompt (the main-window join: (session, int(window)) in
-    win_hits), 6 status_code 1 with every hit_* empty (a pre-697a685 row): at >= NEAR x the limit in
-    force (lim_in_force: that limit, None = off), 7 status_code 1 with hit_* measured 0, 8 status_code
-    2: observed, 9 a schema-3 complete row without status_code (ended on a tool_use). Main and session
-    rows: fam is the variable family; censored when not complete or on their own scope's hit_soft or
-    hard hit."""
+    win_hits), except a clean finish: status_code 0 with every own hit_* measured 0 (option (c), user
+    decision 2026-10-09, A.11.5: observed), 6 status_code 1 with every hit_* empty (a pre-697a685 row):
+    at >= NEAR x the limit in force (lim_in_force: that limit, None = off), 7 status_code 1 with hit_*
+    measured 0, 8 status_code 2: observed, 9 a schema-3 complete row without status_code (ended on a
+    tool_use). Main and session rows: fam is the variable family; censored when not complete or on
+    their own scope's hit_soft or hard hit."""
     if fam in _SCOPE_HITS:
         return row.get("status") != "complete" or any(row.get(h) == 1 for h in _SCOPE_HITS[fam])
     if row.get("status") != "complete":
@@ -929,10 +930,10 @@ def censor_flags(row, fam, lim_in_force, win_hits):
     hits = [row.get(h) for h in _HIT_COLS]
     if any(h == 1 for h in hits):
         return True
+    code = row.get("status_code")
     w = row.get("window")
     if w is not None and (row.get("session"), int(w)) in win_hits:
-        return True
-    code = row.get("status_code")
+        return not (code == 0 and all(h == 0 for h in hits))      # a clean finish is exact (A.3 row 5)
     if code == 1:
         if all(h is None for h in hits):
             y = row.get("api_calls" if fam == "turns" else "ctx")
