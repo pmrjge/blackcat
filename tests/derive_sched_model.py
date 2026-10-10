@@ -344,7 +344,9 @@ def fit_params(seg, types):
 
 def cold_resumes(seg, fm):
     r = seg[(seg.seg > 0) & seg.gap_s.notna() & (seg.api_calls > 0)].copy()
-    r["ttl_s"] = r.type.map(lambda t: TTL_S.get(fm.get(t, {}).get("cacheTtl", "5m"), 300))
+    # astype: with no resumes, map() keeps the type column's dtype, and an Arrow string column (pandas 3's default
+    # str once pyarrow is installed) refuses the gap_s comparison below
+    r["ttl_s"] = r.type.map(lambda t: TTL_S.get(fm.get(t, {}).get("cacheTtl", "5m"), 300)).astype("int64")
     r["bound"] = np.minimum(r.cache_creation_input_tokens, r.prev_peak)
     # warm: the first call re-reads the prior context from cache; cold: it reads at most the shared
     # system prefix and writes the context again
