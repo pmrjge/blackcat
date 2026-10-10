@@ -1888,7 +1888,8 @@ def test_the_e3_gate_counts_its_own_runs_and_leaves_the_first_envelope_untouched
     assert "1 ledgers of other envelopes not counted" in out and "would be REFUSED" in out
 
 
-def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(capsys, monkeypatch, probes_dir):
+def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(capsys, monkeypatch, probes_dir,
+                                                                            tmp_path):
     monkeypatch.setattr(P, "run_probes", None)
     monkeypatch.setattr(P.base, "load_helper", None)
     monkeypatch.delenv(P.CONSENT_ENV, raising=False)
@@ -1916,6 +1917,21 @@ def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(caps
         ", ".join(shipped)) in out
     assert re.search(r"^  as_installed +settings none ", out, re.MULTILINE) and "the gate stripped" in out
     assert "the gate as shipped: read from the control, $0, no extra session" in out
+    # F1 (spend review): which helper is installed, read as text ($0, no import), decides what E1 measures
+    cfg = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "unreadable: what E1 measures is unknown" in capsys.readouterr().out
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n# PLAN_GATE = {} in a comment, not an assignment\n")
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "has no PLAN_GATE (main's): gate_verdict reads not_shipped" in out and "ships PLAN_GATE" not in out
+    (cfg / "bin" / "stack_sdk.py").write_text('x = 1\nPLAN_GATE = {"useAutoModeDuringPlan": False}\n')
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "ships PLAN_GATE: the control is the gate as shipped (gate_verdict denied | ran)" in out
+    assert "gate_verdict reads not_shipped" not in out
 
 
 # ---------------------------------------------------------------- the E1 rerun: the explicit overlay and its readings
@@ -2195,16 +2211,68 @@ def test_a_gate_sent_in_another_form_is_sent_untouched(sdk, tmp_path, monkeypatc
 
 def test_the_gate_verdict_reading():
     """gate_shipped needs the control's settings untouched AND both gate keys false in what the Session built;
-    gate_verdict is then the control's verdict; without the control's settings, its verdict (or None)."""
+    gate_verdict is then the control's verdict (a denial missing from permission_denials: denied_uncalibrated);
+    without the control's settings, its verdict (or None)."""
     def read(v, **facts):
         c = types.SimpleNamespace(facts=dict(facts), answers={})
         P.e1_answers(c, v)
         return c.facts["gate_shipped"], c.facts["gate_verdict"]
     both = dict(control_session_settings_auto_mode_during_plan=False, control_session_settings_sandbox_auto_allow=False)
-    assert read({"control": "denied"}, control_untouched=True, **both) == (True, "denied")
+    assert read({"control": "denied"}, control_untouched=True, control_denied=True, **both) == (True, "denied")
+    # a denial that is not in permission_denials (the script failed, the sandbox refused): not the gate's
+    assert read({"control": "denied"}, control_untouched=True, control_denied=False, **both) == (
+        True, "denied_uncalibrated")
     assert read({"control": "ran"}, control_untouched=True, **both) == (True, "ran")
     assert read({"control": "invalid"}, control_untouched=True, **both) == (True, "invalid")
     assert read({"control": "denied"}, control_untouched=False, **both) == (False, "not_shipped")
     for k in both:
         assert read({"control": "denied"}, control_untouched=True, **dict(both, **{k: None})) == (False, "not_shipped")
     assert read({"control": "helper_refused"}) == (None, "helper_refused") and read({}) == (None, None)
+
+
+def test_the_paid_run_says_which_helper_it_measures_before_it_spends(pinned, monkeypatch, tmp_path, capsys):
+    """F1 (spend review): the paid E1 run prints the installed helper's line before run_probes is called."""
+    seen = []
+
+    async def record(*a, **k):
+        seen.append(capsys.readouterr().out)
+    monkeypatch.setattr(P, "run_probes", record)
+    cfg = tmp_path / "cfg"
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    monkeypatch.setenv(P.CONSENT_ENV, "0.38")
+    P.main(["--paid", "--envelope", P.E3_ENVELOPE, "--cli", "/x", "--out", str(tmp_path / "r.md")])
+    assert len(seen) == 1 and "gate_verdict reads not_shipped" in seen[0], seen
+
+
+def test_the_dry_run_warns_of_an_env_the_shipped_session_refuses(monkeypatch, tmp_path, capsys, probes_dir):
+    """(b) of the spend review, checked at $0: the shipped Session's check() raises UsageError when
+    CLAUDE_CODE_SESSION_KIND or CLAUDE_CODE_SANDBOXED is in os.environ (a shell started inside Claude Code), which a
+    paid E1 would meet only at its first connect, its $0.08 booked; the dry run warns of it. E1_ENV_REFUSED is a
+    copy of the shipped ENV_REFUSED."""
+    h = helper("shipped")
+    assert P.E1_ENV_REFUSED.pattern == h.ENV_REFUSED.pattern
+    monkeypatch.setattr(P, "run_probes", None)
+    cfg = tmp_path / "cfg"
+    (cfg / "bin").mkdir(parents=True)
+    (cfg / "bin" / "stack_sdk.py").write_text(HELPER.read_text())
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    for k in [k for k in os.environ if P.E1_ENV_REFUSED.fullmatch(k)]:
+        monkeypatch.delenv(k)
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    assert "WARNING" not in capsys.readouterr().out
+    for name in ("CLAUDE_CODE_SESSION_KIND", "CLAUDE_CODE_SANDBOXED"):
+        monkeypatch.setenv(name, "bg")
+        with pytest.raises(h.UsageError):
+            h.Session("verifier", budget_usd=0.08).check()
+        assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+        out = capsys.readouterr().out
+        assert "WARNING: %s set in this environment" % name in out, out
+        assert "the installed stack_sdk.py refuses it in os.environ" in out
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_KIND", "bg")
+    (cfg / "bin" / "stack_sdk.py").write_text("x = 1\n")          # main's: no ENV_REFUSED
+    assert P.main(["--envelope", P.E3_ENVELOPE]) == 0
+    out = capsys.readouterr().out
+    assert "WARNING: CLAUDE_CODE_SESSION_KIND set" in out and "passes it on to the CLI" in out

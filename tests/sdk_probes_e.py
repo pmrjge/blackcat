@@ -1030,8 +1030,9 @@ def e1_answers(c: Ctx, v: dict[str, str]) -> None:
     a denied control. The shipped gate answers no part either: gate_shipped (the control's Session itself sent
     useAutoModeDuringPlan false and sandbox.autoAllowBashIfSandboxed false, and the probe left its settings
     untouched: that control IS a plain Session("verifier"), host none, no overlay, no rule) and gate_verdict (the
-    control's verdict then, "denied" if the gate works, "ran" if not; "not_shipped" when the Session sent no gate;
-    without the control's settings, its verdict or None)."""
+    control's verdict then, "denied" if the gate works, "ran" if not; "denied_uncalibrated" when no marker came
+    but the denial is not in permission_denials (control_denied: the script failed, the sandbox refused: not the
+    gate's); "not_shipped" when the Session sent no gate; without the control's settings, its verdict or None)."""
     f, ans = c.facts, {"ran": "yes", "denied": "no"}
     if "control_untouched" not in f:                    # the control never connected (refused, not loaded, cut)
         f["gate_shipped"], f["gate_verdict"] = None, v.get("control")
@@ -1039,7 +1040,9 @@ def e1_answers(c: Ctx, v: dict[str, str]) -> None:
         f["gate_shipped"] = shipped = f["control_untouched"] is True and (
             f.get("control_session_settings_auto_mode_during_plan"),
             f.get("control_session_settings_sandbox_auto_allow")) == (False, False)
-        f["gate_verdict"] = v.get("control") if shipped else "not_shipped"
+        cv = v.get("control")                           # a denial outside permission_denials is not the gate's
+        f["gate_verdict"] = "not_shipped" if not shipped else (
+            "denied_uncalibrated" if cv == "denied" and f.get("control_denied") is not True else cv)
     f["denials_calibrated"] = calibrated = v.get("control") == "denied" and f.get("control_denied") is True
     pa = v.get("plan_auto")
     f["plan_auto_effect"] = {"ran": "runs", "denied": "denied"}.get(pa or "") if v.get("control") == "denied" else None
@@ -1447,8 +1450,8 @@ READ_INSTALLED = (READ_VALID + "yes: the marker exists; no: the call was made, n
                   "the call was never decided (no tool result), a PreToolUse hook decided it, or the session was not "
                   "in plan (facts: control_verdict, the same call under the gate; as_installed_session_settings_*, "
                   "what the Session itself built and the leg did not send; gate_verdict, the control's verdict when "
-                  "the Session itself sent the gate: the gate as shipped; plan_auto_effect, the same call with "
-                  "useAutoModeDuringPlan on)")
+                  "the Session itself sent the gate: the gate as shipped, denied_uncalibrated when that denial is "
+                  "not in permission_denials; plan_auto_effect, the same call with useAutoModeDuringPlan on)")
 PROBES = [
     Probe("E1", "E1E2", 0.40, 1200, 3, (
         Part("E1a", "Host none + plan + --permission-prompts none (stack_sdk.Session(\"verifier\"), installed stack): "
@@ -1825,7 +1828,9 @@ def e1_schedule(cap: float, per_session: float, trust_warning: bool,
     """The E1 legs that would start, in order, under E1's cap `cap` if every session cost `per_session`
     (the plan's arithmetic, e1()'s rules: no leg below E1_SESSION_USD left, the optional leg skipped, a required
     one ending the probe; trusted_control not run after a trust warning; neither trusted leg when the helper
-    refuses CLAUDE_CODE_SANDBOXED, `trust_refused`: sdk/env-channel) and what they would spend."""
+    refuses CLAUDE_CODE_SANDBOXED, `trust_refused`: sdk/env-channel) and what they would spend. e1() itself
+    budgets a trusted leg before the helper refuses it, so with less than a whole session left there it ends the
+    probe (cap_used) where this plan skips the leg; the plan's next leg would find the same amount left."""
     spent, started = 0.0, []
     for name, rule, _overlay, trusted, optional in E1_LEGS:
         if rule == "stack" and E1C_NOT_RUN or name == "trusted_control" and trust_warning or trusted and trust_refused:
@@ -1837,6 +1842,54 @@ def e1_schedule(cap: float, per_session: float, trust_warning: bool,
         started.append(name)
         spent += per_session
     return started, round(spent, 6)
+
+
+# stack_sdk.ENV_REFUSED as shipped (sdk/env-channel): a Session refuses these names in os.environ (check(): a
+# UsageError at connect, after the leg was booked); the fake suite pins the two equal
+E1_ENV_REFUSED = re.compile(r"CLAUDE_BG_\w*|CLAUDE_CODE_SESSION_KIND|CLAUDE_CODE_SANDBOXED|CLAUDE_RELAUNCH_\w*")
+
+
+def config_dir() -> str:
+    """The CLI's own config dir: CLAUDE_CONFIG_DIR, else ~/.claude."""
+    return os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+
+
+def helper_text(config: str) -> str | None:
+    """<config>/bin/stack_sdk.py as text ($0: read, never imported); None if unreadable."""
+    try:
+        with open(os.path.join(config, "bin", "stack_sdk.py"), encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def helper_line(config: str) -> str:
+    """What the installed helper makes E1 measure: does it ship PLAN_GATE (a top-level assignment)?"""
+    path, text = os.path.join(config, "bin", "stack_sdk.py"), helper_text(config)
+    if text is None:
+        return "installed helper %s: unreadable: what E1 measures is unknown" % path
+    if re.search(r"^PLAN_GATE = ", text, re.MULTILINE):
+        return ("installed helper %s ships PLAN_GATE: the control is the gate as shipped (gate_verdict denied | "
+                "ran), the trusted pair helper_refused, plan_auto the fifth session" % path)
+    return ("installed helper %s has no PLAN_GATE (main's): gate_verdict reads not_shipped (the control measures "
+            "the explicit overlay); install the shipped stack_sdk.py (./install.sh) before paying to read the gate "
+            "as shipped" % path)
+
+
+def env_line(config: str, environ: Any) -> str | None:
+    """A warning when `environ` holds a name the shipped Session refuses in os.environ (a shell started inside
+    Claude Code): E1's first leg would be booked, then refused at its connect."""
+    bad = sorted(k for k in environ if E1_ENV_REFUSED.fullmatch(k))
+    if not bad:
+        return None
+    text = helper_text(config)
+    if text is not None and re.search(r"^ENV_REFUSED = ", text, re.MULTILINE):
+        how = ("the installed stack_sdk.py refuses it in os.environ (Session.check, a UsageError at connect): E1's "
+               "first leg would book $%.2f and end E1" % E1_SESSION_USD)
+    else:
+        how = "the installed stack_sdk.py passes it on to the CLI (the env channel probe E2a measured)"
+    return "WARNING: %s set in this environment: %s; run the paid command from a shell outside Claude Code, or " \
+           "unset it" % (", ".join(bad), how)
 
 
 def print_plan(probes: list[Probe], consent: str | None, prior: dict[str, Any] | str, eid: str | None = None) -> None:
@@ -1877,6 +1930,9 @@ def print_plan(probes: list[Probe], consent: str | None, prior: dict[str, Any] |
               "%s start, $%.4f" % (", ".join(started), spent))
         print("  the gate as shipped: read from the control, $0, no extra session (gate_verdict denied: it works; "
               "not_shipped: the installed helper sends no PLAN_GATE)")
+        print(helper_line(config_dir()))
+        if warn_env := env_line(config_dir(), os.environ):
+            print(warn_env)
     if env.overshoot_usd:
         print("worst case: the run's cap $%.2f plus one turn past the last session's cap ($%.3f: the CLI checks "
               "max_budget_usd after each turn; an earlier session's overshoot is in the reported spend the next "
@@ -1960,12 +2016,16 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("claude-agent-sdk %s is not the pinned %s: uv run --locked --script %s" % (v, SDK_PIN, __file__))
     if not a.cli:
         ap.error("no `claude` on PATH: pass --cli /path/to/claude (Q3: the installed CLI)")
-    config = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+    config = config_dir()
     helper = base.load_helper(config)          # once, before the ledger: E1 needs the v2 helper (SDK-2)
     need_names = ("options",) + (E1_NEEDS if any(p.pid == "E1" for p in probes) else ())
     if missing := [n for n in need_names if not hasattr(helper, n)]:
         ap.error("the installed %s/bin/stack_sdk.py lacks %s: reinstall the stack (./install.sh) or run "
                  "--only E2,E3,E3P (they need only options())" % (config, ", ".join(missing)))
+    if any(p.pid == "E1" for p in probes):     # before any spend: what this run's E1 will measure
+        print(helper_line(config))
+        if warn_env := env_line(config, os.environ):
+            print(warn_env)
     # every run's ledger goes to the default directory, wherever --out puts the report, so every later run reads
     # it; the check and the envelope that books this run's cap happen under one exclusive lock there. Without the
     # main checkout that directory would fall back to this script's repository, where no earlier ledger is

@@ -3,7 +3,8 @@ ledger check, the caps and the fail-closed cost book, the readings the second pr
 gate and trust split, E3d's terminal, E3P's E3c2a and E3e), and the E1 rerun's (sdk/probes-e3): the consent
 envelopes (e3-2026-10-10: its own ledgers, its total, E1 only, a one-turn margin), the explicit overlay, the
 uncontrolled reading, the whole-session reserve and trust unproven; and sdk/plan-bash-gate's (PLAN_GATE shipped):
-the gate as the explicit overlay, the control sent as shipped, as_installed stripped, the gate verdict.
+the gate as the explicit overlay, the control sent as shipped, as_installed stripped, the gate verdict; and its
+spend review's: the installed helper's line (dry and paid run), the uncalibrated denial, the env warning.
 Each mutant is one or more exact text substitutions in a scratch copy of sdk_probes_e.py
 (beside a copy of sdk_probes.py, which it loads) under $TMPDIR; sdk_probes_e.py itself is never written. Its
 NAMED test in tests/test_sdk_probes_e_fake.py runs against that copy (SDK_PROBES_E_SCRIPT) and must FAIL (its id
@@ -64,6 +65,8 @@ T_PIN = "test_the_probes_gate_is_the_shipped_plan_gate"
 T_SHIPPED = "test_the_shipped_helper_runs_the_control_as_shipped_and_strips_the_gate_as_installed"
 T_FORM = "test_a_gate_sent_in_another_form_is_sent_untouched"
 T_GATEREAD = "test_the_gate_verdict_reading"
+T_PAIDLINE = "test_the_paid_run_says_which_helper_it_measures_before_it_spends"
+T_ENVWARN = "test_the_dry_run_warns_of_an_env_the_shipped_session_refuses"
 E1GATE = ("E1_GATE: dict[str, Any] = {\"useAutoModeDuringPlan\": False, "
           "\"sandbox\": {\"autoAllowBashIfSandboxed\": False}}\n")
 T_CHECKOUT = "test_a_paid_run_without_the_main_checkout_is_refused"
@@ -384,8 +387,8 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("B3", "a Session already sending the gate gets it re-encoded (not untouched)", T_FORM,
      [("            if json.loads(merged) == settings_object(o.settings):", "            if False:")]),
     ("B4", "gate_verdict ignores whether the gate shipped", T_GATEREAD,
-     [("        f[\"gate_verdict\"] = v.get(\"control\") if shipped else \"not_shipped\"\n",
-       "        f[\"gate_verdict\"] = v.get(\"control\")\n")]),
+     [("        f[\"gate_verdict\"] = \"not_shipped\" if not shipped else (\n",
+       "        f[\"gate_verdict\"] = (\n")]),
     ("B5", "gate_shipped ignores whether the control's settings were untouched", T_GATEREAD,
      [("f[\"control_untouched\"] is True and (", "True and (")]),
     ("B6", "gate_shipped reads the settings sent, not the Session's own", T_GATEREAD,
@@ -401,6 +404,24 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
        "helper_plan_gate=None)")]),
     ("B9", "the dry run's schedule ignores the shipped helper's trust refusal", T_E3DRY,
      [(" or trusted and trust_refused:\n", ":\n")]),
+    # the spend review of c1c6e2f6
+    ("B10", "gate_verdict reads a denial outside permission_denials as the gate's", T_GATEREAD,
+     [("\"denied_uncalibrated\" if cv == \"denied\" and f.get(\"control_denied\") is not True else cv)", "cv)")]),
+    ("B11", "the helper line never sees PLAN_GATE", T_E3DRY,
+     [("    if re.search(r\"^PLAN_GATE = \", text, re.MULTILINE):\n", "    if False:\n")]),
+    ("B12", "the helper line takes any PLAN_GATE text (a comment) for the assignment", T_E3DRY,
+     [("    if re.search(r\"^PLAN_GATE = \", text, re.MULTILINE):\n", "    if re.search(r\"PLAN_GATE = \", text):\n")]),
+    ("B13", "the dry run prints no helper line", T_E3DRY,
+     [("        print(helper_line(config_dir()))\n", "")]),
+    ("B14", "the paid run prints no helper line before it spends", T_PAIDLINE,
+     [("        print(helper_line(config))\n", "        pass\n")]),
+    ("B15", "no env warning", T_ENVWARN,
+     [("    bad = sorted(k for k in environ if E1_ENV_REFUSED.fullmatch(k))\n", "    bad = []\n")]),
+    ("B16", "the env warning ignores whether the installed helper refuses the env", T_ENVWARN,
+     [("    if text is not None and re.search(r\"^ENV_REFUSED = \", text, re.MULTILINE):\n", "    if True:\n")]),
+    ("B17", "an unreadable helper reads as main's", T_E3DRY,
+     [("    if text is None:\n        return \"installed helper %s: unreadable",
+       "    if text is None:\n        text = \"\"\n    if False:\n        return \"installed helper %s: unreadable")]),
 ]
 
 
