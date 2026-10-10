@@ -611,7 +611,7 @@ class Session:
         own = {} if kw.get("settings") is None else policy_overlay(kw["settings"])
         if "user" not in kw.get("sources", ("user",)) or own is None or own and host == "none":
             raise ValueError(f"sources must include user; no settings overlay may touch {POLICY_KEYS}" +
-                             ", none under host none" * bool(own))   # F1: a schema error in it drops PLAN_GATE too
+                             ", none under host none" * bool(own and host == "none"))   # F1: a schema error drops PLAN_GATE
         if not (host in ("none", "tty") or callable(host)):
             raise ValueError("host: none, tty or a callable")
         self.env = dict(kw.pop("env", None) or {})

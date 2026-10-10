@@ -186,7 +186,9 @@ MUTANTS = [  # (id, mutant, named test in tests/test_sdk_session.py, anchor, rep
     ('E1F1', 'host none merges a caller overlay', 'test_host_none_refuses_every_overlay',
      ' or own is None or own and host == "none":', ' or own is None:'),
     ('E1F1', 'every refusal blamed on host none', 'test_no_policy_overlay',
-     '", none under host none" * bool(own))', '", none under host none")'),
+     '", none under host none" * bool(own and host == "none"))', '", none under host none")'),
+    ('E1F1', 'host none blamed for any non-empty overlay', 'test_host_none_refuses_every_overlay',
+     '* bool(own and host == "none"))', '* bool(own))'),
     ('E1F2', 'tty and callable get the raw settings value', 'test_overlay_sent_as_read_for_every_host',
      'if self.host == "none" or kw.get("settings") is not None:', 'if self.host == "none":'),
 ]

@@ -680,6 +680,9 @@ def test_host_none_refuses_every_overlay(tmp_path):
         assert w.session(settings=v, host=lambda *a: None).build(True).settings is not None
     for v in ("{}", {}):
         assert json.loads(w.session(settings=v).build(True).settings) == GATE
+    with pytest.raises(ValueError, match="sources must include user") as e:     # another cause, another host
+        w.session(settings='{"model": "x"}', host=lambda *a: None, sources=("project",))
+    assert "host none" not in str(e.value)
 
 
 def test_overlay_sent_as_read_for_every_host(tmp_path, monkeypatch):
