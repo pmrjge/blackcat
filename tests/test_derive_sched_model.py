@@ -171,3 +171,33 @@ def test_run_interval_groups_and_coverage():
     assert 1.5 < ri["groups"]["lookup:fresh"]["turns"]["hi"] < 4.0
     # pure: the same inputs give the same file
     assert D.fit(seg, FMB, SOFTB, B=100, generated="x") == D.fit(seg, FMB, SOFTB, B=100, generated="x")
+
+
+COLD = ("first_cr", "prev_peak", "gap_s", "cache_creation_input_tokens")
+
+
+def arrow_types(df):
+    """df with its type column as Arrow strings: pandas 3's default str once pyarrow is installed (nutpie needs it)."""
+    pytest.importorskip("pyarrow")
+    return df.assign(type=df.type.astype("string[pyarrow]"))
+
+
+def test_no_resumes_under_arrow_strings_is_no_cold_calibration():
+    """Regression: with the cold-resume columns but no resume, cold_resumes() compared gap_s with an empty Arrow
+    string column (TypeError in fit(), stack_sched_refresh's B1-T13/T20 under the tools venv with nutpie)."""
+    seg = arrow_types(pool_rows().assign(**{c: np.nan for c in COLD}))
+    r = D.cold_resumes(D.prepare(seg), FM)
+    assert len(r) == 0 and r.ttl_s.dtype.kind == "i" and r.over_ttl.dtype == bool
+    J = D.fit(seg, FM, SOFT, B=50, run_interval=False)
+    assert J["types"]["claude-code-guide"]["cold"]["frac"] is None
+
+
+def test_cold_resume_ttl_follows_the_frontmatter_under_arrow_strings():
+    fm = dict(FM, scout=dict(FM["scout"], cacheTtl="1h"))
+    rows = [{"session": "s1", "id": f"{t}-{i}", "type": t, "seg": 1, "api_calls": 10, "ctx": 1e5, "first_cc": 1e4,
+             "wall_s": 90.0, "first_cr": 100.0, "prev_peak": 5e4, "gap_s": gap, "cache_creation_input_tokens": 6e4}
+            for i, (t, gap) in enumerate((("scout", 1000.0), ("scout", 4000.0), ("oracle", 1000.0), ("other", 200.0)))]
+    r = D.cold_resumes(D.prepare(arrow_types(pd.DataFrame(rows))), fm)
+    assert list(r.ttl_s) == [3600, 3600, 300, 300]                # 1h, 1h, 5m, no frontmatter: 5m
+    assert list(r.over_ttl) == [False, True, True, False]
+    assert r.cold.all() and list(r.frac) == pytest.approx([0.2] * 4)  # first_cc / min(cache_creation, prev_peak)
