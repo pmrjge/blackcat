@@ -506,7 +506,9 @@ def run(args):
         info.update(folds_production=nfolds["production"], folds_any=nfolds["any"])
         fold_items = [items[(fam, gating)][k] for k in folds if k in items[(fam, gating)]]
         p_many, p_few = simulate_power(fold_items, k0s[gating], args.sims, rnd, L.RISK[fam])
-        folds_ok = nfolds[gating] >= MIN_FOLDS
+        # A.11.3: the verdict uses eligible folds only; an ineligible scored fold (--min-train-sessions < 2, a
+        # rehearsal) has its rows in n, K0 and the checks, so such a run is never past the fold rule
+        folds_ok = nfolds[gating] >= MIN_FOLDS and all(k >= ELIGIBLE_TRAIN for k in folds)
         checks = dict(res["strata"][gating]["checks"], folds=folds_ok)
         verdict, reason = verdict_of(folds_ok, bool(blocked[fam]), info["ok"],
                                      all(v for kk, v in checks.items() if kk != "folds"))

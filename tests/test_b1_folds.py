@@ -375,6 +375,17 @@ def test_a_fitter_without_regime_is_refused(env, tmp_path, capsys):
     assert rc == 2 and "--regime" in capsys.readouterr().err and fake.calls() == []
 
 
+def test_an_interpreter_that_cannot_run_the_fitter_is_named_in_the_refusal(env, tmp_path, capsys):
+    """A --python that does not run (or a --help that fails) is refused with a message that says so, not only
+    "has no --regime option" (code review L2)."""
+    fake = Fake(tmp_path)
+    data = make_data(tmp_path / "copy", SIX)
+    rc = F.main(["--data", str(data), "--out-dir", str(tmp_path / "hyper"), "--python", "/nonexistent/python",
+                 "--fitter", str(fake.py), "--no-accel-lock"])
+    err = capsys.readouterr().err
+    assert rc == 2 and "--help` did not run" in err and "/nonexistent/python" in err and fake.calls() == []
+
+
 def test_the_shipped_fitter_is_feature_detected():
     """Regression guard: the real stack_bayes.py is offered --regime exactly when its parser has it."""
     has = "--regime" in (HOOKS / "stack_bayes.py").read_text()
@@ -415,6 +426,20 @@ def test_an_informative_calibrated_set_accepts_and_low_power_keeps_the_exit_code
     rc, doc = backtest(tmp_path, data, od, name="bt2.json")
     sa = doc["families"]["soft.agent"]
     assert (sa["verdict"], sa["power_ok"], rc) == ("ACCEPT", False, 0)
+
+
+def test_an_ineligible_scored_fold_never_accepts(env, tmp_path):
+    """Code review L1, A.11.3: with --min-train-sessions 1 the fold that trains on one session is scored; its
+    rows must not help a verdict to ACCEPT, though the 3 eligible folds have production rows."""
+    fake = Fake(tmp_path)
+    data = make_data(tmp_path / "copy", SIX[:5])
+    rc, od = folds(tmp_path, fake, data, "--no-accel-lock", "--min-train-sessions", "1")
+    assert rc == 0
+    rc, doc = backtest(tmp_path, data, od, "--min-train-sessions", "1")
+    sa = doc["families"]["soft.agent"]
+    assert sa["informative"]["folds_production"] == 3
+    assert (sa["verdict"], rc) != ("ACCEPT", 0)
+    assert (sa["verdict"], sa["reason"], sa["checks"]["folds"]) == ("REJECT", "folds", False)
 
 
 def test_five_eligible_folds_with_one_production_fold_reject_on_folds(env, tmp_path):
@@ -569,3 +594,31 @@ def test_power_counts_unknown_rows_only_in_hi():
     k0 = BT.simulate_null(items, 500, rnd)
     many, _few = BT.simulate_power(items, k0, 500, rnd, 0.1)
     assert many == 0.0
+
+
+class _IidPred:
+    """log Y ~ N(0, 1), no session effect: K0 is about Bin(n, 0.1)."""
+
+    fam = "soft.agent"
+
+    def quantile(self, p):
+        return math.exp(BT.G.nppf(p))
+
+    def draw(self, rnd, w):
+        return math.exp(rnd.gauss(0, 1))
+
+
+def test_power_r5_adds_the_unknown_rows_to_hi():
+    """Pins power_r/5 (the too-few side, P0(K <= hi_sim) < 0.05, hi_sim = lo_sim + u): 3 folds x 40 rows, K0 about
+    Bin(120, 0.1) (P0(K <= 6) about 0.04). All rows scorable: lo_sim about Bin(120, 0.02) <= 6 almost always, so
+    power about 1. Half of them unknown: hi_sim >= 60, never rejected, power 0 (kills "hi_sim without + u")."""
+    pred = _IidPred()
+    T = pred.quantile(0.9)
+    rnd = random.Random(17)
+    scorable = [[(pred, T, [(1.0, 0)] * 40)] for _ in range(3)]
+    k0 = BT.simulate_null(scorable, 2000, rnd)
+    _many, few = BT.simulate_power(scorable, k0, 2000, rnd, 0.1)
+    assert few > 0.9, few
+    half = [[(pred, T, [(1.0, 0)] * 20 + [(T / 10, 1)] * 20)] for _ in range(3)]
+    _many, few = BT.simulate_power(half, k0, 2000, rnd, 0.1)
+    assert few == 0.0

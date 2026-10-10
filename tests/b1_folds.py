@@ -319,8 +319,9 @@ def run(a):
     if a.work_dir:
         refuse_live_target(a.work_dir, "--work-dir")
     if not has_regime_option(a.python, a.fitter):
-        raise Refused(f"{a.fitter} has no --regime option (WP5 5c): a fold fit must treat the test session's regime "
-                      "as current, never the live or checkout one (A.11.3); refused")
+        raise Refused(f"{a.fitter} has no --regime option (WP5 5c), or `{a.python} -I -B {a.fitter} --help` did "
+                      "not run: a fold fit must treat the test session's regime as current, never the live or "
+                      "checkout one (A.11.3); refused")
     seed = L.load_seed()
     _rows, order, by_sess = BT.read_data(a.data)
     folds = BT.fold_ids(len(order), a.min_train_sessions, a.folds)
