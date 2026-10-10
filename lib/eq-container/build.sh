@@ -240,6 +240,7 @@ if [ "$ACTION" = tools ]; then
     eq_need_container
     log="$EQ_STATE_DIR/tools-report-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
     ( set -C; : > "$log" ) || { echo "build.sh: $log exists: a report is never overwritten" >&2; exit 12; }
+    key=$(report_key)       # the recipe the build is about to read; re-checked after it, so an edit during the build is caught
     echo "== bash-report: GNU bash $(pin_value BASH_BASELINE) patch level $(pin_value BASH_PATCHLEVEL), key $(pin_value BASH_GPG_FPR) (log $log)"
     dargs=(); [ "$REPRODUMP" = 0 ] || dargs=(--build-arg BASH_REPRO_DUMP=1)
     set +e
@@ -253,7 +254,7 @@ if [ "$ACTION" = tools ]; then
     [ -n "$sig" ] || { echo "no 'SIGNATURES OK' line in $log: nothing is pinned" >&2; exit 12; }
     vals=$(report_values "$log") || { echo "$vals: nothing is pinned (see $log)" >&2; exit 12; }
     lines=$(report_pin_lines "$log")
-    key=$(report_key)
+    [ "$(report_key)" = "$key" ] || { echo "tc/build-bash.sh or Dockerfile.minimal changed during the build: the report stays incomplete, re-run (see $log); nothing is pinned" >&2; exit 12; }
     printf 'EQ-REPORT KEY %s\n' "$key" >> "$log"
     echo "$sig"
     printf '%s\n' "$lines"
@@ -286,7 +287,7 @@ if [ "$ACTION" = tools ]; then
     if [ "$fv" = "$vals" ]; then same=$((same + 1)); else other="$other $f"; fi
   done
   if [ -n "$other" ]; then
-    echo "the bash build is not reproducible: $log and$other come from the same recipe but hold other values; run bash repro-check.sh, fix the cause, nothing is pinned" >&2
+    echo "the bash build is not reproducible: $log and$other come from the same recipe but hold other values; nothing is pinned. Compare their DIAG lines (apk or gcc drift between sessions?), fix the cause, or, after review, move the stale report(s) out of $EQ_STATE_DIR and re-run bash repro-check.sh" >&2
     exit 12
   fi
   [ "$same" -ge 1 ] || { echo "only one report ($log) exists for this recipe: pin a value that two builds agree on (bash repro-check.sh); nothing is pinned" >&2; exit 12; }

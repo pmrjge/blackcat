@@ -75,7 +75,8 @@ n=$(for j in $(seq 1 "$runs"); do tr '\n' ' ' < "$rd/run-$j.pins"; echo; done | 
 bins=$(for j in $(seq 1 "$runs"); do sed -n 's/^BASH_BIN_SHA256 //p' "$rd/run-$j.pins"; done | sort -u | wc -l | tr -d ' ')
 if [ "$n" = 1 ] && ! grep -q ' missing$' "$rd/run-1.pins"; then
   say "all $runs builds: $(tr '\n' ' ' < "$rd/run-1.pins")"
-  say "next: bash $here/build.sh --resolve-tools --write-pin   (builds nothing; pins these values, review the diff, then commit)"
+  say "next: bash $here/build.sh --resolve-tools --write-pin   (builds nothing; pins these values, review the diff, then commit;"
+  say "      it also refuses when an EARLIER report of this recipe in the state directory disagrees)"
   verdict "REPRODUCIBLE x$runs"
   exit 0
 fi

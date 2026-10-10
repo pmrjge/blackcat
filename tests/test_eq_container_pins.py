@@ -1121,6 +1121,37 @@ def test_repro_check_drives_the_real_build_sh_then_write_pin_pins(eqc_env, pins_
     assert q.returncode == 0 and "(+ 2 agreeing report(s) of the same recipe)" in q.stdout, (q.stdout, q.stderr)
 
 
+def test_an_earlier_disagreeing_report_blocks_write_pin_after_a_reproducible_check(eqc_env, pins_lib):
+    """repro-check compares its own runs only; --write-pin also counts an older report of the recipe (apk drift between
+    sessions): it refuses, names the report and the way out, and pins once that report is moved aside after review."""
+    unset_bash(pins_lib)
+    stale = write_report(eqc_env, pins_lib, "20200101T000000Z-1", bin_="8" * 64)
+    p = eqc_env.run("repro-check.sh", "--runs", "2", lib=pins_lib, EQ_FAKE_CONTAINER_REPORT=report())
+    assert p.returncode == 0 and p.stdout.splitlines()[-1] == "REPRODUCIBLE x2" and "EARLIER report" in p.stdout, p.stdout
+    before = lib_digest(pins_lib)
+    q = write_pin(eqc_env, pins_lib)
+    assert q.returncode == 12 and str(stale) in q.stderr and "move the stale report(s) out of" in q.stderr, (q.stdout, q.stderr)
+    assert "DIAG lines" in q.stderr and lib_digest(pins_lib) == before
+    stale.rename(eqc_env.t / stale.name)
+    r = write_pin(eqc_env, pins_lib)
+    assert r.returncode == 0 and "BASH_BIN_SHA256=" + H_BIN in (pins_lib / "PINS").read_text().splitlines(), (r.stdout, r.stderr)
+
+
+def test_resolve_tools_a_recipe_edited_during_the_build_leaves_the_report_incomplete(eqc_env, pins_lib, tmp_path):
+    """The key is taken before the build and re-checked after it: a report never carries the key of a recipe it was not
+    built from (an edit or a checkout during a run of several minutes)."""
+    unset_bash(pins_lib)
+    cli = tmp_path / "edit-cli"
+    cli.write_text('#!/bin/bash\n[ "$1" != build ] || echo "# edited" >> "%s"\nexec "%s" "$@"\n'
+                   % (pins_lib / "tc" / "build-bash.sh", eqc_env.cli))
+    cli.chmod(0o755)
+    p = resolve(eqc_env, pins_lib, EQ_CONTAINER_BIN=cli)
+    assert p.returncode == 12 and "changed during the build" in p.stderr and "REPORT " not in p.stdout, (p.stdout, p.stderr)
+    [log] = reports(eqc_env)
+    assert "EQ-REPORT KEY" not in log.read_text()
+    assert [c for c in eqc_env.calls() if c[0] == "build"]                   # it did build: the edit came during the build
+
+
 # ================================================================================ base-pins.sh (cosign faked)
 FAKE_COSIGN = r'''#!%s
 import json, os, sys
