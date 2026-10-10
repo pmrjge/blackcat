@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -1077,9 +1078,16 @@ def test_B1_T11_same_data_and_seed_give_the_same_fit(tmp_path):
         assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
         docs.append(json.loads(out.read_text()))
     a, b = docs
-    for k in ("evidence_id", "seed_sha", "fit_id", "risk", "sampler", "versions", "data", "hyper", "drift"):
-        if k != "hyper":
-            assert a[k] == b[k], k
+    for k in ("evidence_id", "seed_sha", "fit_id", "risk", "sampler", "versions", "data"):
+        assert a[k] == b[k], k
+    # drift (A.12) comes from the turns/ctx posteriors, which need not be bit-reproducible: same entries and
+    # sessions, ks_p within 0.05, the same breach unless a p lies within 0.005 of the 0.01 threshold
+    assert set(a["drift"]) == set(b["drift"])
+    for f, x in a["drift"].items():
+        y = b["drift"][f]
+        assert x["sessions"] == y["sessions"] and abs(x["ks_p"] - y["ks_p"]) <= 0.05, (f, x, y)
+        if min(abs(x["ks_p"] - B.DRIFT_ALPHA), abs(y["ks_p"] - B.DRIFT_ALPHA)) > 0.005:
+            assert x["breach"] == y["breach"], (f, x, y)
     for m in ("spc-ln-h4", "static_cc-ln-h2", "ctx_ab-kq-h2"):
         assert a["models"][m] == b["models"][m], m
     assert a["sched"] == b["sched"]
@@ -1093,3 +1101,428 @@ def test_B1_T11_same_data_and_seed_give_the_same_fit(tmp_path):
         worst = max(worst, z)
         assert z <= 5.0, (v, x["T_raw"], y["T_raw"])
     print("B1-T11 worst |log T1/T2| / combined MCSE: %.2f" % worst)
+
+
+# ---------------------------------------------------------------- the drift check (WP5 5c; BAYES.md 2.1 rule 7, A.12)
+DTYPES = 3                                   # synthetic rows use the first three seed types
+
+
+def _drift_post(ix, kind, eta, log_scale, tau_s, tau_ts, rho=-0.2, shp=(2, 60), jitter=0.02, seed=0):
+    """A synthetic turns ("nb") or ctx ("ln") posterior around known values (no NUTS): eta and log scale per
+    type, the session and session x type effects' scales, the resume offset rho."""
+    rng = np.random.default_rng(seed)
+    nt = len(ix.types)
+    def z(*k):
+        return jitter * rng.standard_normal(shp + k)
+    p = {"a0": np.full(shp, float(np.mean(eta))) + z(), "eta_type": np.asarray(eta, float) + z(nt),
+         ("log_alpha_t" if kind == "nb" else "log_sigma_t"): np.asarray(log_scale, float) + z(nt),
+         "tau_s": np.full(shp, tau_s), "tau_ts": np.full(shp, tau_ts), "rho": np.full(shp, rho) + z()}
+    return {k: _A(v) for k, v in p.items()}
+
+
+def _drift_world(kind, n_sess=5, rows_per=14, shift=0.0, shifted=None, tau_s=0.3, tau_ts=0.15, sigma=0.6,
+                 alpha=3.0, cens_rate=0.25, seed=0, censor=True):
+    """(ix, posterior, frame): sessions s00.. drawn from the model the posterior describes; the sessions in
+    `shifted` (default: all) have their log location moved by `shift` (drift). Censoring is random: a limit
+    drawn independently of y, a row at or past it is censored at the limit (A.3's shape)."""
+    rng = np.random.default_rng(seed)
+    sess = [f"s{i:02d}" for i in range(n_sess)]
+    ix = B.Index(SEED, {}, sess, ["none"])
+    nt = len(ix.types)
+    base = np.log(np.linspace(8.0, 20.0, DTYPES)) if kind == "nb" else np.log(np.linspace(4e5, 2e6, DTYPES))
+    eta = np.full(nt, float(base.mean()))
+    eta[:DTYPES] = base
+    log_scale = np.full(nt, math.log(alpha if kind == "nb" else sigma))
+    post = _drift_post(ix, kind, eta, log_scale, tau_s, tau_ts, seed=seed + 1)
+    shifted = set(range(n_sess)) if shifted is None else set(shifted)
+    frame = []
+    for si, s in enumerate(sess):
+        u = tau_s * rng.standard_normal()
+        v = tau_ts * rng.standard_normal(DTYPES)
+        for i in range(rows_per):
+            j = rng.integers(0, DTYPES)
+            res = int(rng.random() < 0.2)
+            loc = eta[j] - 0.2 * res + u + v[j] + (shift if si in shifted else 0.0)
+            if kind == "nb":
+                y = 1 + int(rng.poisson(rng.gamma(alpha, math.exp(loc) / alpha)))
+                lim = math.ceil(math.exp(eta[j] + 0.9 + 0.5 * rng.standard_normal()))
+                cens = censor and rng.random() < cens_rate * 3 and y >= lim
+            else:
+                y = math.exp(loc + sigma * rng.standard_normal())
+                lim = math.exp(eta[j] + 0.6 + 0.5 * rng.standard_normal())
+                cens = censor and rng.random() < cens_rate * 3 and y >= lim
+            rec = {"session": s, "id": f"{s}-a{i}", "seg": res, "type": ix.types[j], "ts": 1e9 + 1e4 * si + i,
+                   "resume": res, "regime": "none", "cens": bool(cens)}
+            q = (lim if cens else y)
+            rec["api_calls" if kind == "nb" else "ctx"] = float(q)
+            frame.append(rec)
+    return ix, post, frame
+
+
+def _drift(kind, seed=0, **kw):
+    ix, post, frame = _drift_world(kind, seed=seed, **kw)
+    return B.drift_check(post, kind, ix, frame, (B.SEED, B.DRIFT_STREAM, seed))
+
+
+@pytest.mark.parametrize("kind", ["ln", "nb"])
+def test_stationary_sessions_do_not_breach(kind):
+    """A.12: rows drawn from the posterior's own predictive (session effects included) give breach false in
+    every seed, with an entry of exactly {ks_p, sessions, breach} over the last 5 sessions."""
+    for seed in range(4):
+        e, st = _drift(kind, seed=seed)
+        assert e is not None and set(e) == {"ks_p", "sessions", "breach"}, st
+        assert e["breach"] is False and e["ks_p"] >= B.DRIFT_ALPHA and e["sessions"] == 5, (seed, e, st)
+        assert 1 / (B.DRIFT_B + 1) <= e["ks_p"] <= 1 and st["n"] == 70 and 0 < st["n_cens"] < 35
+
+
+@pytest.mark.parametrize("kind,shift", [("ln", 2.0), ("ln", -2.0), ("nb", 1.5), ("nb", -1.5)])
+def test_drifted_sessions_breach(kind, shift):
+    """Mutants "breach never set" and "KS direction flipped": the last sessions' location moved up or down
+    (drift in either tail) against the posterior give ks_p < 0.01 and breach true."""
+    for seed in range(2):
+        e, st = _drift(kind, seed=seed, shift=shift)
+        assert e is not None and e["breach"] is True and e["ks_p"] < B.DRIFT_ALPHA, (seed, e, st)
+        assert e["ks_p"] == pytest.approx(1 / (B.DRIFT_B + 1)), st     # far out: no replicate reaches D
+
+
+def test_drift_before_the_last_5_sessions_is_outside_the_window():
+    """Mutant "window = all sessions": 8 sessions whose first 3 drifted; the check reads the last 5 (by first
+    row, not by name), which are stationary."""
+    ix, post, frame = _drift_world("ln", n_sess=8, shift=3.0, shifted=(0, 1, 2), seed=3)
+    rows, sess = B.drift_rows(frame)
+    assert sess == ["s03", "s04", "s05", "s06", "s07"] and {r["session"] for r in rows} == set(sess)
+    e, st = B.drift_check(post, "ln", ix, frame, (B.SEED, B.DRIFT_STREAM, 1))
+    assert e == dict(e, sessions=5, breach=False) and st["n"] == 5 * 14
+    for r in frame:                              # session order is by the first row, not by the session name
+        if r["session"] == "s00":
+            r["ts"] += 1e6
+    _rows, sess = B.drift_rows(frame)
+    assert sess == ["s04", "s05", "s06", "s07", "s00"]
+
+
+def _kolmogorov_p(D, n):
+    """The iid (asymptotic) KS p, for comparison only."""
+    x = math.sqrt(n) * D
+    return min(1.0, max(0.0, 2 * sum((-1) ** (k - 1) * math.exp(-2 * k * k * x * x) for k in range(1, 101))))
+
+
+def test_the_p_value_is_session_clustered_not_iid():
+    """Mutant "iid KS p": with strong session effects (latent correlation 0.69, above WP2's 0.61) stationary
+    sessions do not breach under the clustered p, while the iid p of the same D would flag most of them."""
+    breaches, iid = 0, 0
+    for seed in range(6):
+        e, st = _drift("ln", seed=seed, tau_s=1.2, tau_ts=0.0, sigma=0.8, rows_per=16)
+        breaches += e["breach"]
+        iid += _kolmogorov_p(st["D"], st["n"]) < B.DRIFT_ALPHA
+    assert breaches <= 1 and iid >= 3, (breaches, iid)
+
+
+def test_under_the_minimum_there_is_no_entry():
+    """A.12's minimum (>= 20 rows, >= 10 uncensored, >= 3 sessions): just below each bound, no entry and no
+    check; at the bounds, an entry."""
+    ix, post, frame = _drift_world("ln", n_sess=5, rows_per=4, seed=5, censor=False)
+    def chk(fr):
+        return B.drift_check(post, "ln", ix, fr, (B.SEED, B.DRIFT_STREAM, 1))
+    e, st = chk(frame)
+    assert e is not None and st["n"] == 20                        # 20 rows, 20 uncensored, 5 sessions
+    e, st = chk(frame[:19])
+    assert e is None and st["D"] is None and st["n"] == 19
+    fr = [dict(r, cens=i < 10) for i, r in enumerate(frame)]
+    assert chk(fr)[0] is not None                                 # 10 uncensored: enough
+    fr = [dict(r, cens=i < 11) for i, r in enumerate(frame)]
+    assert chk(fr)[0] is None                                     # 9 uncensored
+    three = [r for r in frame if r["session"] in ("s02", "s03", "s04")]
+    ix3, post3, fr3 = _drift_world("ln", n_sess=3, rows_per=7, seed=6, censor=False)
+    assert B.drift_check(post3, "ln", ix3, fr3, (B.SEED, B.DRIFT_STREAM, 1))[0] is not None   # 21 rows, 3 sessions
+    ix2, post2, fr2 = _drift_world("ln", n_sess=2, rows_per=15, seed=6, censor=False)
+    assert B.drift_check(post2, "ln", ix2, fr2, (B.SEED, B.DRIFT_STREAM, 1))[0] is None       # 30 rows, 2 sessions
+    assert len(three) < 20 and chk(three)[0] is None
+
+
+def _one_draw_post(ix, kind, eta, log_scale):
+    """A posterior of identical draws and no session effect: the predictive F is the closed form."""
+    shp = (1, 4)
+    nt = len(ix.types)
+    p = {"a0": np.zeros(shp), "eta_type": np.broadcast_to(np.full(nt, eta), shp + (nt,)).copy(),
+         ("log_alpha_t" if kind == "nb" else "log_sigma_t"): np.broadcast_to(np.full(nt, log_scale),
+                                                                              shp + (nt,)).copy()}
+    return {k: _A(v) for k, v in p.items()}
+
+
+def _frame_of(ix, ys, cens, kind, per_sess=10):
+    return [{"session": f"s{i // per_sess}", "id": f"a{i}", "seg": 0, "type": ix.types[0], "ts": 1e9 + i,
+             "resume": 0, "regime": "none", "cens": bool(c), ("api_calls" if kind == "nb" else "ctx"): float(y)}
+            for i, (y, c) in enumerate(zip(ys, cens))]
+
+
+def test_censored_ln_pits_are_randomized_over_F_y_to_1():
+    """Mutant "censored PIT not randomized": a censored log-normal row's PIT is U(F(y), 1) (spread over the
+    whole interval), an exact row's is F(y); F in closed form from a one-point posterior."""
+    ix = B.Index(SEED, {}, ["s0", "s1", "s2"], ["none"])
+    mu, sig = math.log(1e6), 0.5
+    post = _one_draw_post(ix, "ln", mu, math.log(sig))
+    rng = np.random.default_rng(8)
+    ys = np.exp(mu + sig * rng.standard_normal(30))
+    cens = np.arange(30) % 2 == 0
+    _e, st = B.drift_check(post, "ln", ix, _frame_of(ix, ys, cens, "ln"), (1, 2, 3))
+    rows, _ = B.drift_rows(_frame_of(ix, ys, cens, "ln"))
+    F = np.array([0.5 * math.erfc(-(math.log(r["ctx"]) - mu) / sig / math.sqrt(2)) for r in rows])
+    c = np.array([r["cens"] for r in rows])
+    pit = st["pit"]
+    assert np.allclose(pit[~c], F[~c], atol=1e-4)
+    assert (pit[c] >= F[c] - 1e-4).all() and (pit[c] <= 1).all()
+    gap = (pit[c] - F[c]) / (1 - F[c])                  # U(0, 1) when randomized over [F(y), 1]
+    assert gap.std() > 0.15 and 0.25 < gap.mean() < 0.75
+
+
+def test_censored_nb_pits_keep_the_atom_at_y():
+    """Mutants "censored NB PIT at U(F(y), 1)" and "not randomized": a censored turns row at y has PIT
+    U(F(y - 1), 1), F(y - 1) = P(Y < y) (the fitter's censored term is P(Y >= y)); an exact one U(F(y - 1), F(y)).
+    F in closed form (NB2 by direct summation) from a one-point posterior without session effects."""
+    ix = B.Index(SEED, {}, ["s0", "s1", "s2"], ["none"])
+    mu1, a = 6.0, 2.0                             # Y - 1 ~ NB(mu 6, alpha 2)
+    post = _one_draw_post(ix, "nb", math.log(mu1), math.log(a))
+    ys = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12] * 3
+    cens = [i % 3 == 0 for i in range(30)]
+    frame = _frame_of(ix, ys, cens, "nb")
+    Fx = B.nb_table(np.full(4, math.log(mu1)), np.full(4, a), np.zeros(4), 20)
+    for k in range(20):
+        assert Fx[k] == pytest.approx(_nb_cdf_direct(k, mu1, a), abs=1e-12)
+    lo, hi = B.nb_bounds(Fx, np.array([1, 5, 5]), np.array([False, False, True]))
+    assert lo.tolist() == [0.0, Fx[3], Fx[3]] and hi.tolist() == [Fx[0], Fx[4], 1.0]
+    lo_seen = []
+    for k in range(6):
+        _e, st = B.drift_check(post, "nb", ix, frame, (1, 2, k))
+        rows, _ = B.drift_rows(frame)
+        for r, u in zip(rows, st["pit"]):
+            y = int(r["api_calls"])
+            Fy1, Fy = _nb_cdf_direct(y - 2, mu1, a) if y >= 2 else 0.0, _nb_cdf_direct(y - 1, mu1, a)
+            assert Fy1 - 1e-9 <= u <= (1.0 if r["cens"] else Fy + 1e-9)
+            if r["cens"]:
+                lo_seen.append(u < Fy)              # inside the atom [F(y - 1), F(y)): only U(F(y - 1), 1) gets there
+    assert sum(lo_seen) >= 5 and not all(lo_seen)
+
+
+DRIFT_OK = {"ks_p": 0.4, "sessions": 5, "breach": False}
+DRIFT_BAD = {"ks_p": 0.002, "sessions": 5, "breach": True}
+DRIFT_OLD = {"ks_p": 0.001, "sessions": 4, "breach": True}
+
+
+@pytest.mark.parametrize("check,gate,prev,want", [
+    (DRIFT_OK, True, None, DRIFT_OK),             # check runs, gate passes: its entry
+    (DRIFT_BAD, True, None, DRIFT_BAD),
+    (DRIFT_OK, True, DRIFT_OLD, DRIFT_OK),        # only a gated, passing check clears a breach
+    (DRIFT_BAD, True, DRIFT_OLD, DRIFT_BAD),
+    (None, True, None, None),                     # under the minimum: no entry
+    (None, True, DRIFT_OLD, DRIFT_OLD),           # ... or the previous breach, unchanged
+    (None, False, DRIFT_OLD, DRIFT_OLD),
+    (DRIFT_OK, False, DRIFT_OLD, DRIFT_OLD),      # gate fails: never clears, carries the breach
+    (DRIFT_OK, False, None, None),                # ... and writes no passing entry
+    (DRIFT_BAD, False, None, DRIFT_BAD),          # ... but its own breach is written
+    (DRIFT_BAD, False, DRIFT_OLD, DRIFT_BAD),
+    (None, True, DRIFT_OK, None),                 # a previous non-breach is not carried
+])
+def test_the_sticky_breach(check, gate, prev, want):
+    """A.12 breach semantics (user decision 2026-10-09). Mutants "breach cleared by an under-minimum fit" and
+    "breach cleared by a gate-failing fit"."""
+    assert B.drift_entry(check, gate, prev) == want
+    out = B.drift_block({"ctx": check}, {"ctx-ln-h4": gate, "turns-nb2s-h4": True},
+                        {"soft.agent": prev, "hard.agent": prev} if prev else {})
+    assert out == ({} if want is None else {"soft.agent": want, "hard.agent": want})
+
+
+# ---------------------------------------------------------------- fit() end to end with a fake sampler (no NUTS)
+class _NS:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class FakeSampler:
+    """fit()'s sampling replaced: fit_hier returns a synthetic posterior centred on the rows it is given (per
+    type: mean log value, sd), shifted by `shift[kind]` on the log scale; diagnostics report GOOD_MODEL's diag, or
+    BAD_MODEL's (2 divergences: the model gate fails) for the kinds in `bad`; the Bayes stack's imports are stubbed
+    where absent. Everything after sampling (assemble, the drift check, self_check, the write) is the real code."""
+
+    def __init__(self, monkeypatch):
+        self.shift, self.bad, self.cur_reg = {"nb": 0.0, "ln": 0.0}, set(), []
+        for name in ("pymc", "arviz", "pytensor", "nutpie", "scipy"):
+            if importlib.util.find_spec(name) is None:
+                mod = type(sys)(name)
+                mod.__version__ = "0-fake"
+                monkeypatch.setitem(sys.modules, name, mod)
+        monkeypatch.setattr(B, "fit_hier", self.fit_hier)
+        monkeypatch.setattr(B, "diagnostics", lambda dt, free, dropped=(): dict(
+            (BAD_MODEL if dt["kind"] in self.bad else GOOD_MODEL)["diag"], constant=[]))
+        monkeypatch.setattr(B, "qdiag", lambda qd: {"rhat": 1.0, "ess_bulk": 4000.0, "ess_tail": 4000.0})
+        real = B.assemble
+
+        def spy(posts, frames, ix, seed, cur_reg, *a, **k):
+            self.cur_reg.append(cur_reg)
+            return real(posts, frames, ix, seed, cur_reg, *a, **k)
+        monkeypatch.setattr(B, "assemble", spy)
+
+    def fit_hier(self, recs, ycol, kind, ix, center, cfg, seed, **kw):
+        rng = np.random.default_rng(seed)
+        y = np.array([r[ycol] for r in recs], float)
+        ly = np.log(np.maximum(y - 1, 0.5)) if kind == "nb" else np.log(y)
+        nt = len(ix.types)
+        eta, sd = np.full(nt, ly.mean()), np.full(nt, max(ly.std(), 0.3))
+        t_i = ix.ti(recs)
+        for j in range(nt):
+            if (t_i == j).sum() >= 3:
+                eta[j], sd[j] = ly[t_i == j].mean(), max(ly[t_i == j].std(), 0.3)
+        eta = eta + self.shift[kind]
+        shp = (2, 50)
+        def z(*k):
+            return 0.01 * rng.standard_normal(shp + k)
+        p = {"a0": float(eta.mean()) + z(), "b_fam": z(len(ix.fams)), "g": 0.5 + z(), "u_p": z(len(ix.peff)),
+             "tau_t": 0.5 + np.abs(z()), "eta_type": eta + z(nt), "tau_s": 0.2 + np.abs(z()),
+             "tau_ts": 0.1 + np.abs(z()), "rho": z()}
+        if kind == "nb":
+            p["log_alpha_t"], p["log_alpha"] = np.log(1.0 / sd ** 2 + 0.5) + z(nt), 0.5 + z(len(ix.pools))
+        else:
+            p["log_sigma_t"], p["log_sigma"] = np.log(sd) + z(nt), z(len(ix.pools))
+        if len(ix.regimes) >= 2:
+            p["tau_g"], p["z_g"] = 0.2 + np.abs(z()), z(len(ix.regimes))
+        post = {k: _A(v) for k, v in p.items()}
+        return {"posterior": _NS(dataset=post), "kind": kind}, list(p), 0.0, []
+
+
+def _fixture_state(st):
+    for n in ("runs.csv", "runs3.csv"):
+        shutil.copy(FIX / n, st / "usage" / n)
+    for n in ("live.json", "proposals.json"):
+        shutil.copy(FIX / "state" / n, st / "limits" / n)
+
+
+@pytest.fixture
+def sampler(st, monkeypatch):
+    _fixture_state(st)
+    return FakeSampler(monkeypatch)
+
+
+def _fit(st, regime=None):
+    out = st / "limits" / "bayes.json"
+    cfg = {"chains": 2, "draws": 50, "tune": 10, "seed": B.SEED, "no_sched": True, "regime": regime}
+    rc, line = B.fit(cfg, str(out), log=lambda s: None)
+    return rc, line, (json.loads(out.read_text()) if out.exists() else None)
+
+
+def test_a_fit_writes_its_drift_entries_and_the_reader_drops_a_breached_family(st, sampler):
+    """End to end on the frozen fixture (281 agent rows, 4 sessions): a posterior that fits the rows writes
+    drift entries with breach false for turns, soft.agent and hard.agent; a ctx posterior moved by e^3 breaches
+    soft.agent and hard.agent (one PIT set, equal entries) but not turns. stack_limits' existing reader then drops
+    those families' nuts blocks (load_bayes), lists them as breached (load_hyper) and builds no grid block for
+    them, while turns blocks stay. The file is written atomically, 0600, the summary line within its cap."""
+    rc, line, doc = _fit(st)
+    assert rc == B.EXIT_OK, line
+    assert set(doc["drift"]) == {"turns", "soft.agent", "hard.agent"}
+    assert all(set(e) == {"ks_p", "sessions", "breach"} and e["breach"] is False for e in doc["drift"].values()), \
+        doc["drift"]
+    assert doc["drift"]["soft.agent"] == doc["drift"]["hard.agent"] and doc["drift"]["turns"]["sessions"] == 4
+    assert " drift turns D " in line and " breach none " in line and len(line) <= B.SUMMARY_MAX
+    assert re.match(r"^bayes: [ -~]{0,280}\Z", line)                       # stack_usage.SUMMARY_RE keeps it
+    sampler.shift["ln"] = 3.0
+    rc, line, doc = _fit(st)
+    assert rc == B.EXIT_OK and doc["drift"]["soft.agent"]["breach"] is True, doc["drift"]
+    assert doc["drift"]["soft.agent"] == doc["drift"]["hard.agent"] and doc["drift"]["turns"]["breach"] is False
+    assert " breach hard.agent,soft.agent " in line
+    path = st / "limits" / "bayes.json"
+    assert (path.stat().st_mode & 0o777) == 0o600 and [p.name for p in path.parent.iterdir()
+                                                         if p.name.startswith(".tmp")] == []
+    eid = doc["evidence_id"]
+    accepted = L.load_bayes(SEED, eid)
+    fams = {L.split_var(v)[0] for v in doc["vars"]}
+    assert {"turns", "soft.agent", "hard.agent"} <= fams
+    assert accepted and {L.split_var(v)[0] for v in accepted} == {"turns"}, sorted(accepted or ())
+    undrifted = json.loads(path.read_text())
+    undrifted["drift"] = {}
+    assert {L.split_var(v)[0] for v in L.load_bayes(SEED, eid, undrifted)} >= {"soft.agent", "hard.agent"}
+    hy, src = L.load_hyper(SEED)
+    assert src == "fit:" + doc["fit_id"] and hy["breach"] == ["hard.agent", "soft.agent"]
+    t = next(v.split(".", 2)[2] for v in doc["vars"] if v.startswith("soft.agent."))
+    entry = {"b": {"y": [1e6, 2e6], "cens": [0, 0], "resume": [0, 0], "sess": ["s1", "s2"]}, "n": 2, "agents": 2,
+             "ci": [1e6, 2e6], "x": [1e6, 2e6], "sessions": 2}
+    assert L.bayes_grid_block(entry, hy, "soft.agent." + t, SEED["vars"]["soft.agent." + t]) is None
+
+
+def test_the_breach_is_sticky_through_the_file_on_disk(st, sampler, monkeypatch):
+    """A.12 through fit() and the bayes.json on disk: a gated breaching fit; then an under-minimum fit carries it
+    (mutant "cleared by an under-minimum fit"); then a fit whose ctx gate fails while its own check passes
+    carries it (mutant "cleared by a gate-failing fit"); then a gated passing fit clears it. A previous file the
+    reader refuses carries nothing; a gate-failing fit with no breach before it writes no ctx entry."""
+    sampler.shift["ln"] = 3.0
+    rc, _line, doc = _fit(st)
+    first = doc["drift"]["soft.agent"]
+    assert rc == B.EXIT_OK and first["breach"] is True
+    sampler.shift["ln"] = 0.0
+    with monkeypatch.context() as m:
+        m.setattr(B, "DRIFT_MIN_ROWS", 10 ** 6)
+        rc, line, doc = _fit(st)
+    assert rc == B.EXIT_OK and doc["drift"] == {"soft.agent": first, "hard.agent": first}, doc["drift"]
+    assert "turns n " in line and " min" in line
+    sampler.bad = {"ln"}
+    rc, _line, doc = _fit(st)
+    assert doc["drift"]["soft.agent"] == first and doc["drift"]["hard.agent"] == first
+    assert doc["drift"]["turns"]["breach"] is False
+    assert L.load_bayes(SEED, doc["evidence_id"]) is not None
+    sampler.bad = set()
+    rc, _line, doc = _fit(st)
+    assert doc["drift"]["soft.agent"]["breach"] is False and doc["drift"]["soft.agent"]["ks_p"] >= B.DRIFT_ALPHA
+    # a gate-failing fit without a previous breach: no ctx entry; with its own breach: breach true
+    sampler.bad = {"ln"}
+    rc, _line, doc = _fit(st)
+    assert set(doc["drift"]) == {"turns"}
+    sampler.shift["ln"] = 3.0
+    rc, _line, doc = _fit(st)
+    assert doc["drift"]["soft.agent"]["breach"] is True
+    # a previous file the reader refuses (rules 1, 3, 4) carries nothing
+    path = st / "limits" / "bayes.json"
+    bad = json.loads(path.read_text())
+    bad["vars"]["STACK_MAX_FANOUT"] = {}
+    path.write_text(json.dumps(bad))
+    assert B.previous_breaches(str(path), SEED) == {}
+    sampler.shift["ln"], sampler.bad = 0.0, set()
+    with monkeypatch.context() as m:
+        m.setattr(B, "DRIFT_MIN_ROWS", 10 ** 6)
+        rc, _line, doc = _fit(st)
+    assert rc == B.EXIT_OK and doc["drift"] == {}
+    path.write_text("{not json")
+    assert B.previous_breaches(str(path), SEED) == {}
+
+
+def test_regime_option_replaces_the_lookup(st, sampler, monkeypatch, capsys):
+    """A.11.3: `stack_bayes.py fit --regime R` makes the fit use R as the current regime, whatever
+    STACK_SOFT_LIMIT_SCALE (which moves stack_limits.current_regime) and proposals.regime are (mutant "--regime
+    ignored", through main -> fit -> load_inputs -> assemble); data.regime_current is the fitter's note for R. A
+    regime that is not 16 lowercase hex digits fails before the fit."""
+    R = "0123456789abcdef"
+    props = json.loads((st / "limits" / "proposals.json").read_text())
+    assert props["regime"] and props["regime"] != R
+    monkeypatch.setenv("STACK_SOFT_LIMIT_SCALE", "0.5")
+    live = L.current_regime()
+    assert live not in (R, props["regime"])
+    for k in ("PYTENSOR_FLAGS", "NUMBA_CACHE_DIR"):
+        monkeypatch.setenv(k, "")
+    monkeypatch.setattr(B, "missing_deps", list)
+    out = st / "limits" / "bayes.json"
+    assert B.main(["fit", "--no-sched", "--out", str(out), "--chains", "2", "--draws", "100", "--tune", "100",
+                   "--regime", R]) == B.EXIT_OK, capsys.readouterr().out
+    assert sampler.cur_reg == [R]
+    doc = json.loads(out.read_text())
+    assert doc["data"]["regime_current"] in ("new", "new-prior")       # R has no rows: a new regime
+    assert B.load_inputs(SEED, R)[5] == R and B.load_inputs(SEED)[5] == props["regime"]
+    (st / "limits" / "proposals.json").unlink()
+    assert B.load_inputs(SEED)[5] == live and B.load_inputs(SEED, R)[5] == R
+    rc, _line, _doc = _fit(st, regime=props["regime"])                   # a seen regime: its own offset
+    assert rc == B.EXIT_OK and sampler.cur_reg[-1] == props["regime"] and _doc["data"]["regime_current"] == "seen"
+    called, real_fit = [], B.fit
+    monkeypatch.setattr(B, "fit", lambda cfg, out, log=print: called.append(cfg) or (0, "bayes: x"))
+    capsys.readouterr()
+    for bad in ("0123456789ABCDEF", "0123456789abcde", "0123456789abcdef0", "../../etc/passwd", ""):
+        assert B.main(["fit", "--regime", bad]) == B.EXIT_FAIL
+        assert capsys.readouterr().out.strip() == "bayes: failed: --regime is not 16 lowercase hex digits"
+    assert called == []
+    assert B.main(["fit", "--regime", R]) == B.EXIT_OK and called[0]["regime"] == R
+    assert B.main(["fit"]) == B.EXIT_OK and called[1]["regime"] is None
+    assert real_fit({"regime": "zz"}, str(out))[0] == B.EXIT_FAIL

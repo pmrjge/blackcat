@@ -3,7 +3,8 @@
 Status: design v3 and integration contract, 2026-10-08 (WP0b, WP1a of the Bayesian-tuning program). WP3a, WP3b,
 WP3c, WP4, the hardening and the collector fix (`fix/turn-limited`: 3975e35a, 210eaeca) are merged on main (all
 ancestors of b4bed8b8, 2026-10-09); every family is shadow-only (`BAYES_LIVE` is empty, §3.2). WP5's B1-T14 rule, fold
-protocol, data route and drift check (§A.11, §A.12) are design text from branch `bayes/5`, not yet code. §A.8, §A.9
+protocol and data route (§A.11) are design text from branch `bayes/5`, not yet code; the drift check (§A.12) and the
+fitter's `--regime` option (§A.11.3) are code from branch `bayes/5-drift` (WP5 5c). §A.8, §A.9
 and §2 are the contract WP3a (stdlib limits), WP3b (detached fitter), WP4 (scheduler), WP5 (backtest, drift) and WP7
 (fan-out advice) implement; a change to a schema or a test id below is a change to this file first.
 
@@ -170,7 +171,8 @@ All under `<state>`; the state directory is sandbox `denyWrite` for agents. Writ
                      "types": {"<type>": {"mu": f, "scale": f}}},
            "ctx":   {...same keys...}},
  "drift": {"<family>": {"ks_p": f, "sessions": int, "breach": false}},   # rolling PIT, last 5 sessions,
-                                            # §A.12; WP3b writes {} (no drift check yet, §H)
+                                            # §A.12 (WP5 5c); {} when no check ran and
+                                            # no breach is carried
  "vars": {"<var>": <block>},
  "sched": <sched block> | null}
 ```
@@ -463,7 +465,8 @@ backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 4. the user's approval, recorded in CONFIG.md §9;
 5. the drift check (§2.1 rule 7, §A.12) is implemented and installed, and the last gated fit wrote
    `drift.<family>` for that family from a check that ran, with `breach: false`. A fit with too few recent rows
-   writes no entry, or carries a previous breach forward, and does not count. WP3b writes drift as {}.
+   writes no entry, or carries a previous breach forward, and does not count. WP3b wrote drift as {}; the
+   fitter writes it since WP5 5c.
 
 A WP5 ACCEPT is evidence for item 2 only; it changes no code constant (`BAYES_LIVE` stays as §3.2 says).
 
@@ -475,7 +478,7 @@ A WP5 ACCEPT is evidence for item 2 only; it changes no code constant (`BAYES_LI
 - `live.v1.json` (kept by the migration) restores the pre-Bayes state;
 - drift: the fitter sets `drift.<family>.breach = true` (§2.1) when the rolling PIT over the last 5 sessions fails
   (session-clustered KS p < 0.01, §A.12); `load_bayes` drops that family's blocks, so it falls back to §4 at the
-  next session. Not implemented in WP3b (drift is {}): promotion item 5, producer WP5 step 5c. The Goodhart
+  next session. Producer: WP5 step 5c (`stack_bayes.py`), promotion item 5. The Goodhart
   guard (partial/blocked rate of the family's types in `reports.jsonl` up > 5 points after a change) is a WP6 report
   item that asks the user to roll back; it is not automatic.
 
@@ -1036,10 +1039,11 @@ per family.
   does not count toward promotion item 5. The family gets **no entry**, unless a previous breach is carried forward
   (see "Breach semantics" below): an under-minimum fit never creates a breach and never clears one. At the minimum
   only gross drift is detectable: the iid KS critical value at α 0.01 and n 20 is about 1.63/√20 = 0.36, and the
-  clustered null widens it. The detectable drift at this minimum is unmeasured; 5c's synthetic-drift tests measure it.
+  clustered null widens it. The detectable drift at this minimum, on synthetic sessions, is in §H (WP5 5c).
 - **PIT per row.** F is the posterior predictive of a new run of the row's type in a *new* session, the session
   effect integrated (w ~ N(0, tau_new), as for T, §1.2). It uses the row's own resume offset (rho when seg > 0) and
-  is averaged over the posterior draws (a thinned subset of ≥ 400 draws is enough for a CDF):
+  the row's own regime offset (tau_g z_g; every row's regime is in the fit, so none is "new"), not the current
+  regime T is built for, and is averaged over the posterior draws (400 evenly thinned draws, or all when fewer):
   - uncensored log-normal row: F(y);
   - uncensored NB row: U(F(y − 1), F(y));
   - censored row (A.3): **randomized** U(F(y−), 1), F(y−) = P(Y < y): F(y) for the log-normal, F(y − 1) for the
@@ -1049,7 +1053,9 @@ per family.
   The RNG is seeded from the sampler seed (20261003), so a fit's drift entry is reproducible.
 - **Statistic and p-value.** D is the two-sided KS distance of the PITs from U(0, 1). The p-value is a
   **session-clustered Monte Carlo** with B = 999 replicates. Each replicate:
-  - draws one w per session, shared by its rows;
+  - takes one posterior draw (of the thinned set) for all its rows;
+  - draws the new session's effect as the model splits it (§1.2): one tau_s part per session, shared by its rows,
+    plus one tau_ts part per session and type, shared by its rows of that type (w ~ N(0, tau_new) per row);
   - draws y* for every row from its type's predictive given w;
   - keeps each censored row's censoring point c (y* ≥ c gives a row censored at c, PIT U(F(c−), 1); else exact) and
     every uncensored row exact;
@@ -1310,8 +1316,13 @@ enforce switch, `STACK_BAYES`). A learned value would turn a guarantee into a st
   named 47dce9f4, before the fix, until it read b4bed8b8 from 2026-10-09 22:59 (§A.11.5). The WP5 hybrid backfill
   brings the window to 451 turns-censored and 460 ctx-censored rows of 975 (§A.11.5). The gates are not loosened;
   refit on corrected data before judging the models (WP5 5d, 5f; 5g if `z_s` still diverges).
-- `drift` is written as `{}`: the rolling-PIT drift check (§2.1 rule 7) is not implemented; nothing is dropped
-  for drift until it is. Its specification is §A.12 (producer: WP5 step 5c).
+- The drift check (§A.12) is code (WP5 5c) but has not run inside a real fit. Its cost, measured on the WP2 copy's
+  last 5 sessions (185 rows, 37 type × resume × regime cells) with synthetic 8 × 4000 posteriors and scipy's ndtr:
+  0.42 s (turns) + 0.48 s (ctx), small against the 348 s fit. On that copy it would write no entry: 7 of the 185
+  rows are uncensored (minimum 10), the collector defect above. Power on synthetic sessions drawn from the
+  posterior itself (tau_s 0.3, tau_ts 0.15, sigma 0.6; the drifted sessions are not in the fit, so a real fit is
+  less sensitive): a log-scale shift of 1.0 is detected with power about 0.98 at the 20-row minimum and 1.0 at 70
+  rows, a shift of 0.5 with about 0.28 and 0.43 (log-normal; NB 0.28 and 0.53; 40 replicates each).
 - B1-T14 power at its minimum (§A.11.1): 3 folds of 40 rows detect a 2.5× hit rate with power 0.53 under the
   priors (exact 0.50 at v2). Under WP2's tau_new, soft.agent cannot pass I3 below 6 folds × 100 rows (q05 = 0). It
   is unknown whether post-install sessions reach I1–I3, the fold count and `B1_MIN_POWER` in the production
