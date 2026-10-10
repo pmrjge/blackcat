@@ -171,6 +171,10 @@ def run_fit(cmd, env, log_path, timeout, keep_fds):
 
 
 def _term(signum, frame):
+    """One-shot: a second SIGTERM or hangup must not raise again inside run_fit's _killpg (the fit would outlive
+    the driver with the inherited accel.lock); main's finally restores both handlers."""
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, signal.SIG_IGN)
     raise SystemExit(128 + signum)
 
 

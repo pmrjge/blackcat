@@ -755,3 +755,51 @@ def test_a_hangup_kills_the_running_fit(env, tmp_path):
                 os.killpg(fit, signal.SIGKILL)
             except OSError:
                 pass
+
+
+class _TermAtKillpg:
+    """b1_folds' `os` whose first `killpg` lookup delivers a SIGTERM to this process: a second signal arriving
+    at _killpg's entry, after the hangup's handler raised."""
+
+    def __init__(self):
+        self.fired = False
+
+    def __getattr__(self, name):
+        if name == "killpg" and not self.fired:
+            self.fired = True
+            signal.raise_signal(signal.SIGTERM)
+        return getattr(os, name)
+
+
+def test_a_second_signal_never_pre_empts_the_fits_kill(tmp_path, monkeypatch):
+    """Security re-check of 194a297d: _term is one-shot. A hangup raises in run_fit's wait; a SIGTERM delivered
+    as _killpg starts must not raise again there (SystemExit before os.killpg), or the fit orphans with the
+    inherited accel.lock for up to 930 s."""
+    real_wait = subprocess.Popen.wait
+    seen = {}
+
+    def wait(self, timeout=None):
+        if not seen:
+            seen["p"] = self
+            signal.raise_signal(signal.SIGHUP)                     # the handler raises SystemExit(129) here
+        return real_wait(self, timeout)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    monkeypatch.setattr(F, "os", _TermAtKillpg())
+    prev = {s: signal.signal(s, F._term) for s in (signal.SIGTERM, signal.SIGHUP)}
+    p = alive = None
+    try:
+        with pytest.raises(SystemExit) as ei:
+            F.run_fit([sys.executable, "-c", "import time; time.sleep(60)"], dict(os.environ),
+                      str(tmp_path / "fit.log"), 60, ())
+    finally:
+        for s, h in prev.items():
+            signal.signal(s, h)
+        p = seen.get("p")
+        alive = p is not None and p.poll() is None
+        if alive:
+            os.killpg(p.pid, signal.SIGKILL)
+            real_wait(p)
+    assert F.os.fired and p is not None
+    assert not alive, "a second pending signal pre-empted the fit's killpg"
+    assert ei.value.code == 128 + signal.SIGHUP
