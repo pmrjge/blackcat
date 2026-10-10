@@ -288,7 +288,7 @@
     "frac": 0.986
    },
    "soft_limit": 19000000,
-   "maxTurns": 150,
+   "maxTurns": 199,
    "n_seg": 36,
    "n_agents": 17,
    "n_first": 17,
@@ -394,7 +394,7 @@
     "frac": 0.986
    },
    "soft_limit": 8700000,
-   "maxTurns": 80,
+   "maxTurns": 120,
    "n_seg": 5,
    "n_agents": 5,
    "n_first": 5,
@@ -2037,7 +2037,7 @@
     "frac": 0.986
    },
    "soft_limit": 8700000,
-   "maxTurns": 60,
+   "maxTurns": 90,
    "n_seg": 0,
    "n_agents": 0,
    "n_first": 0,
@@ -2090,7 +2090,7 @@
     "frac": 0.986
    },
    "soft_limit": 8700000,
-   "maxTurns": 60,
+   "maxTurns": 90,
    "n_seg": 2,
    "n_agents": 2,
    "n_first": 2,
@@ -2514,7 +2514,7 @@
     "frac": 0.986
    },
    "soft_limit": 8700000,
-   "maxTurns": 100,
+   "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
    "n_first": 0,
@@ -2620,7 +2620,7 @@
     "frac": 0.986
    },
    "soft_limit": 19000000,
-   "maxTurns": 100,
+   "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
    "n_first": 0,

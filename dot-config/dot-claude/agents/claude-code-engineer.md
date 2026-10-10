@@ -3,7 +3,7 @@ name: claude-code-engineer
 description: "Claude Code configuration: skills, subagents, hooks, plugins, MCP entries, permissions, settings, CLAUDE.md and rules."
 model: opus
 effort: high
-maxTurns: 150
+maxTurns: 199
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent
 permissionMode: acceptEdits
 color: orange

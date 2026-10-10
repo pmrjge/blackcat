@@ -64,8 +64,8 @@ Column key:
 |---|---|---|---|---|---|---|
 | blackcat (main thread) | Sonnet 5.5 | medium (session) | none | 24 tool calls/prompt, dispatches included | 8 dispatches/prompt; effort low | Only delegates (no Bash, Write or Edit, also with `STACK_POLICY=off`; Read ≤ 3 per prompt for the ledger, a plan or a child's output); the orchestrator gets dependent multi-specialist work. At `medium` it asks questions and stays visible. |
 | orchestrator | Opus 5.5 | high | 200 | 32 | xhigh, 300 | Decomposes a job into up to 32 parallel tasks. On 5.5, `high` is enough for coordination. |
-| planner | Opus 5.5 | xhigh | 60 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
-| plan-reviewer | Opus 5.5 | high | 60 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
+| planner | Opus 5.5 | xhigh | 90 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
+| plan-reviewer | Opus 5.5 | high | 90 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
 | oracle | Opus 5.5 | low | 12 | leaf | 20 | Answers from knowledge alone and uses almost no tools |
 | scout | Sonnet 5.5 | low | 11 | leaf | 40 | Looks up one fact from a few sources; measured max 7 turns (2026-10-02) |
 | explore | Sonnet 5.5 | low | 40 | leaf | (built-in) | Read-only codebase search. Replaces Claude Code's built-in Explore, which inherits the main thread's model up to Opus and has no turn cap. |
@@ -95,15 +95,15 @@ Column key:
 | embedded-, game-, hpc-, biochem-engineer | Opus 5.5 | high | 170 | 3 | new | Domain build, flash, sim and benchmark loops |
 | mobile-engineer | Opus 5.5 | medium | 170 | 3 | new | Build-and-run loops on simulators and devices (MobileBuildMCP, macOS only) |
 | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer | Opus 5.5 | high | 170 | 3 | new | One expert per language; each self-checks its toolchain (linters, type checker, tests) before reporting |
-| test-engineer | Sonnet 5.5 | medium | 100 | leaf | new | Writes and repairs tests only |
+| test-engineer | Sonnet 5.5 | medium | 150 | leaf | new | Writes and repairs tests only |
 | build-fixer | Sonnet 5.5 | low | 60 | leaf | new | Turns a red build green with the smallest change; never disables checks |
-| code-reviewer | Opus 5.5 | high | 80 | leaf | xhigh, 150 | Read-only review. `high` on 5.5. |
+| code-reviewer | Opus 5.5 | high | 120 | leaf | xhigh, 150 | Read-only review. `high` on 5.5. |
 | verifier | Sonnet 5.5 | high | 140 | leaf | 160 | Measured p90 is 92 turns: runs tests, reproduces, checks |
-| security-auditor | Opus 5.5 | xhigh | 100 | leaf | 150 | Finding exploit paths needs depth |
+| security-auditor | Opus 5.5 | xhigh | 150 | leaf | 150 | Finding exploit paths needs depth |
 | browser-operator | Sonnet 5.5 | medium | 120 | leaf | 160 | Browser loops. It has come close to the 64-per-prompt MCP cap (62 calls in one run). |
 | mcp-broker | Sonnet 5.5 | medium | 60 | leaf | 80 | Mounts, calls and unmounts MCP servers |
 | toolsmith | Sonnet 5.5 | medium | 60 | leaf | new | Installs and manages programs and packages through `bin/stack-install` only; short tool loops like mcp-broker's (lookup pool) |
-| claude-code-engineer | Opus 5.5 | high | 150 | 3 | 150 | Validation-heavy. 2026-10-02 data: p90 83 turns per segment (× 1.5 = 125), healthy max 147 |
+| claude-code-engineer | Opus 5.5 | high | 199 | 3 | 150 | Validation-heavy. 2026-10-02 data: p90 83 turns per segment (× 1.5 = 125), healthy max 147 |
 | claude-code-guide | Sonnet 5.5 | low | 30 | leaf | 40 | Documentation lookups |
 
 Effort scale:
@@ -157,7 +157,7 @@ The stack's only knob table. Values in `dot-config/dot-claude/settings.json` →
 | `STACK_SCRUB` | `observe` (code) | new | `observe`: an Agent `prompt` or SendMessage `message` is scanned in full with `bin/stack-tree`'s `_REDACT` and `_KV` tables (never its `redact()`, which cuts at 1,200 chars), after the call's decision (a refusal never waits for it), in 4,096-char windows to a 1 s deadline (those patterns backtrack quadratically on one long crafted word; a cut scan logs `partial`); a hit adds one line to `<state>/<sid>/scrub-observe.jsonl` (0600, 1 MB cap: time, tool, agent id, counts per pattern class, never text) and a one-line note to the sender once per run. Never rewrites or denies: the patterns also match ordinary code in briefs (measure first). `off`: no scan. Any failure skips it (`tests/test_scrub_observe.py`) |
 | `STACK_MAX_MCP_CALLS` ● | 64 | — | MCP calls per agent per prompt, as set by you; unchanged (browser-operator comes near it) |
 | `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | 300,000,000 user-set (seed = floor = ceiling, so evidence never moves it) / learned (seed 1,920,000,000), not in settings.json since S6 | 100,000,000 learned (until 2026-10-08) / — | A value you set pins `hard.prompt` / `hard.session` (`/stack-doctor` lists it; without a usable snapshot, a tampered or unwritable one or no `stack_limits.py`, only a value below the seed applies) (hard: refuses every call but reporting). Since 2026-10-02 the prompt window restarts only on a human prompt, not on a task notification's turn |
-| Soft token limits (code: `SOFT_LIMITS`, `SOFT_PROMPT_CTX`) | per type, below; 33,000,000 per human prompt (140,000,000 while an orchestrator runs: `SOFT_PROMPT_CTX_BY_TYPE`) | new (orchestrator: 80,000,000 until 2026-10-08) | A wrap-up warning, never a refusal; see "Soft token limits" below |
+| Soft token limits (code: `SOFT_LIMITS`, `SOFT_PROMPT_CTX`) | per type, below; 50,000,000 per human prompt (140,000,000 while an orchestrator runs: `SOFT_PROMPT_CTX_BY_TYPE`) | new (orchestrator: 80,000,000 until 2026-10-08) | A wrap-up warning, never a refusal; see "Soft token limits" below |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 (code) | new | Multiplies every soft limit; `0` turns them off. Not in settings.json, so a process environment value reaches the hooks (the benchmark sets it per run) |
 | `STACK_EARLY_STOP` | `observe` (code) | new | A subagent run's brief budget and early-stop signals (`hooks/stack_progress.py`, called by the guard's budget gate after the hard budgets allowed a subagent's call): `observe` logs to `early-stop.jsonl`, `warn` also adds a note for the `budget` and `stop` signals, `off` reads nothing; never a refusal. `STACK_EARLY_STOP_ROUNDS` 8 and `STACK_EARLY_STOP_FAILS` 4 (code): the window and its failing rounds. See "Brief budgets and early stop" below |
 | `STACK_SCHED_POLICY` | `report` (code) | `fresh_fixer` | The user's decision (2026-10-03): the scheduler stays a report tool. `fresh_fixer` is opt-in: `stack_sched.py next` then also advises a fresh fixer on stderr for a resume after a gap of 270 s or more (stdout, the ready ids, is the same). Fixed knob, recorded in each session's snapshot and read from it |
@@ -208,20 +208,30 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 
 - **What:** past a limit, the next tool call carries one short warning (PreToolUse `additionalContext`): "Soft token limit reached …: wrap up, return STATUS: partial with what is done and what remains, and ask your caller (BlackCat: the user) before continuing." Nothing is refused; the hard budgets above, the MCP call cap and maxTurns are unchanged and independent.
 - **Unit:** context tokens, `input + cache_creation + cache_read` per API call (output excluded), the hard budgets' unit, counted in the same `budget.json` pass.
-- **Per agent segment:** one subagent run, a spawn or a SendMessage resume (the MCP call cap's reset rule: the registry's `started` stamp), from the agent's own transcript; warns once per segment. **Per human prompt:** 33,000,000 since the last UserPromptSubmit, whole session tree; 140,000,000 while an orchestrator runs (`SOFT_PROMPT_CTX_BY_TYPE`, set by the user: 80,000,000 on 2026-10-03, 140,000,000 on 2026-10-08; not derived); warns once per prompt, to the agent whose tool call comes next. No per-session soft limit (two sessions are not a distribution).
-- **Values** (soft = p90 of healthy segments × 1.25–1.5, floor 2 × median, 2 significant figures; a type with fewer than 5 healthy segments from 3 agents takes its pool's value):
+- **Per agent segment:** one subagent run, a spawn or a SendMessage resume (the MCP call cap's reset rule: the registry's `started` stamp), from the agent's own transcript; warns once per segment. **Per human prompt:** 50,000,000 (33,000,000 until 2026-10-10) since the last UserPromptSubmit, whole session tree; 140,000,000 while an orchestrator runs (`SOFT_PROMPT_CTX_BY_TYPE`, set by the user: 80,000,000 on 2026-10-03, 140,000,000 on 2026-10-08; not derived); warns once per prompt, to the agent whose tool call comes next. **Per session:** `soft.session`, seeded 1,300,000,000 by the user on 2026-10-10 (unset before: two sessions are not a distribution).
+- **Values** (the seeds; derived on 2026-10-02 as p90 of healthy segments × 1.25–1.5, floor 2 × median, 2 significant figures, a type with fewer than 5 healthy segments from 3 agents taking its pool's value; raised by the user on 2026-10-10 to 1.5 × the learned value then in force, rounded up to 2 significant figures, for the types that hit their limit and their pools. `hard.agent` seeds set the same day: main-coder and claude-code-engineer 79,000,000, python-engineer 72,000,000, coder 63,000,000, security-auditor and planner 33,000,000, code-reviewer 27,000,000, orchestrator 9,300,000, writer 8,700,000; every other type unset = off):
 
 | Limit | Types | Derived from |
 |---|---|---|
-| 19,000,000 | claude-code-engineer | own runs (36 segments) |
-| 26,000,000 | verifier | own runs (6) |
-| 8,700,000 | code-reviewer | own runs (5) |
-| 680,000 | claude-code-guide | own runs (7) |
-| 390,000 | scout | own runs (24) |
-| 19,000,000 | coder, main-coder, ninja-coder, build-fixer, test-engineer, data-scientist, data-engineer, devops-engineer, frontend-engineer, the 7 language engineers, mobile-, game-, embedded-, hpc-, cuda-, mlx-, dl-, ml-, llm-, robotics-, quantum-, biochem-, security-engineer, vfx-td, mathematician, procedural-3d-ui | builder pool (50) |
-| 8,700,000 | planner, plan-reviewer, researcher, security-auditor, proof-checker | analyst pool (11) |
-| 450,000 | explore, oracle, mcp-broker | lookup pool (34) |
-| 3,100,000 | writer, browser-operator, doc-specialist, designer, image-director, motion-designer, cg-artist, rigger-animator, sculptor-painter | artifact pool (9) |
+| 61,000,000 | ninja-coder, build-fixer, frontend-engineer, rust-, go-, node-, jvm-, julia-, haskell-, mobile-, game-, embedded-, hpc-, cuda-, mlx-, dl-, llm-, robotics-, quantum-, biochem-engineer, vfx-td, mathematician | builder pool 19,000,000 (50 segments); 2026-10-10: 1.5 × 40,500,000 learned |
+| 60,000,000 | main-coder, data-scientist, devops-engineer, ml-engineer, security-engineer | builder pool; 2026-10-10: 1.5 × learned (39,400,000–39,900,000) |
+| 59,000,000 | claude-code-engineer | own runs (36 segments) 19,000,000; 2026-10-10: 1.5 × 39,200,000 learned |
+| 45,000,000 | python-engineer | builder pool; 2026-10-10: 1.5 × 30,000,000 learned |
+| 43,000,000 | data-engineer | builder pool; 2026-10-10: 1.5 × 28,600,000 learned |
+| 42,000,000 | test-engineer | builder pool; 2026-10-10: 1.5 × 27,600,000 learned |
+| 37,000,000 | procedural-3d-ui | builder pool; 2026-10-10: 1.5 × 24,100,000 learned |
+| 30,000,000 | verifier | own runs (6) 26,000,000; 2026-10-10: 1.5 × 19,500,000 learned |
+| 28,000,000 | coder | builder pool; 2026-10-10: 1.5 × 18,600,000 learned |
+| 20,000,000 | security-auditor | analyst pool; 2026-10-10: 1.5 × 13,000,000 learned |
+| 17,000,000 | code-reviewer, planner, researcher, proof-checker | own runs (5) / analyst pool (11) 8,700,000; 2026-10-10: 1.5 × 10,800,000 learned |
+| 15,000,000 | plan-reviewer | analyst pool; 2026-10-10: 1.5 × 9,450,000 learned |
+| 4,700,000 | browser-operator, doc-specialist, designer, image-director, motion-designer, cg-artist, rigger-animator, sculptor-painter | artifact pool (9) 3,100,000; 2026-10-10: 1.5 × 3,100,000 |
+| 4,300,000 | writer | artifact pool; 2026-10-10: 1.5 × 2,860,000 learned |
+| 850,000 | explore | lookup pool (34) 450,000; 2026-10-10: 1.5 × 562,000 learned |
+| 680,000 | claude-code-guide; mcp-broker | own runs (7), unchanged; mcp-broker 2026-10-10: 1.5 × 450,000 |
+| 510,000 | oracle | lookup pool; 2026-10-10: 1.5 × 338,000 learned |
+| 450,000 | toolsmith | lookup pool, unchanged |
+| 390,000 | scout | own runs (24), unchanged |
 | none | orchestrator (short relays; two runs that differ ~2×), blackcat (the main thread: the prompt limit covers it) | — |
 
 - **Knob:** `STACK_SOFT_LIMIT_SCALE` (float; `2` doubles every soft limit, `0` turns them off). A type the table does not name gets none (self-test: the table covers every type in `AGENTS`).

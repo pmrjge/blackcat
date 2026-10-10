@@ -38,7 +38,7 @@ med x (1 + w) = hi for provisional types and on med for supported ones, so a pro
 cheaper than its hi allows (an explicit `n` on a node is taken as given: only sec_per_call and ctx are widened).
 Every limit is checked at hi, with a three-way verdict: fits (hi fits), does not fit (even med does not), uncertain
 (med fits, hi does not), the types driving the uncertainty named. Checked: the type's maxTurns and soft token
-limit (ctx per segment), the per-prompt soft limit (33M ctx; 80M with an orchestrator), the fan-out cap, and an
+limit (ctx per segment), the per-prompt soft limit (50M ctx; 80M with an orchestrator), the fan-out cap, and an
 optional user budget (`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band;
 without a pool band it is provisional with w = 1.0, a documented heuristic marked unverified.
 
@@ -81,7 +81,7 @@ RISK_TAGS = {"hook", "security", "prod", "gui", "accel"}
 EXCLUSIVE_TAGS = ("gui", "accel")          # one agent on the screen; one accelerator job per device
 SPEEDS = {"frugal": 0.25, "balanced": 1.0, "fast": 4.0}
 BLACKCAT_WINDOW_S = 120.0                  # agent_guard.py BLACKCAT_DISPATCH_WINDOW_S: one prompt's dispatches start within it
-SOFT_PROMPT_CTX = 33000000                 # per human prompt (agent_guard.py SOFT_PROMPT_CTX)
+SOFT_PROMPT_CTX = 50000000                 # per human prompt (agent_guard.py SOFT_PROMPT_CTX)
 SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 140000000}  # while one runs (agent_guard.py, same name)
 UNVERIFIED_W = 1.0                         # safety factor when neither the type nor its pool has a band
 RESUME_WARM_S = 270.0                      # a resume is only warm when the gap is under this
@@ -94,11 +94,11 @@ SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guid
                 "mcp-broker", "scout", "test-engineer", "toolsmith", "verifier"}
 ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}
-SOFT_POOLS = {"builder": 19000000, "analyst": 8700000, "lookup": 450000, "artifact": 3100000}
-SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,
-               "code-reviewer": 8700000, "verifier": 26000000, "coder": 19000000, "main-coder": 19000000,
-               "planner": 8700000, "researcher": 8700000, "explore": 450000, "writer": 3100000,
-               "browser-operator": 3100000}
+SOFT_POOLS = {"builder": 61000000, "analyst": 17000000, "lookup": 450000, "artifact": 4700000}
+SOFT_LIMITS = {"claude-code-engineer": 59000000, "scout": 390000, "claude-code-guide": 680000,
+               "code-reviewer": 17000000, "verifier": 30000000, "coder": 28000000, "main-coder": 60000000,
+               "planner": 17000000, "researcher": 17000000, "explore": 850000, "writer": 4300000,
+               "browser-operator": 4700000}
 ANALYST_TYPES = {"planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"}
 LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide", "toolsmith"}
 ARTIFACT_TYPES = {"writer", "browser-operator", "doc-specialist", "designer", "image-director",

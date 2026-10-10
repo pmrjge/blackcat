@@ -1106,9 +1106,9 @@ def test_cli_views_print_method_T_pi90_p_hit_and_would(st, capsys):
     out = L.show("soft.agent.coder")
     assert "bayes shadow" in out.splitlines()[0] and "fit " + FIT in out.splitlines()[0]
     line = [x for x in out.splitlines() if x.startswith("soft.agent.coder")][0]
-    assert "bayes-shadow T 31M [21.7M-43.4M] p_hit" in line, line
+    assert "bayes-shadow T 45M [31.5M-63M] p_hit" in line, line
     js = json.loads(L.show("soft.agent.coder", as_json=True))["vars"]["soft.agent.coder"]
-    assert js["method"] == "empirical" and js["bayes"]["T"] == 31000000 and js["bayes"]["tier"] == "nuts"
+    assert js["method"] == "empirical" and js["bayes"]["T"] == 45000000 and js["bayes"]["tier"] == "nuts"
     assert 0 <= js["bayes"]["p_hit"] <= 1
     assert "bayes shadow (9 with a block)" in L.status_line()
     assert any("method: empirical" in x for x in L.stability_lines())

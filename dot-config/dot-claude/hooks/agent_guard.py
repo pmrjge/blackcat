@@ -5846,43 +5846,46 @@ def budget_reason(kind, span, used, var, cap, lim, ev):
 # thread, covered by the prompt limit). Unknown types get none.
 # STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
 # hard budgets and the MCP call cap are independent of it.
-SOFT_PROMPT_CTX = 33000000
+SOFT_PROMPT_CTX = 50000000
 # The per-prompt soft limit while an agent of one of these types runs (a registry entry not
 # stopped): the largest value applies, never below SOFT_PROMPT_CTX.
 # Set by the user, not derived: an orchestrator job of up to 10 tasks runs under one human prompt
 # (2026-10-03: 80M; 2026-10-08: 140M, the sessions kept colliding with the limits).
 SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 140000000}
-_SOFT_BUILDER = 19000000     # builder pool: implementers and domain engineers
-_SOFT_ANALYST = 8700000      # analyst pool: planners, reviewers, research
+# Raised by the user on 2026-10-10: 1.5 x the learned value then in force (live.json), rounded up
+# to two significant figures, for the types that hit their soft limit and their pools; scout,
+# claude-code-guide and toolsmith kept their values.
+_SOFT_BUILDER = 61000000     # builder pool: implementers and domain engineers
+_SOFT_ANALYST = 17000000     # analyst pool: planners, reviewers, research
 _SOFT_LOOKUP = 450000        # lookup pool: one-question agents
-_SOFT_ARTIFACT = 3100000     # artifact pool: prose, documents, images, browser
+_SOFT_ARTIFACT = 4700000     # artifact pool: prose, documents, images, browser
 SOFT_LIMITS = {
     # derived from the type's own runs
-    "claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,
-    "code-reviewer": 8700000, "verifier": 26000000,
+    "claude-code-engineer": 59000000, "scout": 390000, "claude-code-guide": 680000,
+    "code-reviewer": 17000000, "verifier": 30000000,
     # builder pool
-    "coder": _SOFT_BUILDER, "main-coder": _SOFT_BUILDER, "ninja-coder": _SOFT_BUILDER,
-    "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
-    "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER,
-    "devops-engineer": _SOFT_BUILDER, "frontend-engineer": _SOFT_BUILDER,
-    "python-engineer": _SOFT_BUILDER, "rust-engineer": _SOFT_BUILDER,
+    "coder": 28000000, "main-coder": 60000000, "ninja-coder": _SOFT_BUILDER,
+    "build-fixer": _SOFT_BUILDER, "test-engineer": 42000000,
+    "data-scientist": 60000000, "data-engineer": 43000000,
+    "devops-engineer": 60000000, "frontend-engineer": _SOFT_BUILDER,
+    "python-engineer": 45000000, "rust-engineer": _SOFT_BUILDER,
     "go-engineer": _SOFT_BUILDER, "node-engineer": _SOFT_BUILDER, "jvm-engineer": _SOFT_BUILDER,
     "julia-engineer": _SOFT_BUILDER, "haskell-engineer": _SOFT_BUILDER,
     "mobile-engineer": _SOFT_BUILDER, "game-engineer": _SOFT_BUILDER,
     "embedded-engineer": _SOFT_BUILDER, "hpc-engineer": _SOFT_BUILDER,
     "cuda-engineer": _SOFT_BUILDER, "mlx-engineer": _SOFT_BUILDER, "dl-engineer": _SOFT_BUILDER,
-    "ml-engineer": _SOFT_BUILDER, "llm-engineer": _SOFT_BUILDER,
+    "ml-engineer": 60000000, "llm-engineer": _SOFT_BUILDER,
     "robotics-engineer": _SOFT_BUILDER, "quantum-engineer": _SOFT_BUILDER,
-    "biochem-engineer": _SOFT_BUILDER, "security-engineer": _SOFT_BUILDER,
-    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": _SOFT_BUILDER,
+    "biochem-engineer": _SOFT_BUILDER, "security-engineer": 60000000,
+    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": 37000000,
     # analyst pool
-    "planner": _SOFT_ANALYST, "plan-reviewer": _SOFT_ANALYST, "researcher": _SOFT_ANALYST,
-    "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
+    "planner": _SOFT_ANALYST, "plan-reviewer": 15000000, "researcher": _SOFT_ANALYST,
+    "security-auditor": 20000000, "proof-checker": _SOFT_ANALYST,
     # lookup pool
-    "explore": _SOFT_LOOKUP, "oracle": _SOFT_LOOKUP, "mcp-broker": _SOFT_LOOKUP,
+    "explore": 850000, "oracle": 510000, "mcp-broker": 680000,
     "toolsmith": _SOFT_LOOKUP,
     # artifact pool
-    "writer": _SOFT_ARTIFACT, "browser-operator": _SOFT_ARTIFACT,
+    "writer": 4300000, "browser-operator": _SOFT_ARTIFACT,
     "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
     "image-director": _SOFT_ARTIFACT,
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,

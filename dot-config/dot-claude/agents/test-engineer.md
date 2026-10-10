@@ -3,7 +3,7 @@ name: test-engineer
 description: "Tests: writes and repairs unit, property, fuzz and e2e tests, each proven on a seeded bug; never changes product code."
 model: sonnet
 effort: medium
-maxTurns: 100
+maxTurns: 150
 tools: Read, Write, Edit, Bash, LSP, ToolSearch, Skill, Monitor, TaskStop
 permissionMode: acceptEdits
 color: yellow

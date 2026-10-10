@@ -3,7 +3,7 @@ name: code-reviewer
 description: "Code review of diffs, PRs or codebases: correctness, design, tests, performance; patch-ready findings. Read-only."
 model: opus
 effort: high
-maxTurns: 80
+maxTurns: 120
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__libdocs
 mcpServers:
   - libdocs:

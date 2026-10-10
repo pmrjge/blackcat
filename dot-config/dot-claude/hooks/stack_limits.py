@@ -6,12 +6,13 @@ that no evidence, file or command can cross):
   turns.<type>                 the guard's turn budget per run, in API calls (seed and ceiling: the
                                agent's frontmatter maxTurns, which stays the backstop)
   soft.agent.<type>            soft context limit per agent segment (seed: agent_guard SOFT_LIMITS)
-  hard.agent.<type>            hard context cap per agent segment (seed: unset = off)
-  soft.prompt, hard.prompt     per human prompt (seed 33M / 300M; hard.prompt user-set: seed = floor)
+  hard.agent.<type>            hard context cap per agent segment (seed: unset = off; 9 types
+                               set by the user on 2026-10-10)
+  soft.prompt, hard.prompt     per human prompt (seed 50M / 300M; hard.prompt user-set: seed = floor)
   soft.prompt.<type>           per human prompt while an agent of that type runs (agent_guard
                                SOFT_PROMPT_CTX_BY_TYPE, user-set: seed = floor, so the learner only
                                raises it; prompt_soft_limit() applies the largest running one)
-  soft.session, hard.session   per session (seed unset / 1.92B)
+  soft.session, hard.session   per session (seed 1.3B / 1.92B)
 blackcat has no per-agent variable. Fixed
 guards (depth, fan-out, BlackCat, TTLs, MCP cap, images, policy, read gate, the scale
 and sched-policy knobs) are never variables: a fixed-guard name in live.json or proposals.json

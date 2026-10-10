@@ -162,6 +162,12 @@ def derive_sched_soft_limits():
 
 
 # ---------------------------------------------------------------- seed, imports, shared statistics
+# hard.agent seeds set by the user on 2026-10-10 (the others stay unset = off)
+HARD_AGENT_SEEDS = {"main-coder": 79000000, "claude-code-engineer": 79000000, "python-engineer": 72000000,
+                    "coder": 63000000, "security-auditor": 33000000, "planner": 33000000,
+                    "code-reviewer": 27000000, "orchestrator": 9300000, "writer": 8700000}
+
+
 def test_seed_parity_with_frontmatter_and_guard():
     s = L.load_seed()
     fm = frontmatter_max_turns()
@@ -177,7 +183,7 @@ def test_seed_parity_with_frontmatter_and_guard():
                                            "unit": "turns", "kind": "hard"}
         assert s["vars"]["soft.agent." + t] == {"seed": soft[t], "floor": 100000, "ceiling": 100000000,
                                                 "unit": "ctx", "kind": "soft"}
-        assert s["vars"]["hard.agent." + t] == {"seed": None, "floor": 2000000, "ceiling": 200000000,
+        assert s["vars"]["hard.agent." + t] == {"seed": HARD_AGENT_SEEDS.get(t), "floor": 2000000, "ceiling": 200000000,
                                                 "unit": "ctx", "kind": "hard"}
     for t, mt in fm.items():
         assert (mt is None) == (t == "blackcat") and (mt is None or "turns." + t in s["vars"]), t
@@ -188,9 +194,9 @@ def test_seed_parity_with_frontmatter_and_guard():
         "soft.prompt." + t: {"seed": val, "floor": val, "ceiling": max(100000000, val), "unit": "ctx", "kind": "soft"}
         for t, val in by_type.items()}
     scope = {k: (v["seed"], v["floor"], v["ceiling"], v["kind"]) for k, v in s["vars"].items() if "." not in k[5:]}
-    assert scope == {"soft.prompt": (33000000, 5000000, 100000000, "soft"),
+    assert scope == {"soft.prompt": (50000000, 5000000, 100000000, "soft"),
                      "hard.prompt": (300000000, 300000000, 300000000, "hard"),    # user-set 2026-10-08
-                     "soft.session": (None, 100000000, 1500000000, "soft"),
+                     "soft.session": (1300000000, 100000000, 1500000000, "soft"),
                      "hard.session": (1920000000, 300000000, 2500000000, "hard")}
     assert by_type["orchestrator"] == 140000000                                     # user-set 2026-10-08
     # every user-set per-type prompt limit fits under hard.prompt's floor, so the soft <= ratio x hard
@@ -718,7 +724,7 @@ def test_T7_same_evidence_twice_and_no_new_rows(st):
     L.seed()
     assert L.propose() is not None
     _p1, n1 = L.apply_and_snapshot({"session_id": "s-t7a", "source": "startup"}, spawn=False)
-    assert n1 and n1.startswith("limits v2: coder.hard off→") and "coder.soft 19M→23.7M" in n1
+    assert n1 and n1.startswith("limits v2: coder.soft 28M→35M")     # hard.agent.coder seeded 63M (2026-10-10)
     live1 = lim(st, "live.json").read_bytes()
     hist1 = lim(st, "history.jsonl").read_bytes()
     _p2, n2 = L.apply_and_snapshot({"session_id": "s-t7b", "source": "startup"}, spawn=False)
@@ -777,9 +783,9 @@ def test_T12_T13_propose_changes_nothing_new_sid_gets_next_version(st):
     assert b["live_version"] == a["live_version"] + 1 == live["version"]                        # T13
     assert Path(pa).read_bytes() == snap_a and L.read_snapshot("s-a")[1] == "ok"
     assert b["values"] == {v: s["value"] for v, s in live["vars"].items()}
-    assert a["values"]["soft.agent.coder"] == 19000000 and b["values"]["soft.agent.coder"] == 23700000
+    assert a["values"]["soft.agent.coder"] == 28000000 and b["values"]["soft.agent.coder"] == 35000000
     assert b["values"]["turns.coder"] == 128 and a["values"]["turns.coder"] == 170
-    assert b["values"]["hard.agent.coder"] is not None and a["values"]["hard.agent.coder"] is None
+    assert b["values"]["hard.agent.coder"] == a["values"]["hard.agent.coder"] == 63000000   # seeded 2026-10-10
     assert b["origin"]["soft.agent.coder"] == "live" and b["regime"] == L.current_regime()
     assert nb.startswith("limits v2: ") and len(nb) <= L.NOTICE_MAX and "stack_limits.py show" in nb
     model = L.snapshots_dir() + "/s-b.sched_model.json"
@@ -787,7 +793,7 @@ def test_T12_T13_propose_changes_nothing_new_sid_gets_next_version(st):
     assert L.session_limits("s-b")["sched_model"] == model
     hist = [json.loads(x) for x in lim(st, "history.jsonl").read_text().splitlines()]
     steps = [h for h in hist if h["decision"] == "step"]
-    assert {h["var"] for h in steps} >= {"soft.agent.coder", "turns.coder", "hard.agent.coder"}
+    assert {h["var"] for h in steps} >= {"soft.agent.coder", "turns.coder"}   # hard.agent.coder: seeded, no step
     assert all(h["session"] == "s-b" and h["live_version"] == 2 for h in steps)
 
 
@@ -806,7 +812,7 @@ def test_T14_hold_release_freeze_unfreeze_rollback(st, capsys):
     L.propose()
     L.apply_and_snapshot({"session_id": "s-h1", "source": "startup"}, spawn=False)
     live = json.loads(lim(st, "live.json").read_text())
-    assert live["vars"]["soft.agent.coder"]["value"] == 19000000 and live["vars"]["soft.agent.coder"]["hold"] == 1
+    assert live["vars"]["soft.agent.coder"]["value"] == 28000000 and live["vars"]["soft.agent.coder"]["hold"] == 1
     assert live["vars"]["turns.coder"]["value"] == 128                       # the others still learn
     assert run_cli("release", "soft.agent.coder") == 0
     assert json.loads(lim(st, "live.json").read_text())["vars"]["soft.agent.coder"]["hold"] == 0
@@ -826,7 +832,7 @@ def test_T14_hold_release_freeze_unfreeze_rollback(st, capsys):
     assert t["value"] == 170 and t["prev"] == 128 and t["hold"] == 1 and t["d"] == 0.5
     assert run_cli("rollback", "hard.agent.*", "--to", "seed") == 0
     live = json.loads(lim(st, "live.json").read_text())
-    assert all(s["value"] is None and s["hold"] == 1 and s["d"] == 0.5
+    assert all(s["value"] == L.load_seed()["vars"][v]["seed"] and s["hold"] == 1 and s["d"] == 0.5
                for v, s in live["vars"].items() if v.startswith("hard.agent."))
     assert invariants_ok(L.load_seed(), L.validate_live(live, L.load_seed())) == (True, None)
     hist = [json.loads(x) for x in lim(st, "history.jsonl").read_text().splitlines()]
@@ -914,7 +920,7 @@ def test_T15d_reseed_never_moves_a_learned_partner_or_a_rolled_back_value(st):
     """A re-seed that would break soft <= ratio x hard against a learned partner is skipped (the
     invariant would move the learned value); a rolled-back variable (d = 1/2) is not pristine."""
     s = L.load_seed()
-    assert s["vars"]["soft.agent.coder"]["seed"] == 19000000
+    assert s["vars"]["soft.agent.coder"]["seed"] == 28000000
     lim(st).mkdir(parents=True)
     old = L.live_from_seed(s)
     V = old["vars"]
@@ -1291,7 +1297,7 @@ def test_V1_a_running_session_keeps_its_snapshot_past_the_prune_age(st):
     _setup_rows(st, coder_rows())
     assert L.propose() is not None
     _p, note = L.apply_and_snapshot({"session_id": "s-new", "source": "startup"}, spawn=False)
-    assert note and "coder.soft 19M→23.7M" in note                       # applied: the prune ran
+    assert note and "coder.soft 28M→35M" in note                       # applied: the prune ran
     for sid in ("s-live", "s-resumed"):
         assert L.read_snapshot(sid)[1] == "ok", sid
         assert len(list(Path(L.snapshots_dir()).glob(sid + ".*"))) == 2, sid
