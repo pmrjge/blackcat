@@ -232,7 +232,8 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 | 510,000 | oracle | lookup pool; 2026-10-10: 1.5 × 338,000 learned |
 | 450,000 | toolsmith | lookup pool, unchanged |
 | 390,000 | scout | own runs (24), unchanged |
-| none | orchestrator (short relays; two runs that differ ~2×), blackcat (the main thread: the prompt limit covers it) | — |
+| 4,700,000 | orchestrator | none until 2026-10-10 (short relays; two runs that differ ~2×); 2026-10-10: user-set (82 healthy runs from 18 agents, largest 4,910,898), the wrap-up warning before its `hard.agent` cap 9,300,000 |
+| none | blackcat (the main thread: the prompt limit covers it), equilibrium | — |
 
 - **Knob:** `STACK_SOFT_LIMIT_SCALE` (float; `2` doubles every soft limit, `0` turns them off). A type the table does not name gets none (self-test: the table covers every type in `AGENTS`).
 - **Refresh:** `uv run --script tests/derive_thresholds.py` (pandas, read-only over `~/.claude/projects/`) rewrites `.claude-work/agents-usage/thresholds.md` and its CSVs (first run as `.claude-work/agents-usage/thresholds.py` in the phase-3 worktree); copy changed values into `SOFT_LIMITS` / `SOFT_PROMPT_CTX` by hand.
@@ -251,7 +252,7 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 |---|---|---|
 | `budget` | the run reached its brief's budget | "Brief budget reached …" |
 | `stall` | the last 8 tool rounds made no progress (no successful edit, write, commit, delegation or report) and at least 4 failed (an error result, or only repeats of earlier calls) | nothing |
-| `stop` | a stall while past the budget: the brief's, else the type's soft limit (`soft.agent.<type>` × `STACK_SOFT_LIMIT_SCALE`; `0` = none); the orchestrator has none | "Early-stop check … return STATUS: partial with the failing command …" |
+| `stop` | a stall while past the budget: the brief's, else the type's soft limit (`soft.agent.<type>` × `STACK_SOFT_LIMIT_SCALE`; `0` = none) | "Early-stop check … return STATUS: partial with the failing command …" |
 | `recovered` | a successful write or delegation after the stall | nothing |
 | `first_write` | the run's first call of Edit, Write, NotebookEdit, MultiEdit, Agent, Task or SendMessage (by tool name, failed or not; shell commands do not count); the row adds `at_call`, the API call that made it (1 = the first), so `at_call - 1` calls explored before the run acted | nothing |
 

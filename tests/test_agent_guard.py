@@ -2106,10 +2106,11 @@ def test_soft_agent_limit_scale_and_unlimited_types(env, sess):
                                extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0")))[1] is None
     assert "soft limit for scout: 390,000" in soft_out(
         budget_run(subagent_ev(s, main, "S1", "scout"), env, extra=SHIPPED))[1]
-    # the orchestrator has no per-agent limit (the prompt limit, 80 at this scale, still applies)
+    # the orchestrator's per-agent limit (4,700,000; 4 at this scale) and the prompt limit (140 at
+    # this scale while an orchestrator runs) both warn
     ctx = soft_out(budget_run(subagent_ev(s, main, "O1", "orchestrator"), env,
                               extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.000001")))[1]
-    assert "for this prompt" in ctx and "for this run" not in ctx
+    assert "for this prompt" in ctx and "for this run" in ctx
 
 
 def test_soft_prompt_limit_once_per_human_prompt(env, sess):

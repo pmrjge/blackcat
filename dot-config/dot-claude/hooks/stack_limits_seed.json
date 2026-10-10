@@ -105,7 +105,7 @@
   "soft.agent.ninja-coder": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 61000000, "unit": "ctx"},
   "soft.agent.node-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 61000000, "unit": "ctx"},
   "soft.agent.oracle": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 510000, "unit": "ctx"},
-  "soft.agent.orchestrator": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": null, "unit": "ctx"},
+  "soft.agent.orchestrator": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 4700000, "unit": "ctx"},
   "soft.agent.plan-reviewer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 15000000, "unit": "ctx"},
   "soft.agent.planner": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 17000000, "unit": "ctx"},
   "soft.agent.procedural-3d-ui": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 37000000, "unit": "ctx"},

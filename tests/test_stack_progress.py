@@ -304,7 +304,7 @@ def test_stop_needs_the_budget_and_fires_once():
 
 
 def test_no_gate_no_stop():
-    st = stalled_state()                    # an orchestrator: no brief budget, no soft limit
+    st = stalled_state()                    # no brief budget, no soft limit (equilibrium)
     assert [s for s, _b, _n in sp.evaluate(st, 10 ** 12, 999, None)] == ["stall"]
 
 

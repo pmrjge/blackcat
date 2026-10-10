@@ -75,7 +75,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -128,7 +128,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 120,
    "n_seg": 4,
    "n_agents": 3,
@@ -181,7 +181,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 60,
    "n_seg": 0,
    "n_agents": 0,
@@ -234,7 +234,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -287,7 +287,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 59000000,
    "maxTurns": 199,
    "n_seg": 36,
    "n_agents": 17,
@@ -393,7 +393,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 17000000,
    "maxTurns": 120,
    "n_seg": 5,
    "n_agents": 5,
@@ -446,7 +446,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 28000000,
    "maxTurns": 170,
    "n_seg": 7,
    "n_agents": 5,
@@ -499,7 +499,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -552,7 +552,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 43000000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -605,7 +605,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 60000000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -658,7 +658,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -711,7 +711,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 60000000,
    "maxTurns": 140,
    "n_seg": 0,
    "n_agents": 0,
@@ -764,7 +764,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -817,7 +817,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 100,
    "n_seg": 0,
    "n_agents": 0,
@@ -870,7 +870,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -923,7 +923,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 450000,
+   "soft_limit": 850000,
    "maxTurns": 40,
    "n_seg": 3,
    "n_agents": 2,
@@ -976,7 +976,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1029,7 +1029,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1082,7 +1082,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1135,7 +1135,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1188,7 +1188,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1241,7 +1241,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 80,
    "n_seg": 0,
    "n_agents": 0,
@@ -1294,7 +1294,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1347,7 +1347,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1400,7 +1400,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -1453,7 +1453,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 60000000,
    "maxTurns": 350,
    "n_seg": 6,
    "n_agents": 1,
@@ -1506,7 +1506,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 100,
    "n_seg": 0,
    "n_agents": 0,
@@ -1559,7 +1559,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 450000,
+   "soft_limit": 680000,
    "maxTurns": 60,
    "n_seg": 0,
    "n_agents": 0,
@@ -1612,7 +1612,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 60000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -1665,7 +1665,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -1718,7 +1718,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1771,7 +1771,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4700000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -1824,7 +1824,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 300,
    "n_seg": 0,
    "n_agents": 0,
@@ -1877,7 +1877,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -1930,7 +1930,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 450000,
+   "soft_limit": 510000,
    "maxTurns": 12,
    "n_seg": 0,
    "n_agents": 0,
@@ -1983,7 +1983,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": null,
+   "soft_limit": 4700000,
    "maxTurns": 200,
    "n_seg": 46,
    "n_agents": 2,
@@ -2036,7 +2036,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 15000000,
    "maxTurns": 90,
    "n_seg": 0,
    "n_agents": 0,
@@ -2089,7 +2089,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 17000000,
    "maxTurns": 90,
    "n_seg": 2,
    "n_agents": 2,
@@ -2142,7 +2142,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 17000000,
    "maxTurns": 80,
    "n_seg": 0,
    "n_agents": 0,
@@ -2195,7 +2195,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 45000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -2248,7 +2248,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 160,
    "n_seg": 0,
    "n_agents": 0,
@@ -2301,7 +2301,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 17000000,
    "maxTurns": 130,
    "n_seg": 4,
    "n_agents": 4,
@@ -2354,7 +2354,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 190,
    "n_seg": 0,
    "n_agents": 0,
@@ -2407,7 +2407,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -2513,7 +2513,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 8700000,
+   "soft_limit": 20000000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -2566,7 +2566,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 60000000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -2619,7 +2619,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 42000000,
    "maxTurns": 150,
    "n_seg": 0,
    "n_agents": 0,
@@ -2672,7 +2672,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 26000000,
+   "soft_limit": 30000000,
    "maxTurns": 140,
    "n_seg": 6,
    "n_agents": 5,
@@ -2725,7 +2725,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 19000000,
+   "soft_limit": 61000000,
    "maxTurns": 170,
    "n_seg": 0,
    "n_agents": 0,
@@ -2778,7 +2778,7 @@
     "rewrite": "min(cache_creation, prior_peak)",
     "frac": 0.986
    },
-   "soft_limit": 3100000,
+   "soft_limit": 4300000,
    "maxTurns": 80,
    "n_seg": 2,
    "n_agents": 1,

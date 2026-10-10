@@ -5842,8 +5842,9 @@ def budget_reason(kind, span, used, var, cap, lim, ev):
 # sessions by tests/derive_thresholds.py: soft = p90 of healthy runs x 1.25-1.5, floor 2 x median,
 # two significant figures, per type when it has >= 5 healthy segments from >= 3 agents, else per pool
 # of comparable types. Every subagent type is listed (self-test: SOFT_LIMITS covers AGENTS); None =
-# no per-agent limit (orchestrator: short relays, too few runs to derive one; blackcat: the main
-# thread, covered by the prompt limit). Unknown types get none.
+# no per-agent limit (blackcat: the main thread, covered by the prompt limit). Unknown types get
+# none. The orchestrator had none until 2026-10-10 (short relays, too few runs to derive one); its
+# 4,700,000 is user-set, the wrap-up warning before its hard.agent cap (9,300,000).
 # STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
 # hard budgets and the MCP call cap are independent of it.
 SOFT_PROMPT_CTX = 50000000
@@ -5890,8 +5891,10 @@ SOFT_LIMITS = {
     "image-director": _SOFT_ARTIFACT,
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
     "rigger-animator": _SOFT_ARTIFACT, "sculptor-painter": _SOFT_ARTIFACT,
+    # coordinator: user-set on 2026-10-10 (the value frozen in live.json)
+    "orchestrator": 4700000,
     # no per-agent limit
-    "orchestrator": None, "blackcat": None, "equilibrium": None,
+    "blackcat": None, "equilibrium": None,
 }
 _SOFT_NOTE = []     # the warning queued for this process's PreToolUse output (emit, soft_flush)
 SOFT_WRAP_UP = ("Wrap up: finish the current step, return STATUS: partial with what is done and "
@@ -13224,8 +13227,8 @@ def budget_self_test():
 
 def soft_self_test():
     """Soft limits: every agent type has an entry; a run's segment counts only calls after its
-    start; soft_check warns at the limit, once per segment and once per prompt, never for the
-    orchestrator's own run, scaled by STACK_SOFT_LIMIT_SCALE (0 = off); a running orchestrator
+    start; soft_check warns at the limit, once per segment and once per prompt, never for a type
+    without one (equilibrium), scaled by STACK_SOFT_LIMIT_SCALE (0 = off); a running orchestrator
     raises the prompt limit to SOFT_PROMPT_CTX_BY_TYPE's value."""
     import shutil
     import tempfile
@@ -13233,9 +13236,9 @@ def soft_self_test():
     if set(SOFT_LIMITS) != set(AGENTS):
         problems.append("SOFT_LIMITS != AGENTS: %s" % sorted(set(SOFT_LIMITS) ^ set(AGENTS)))
     unlimited = sorted(t for t, v in SOFT_LIMITS.items() if v is None)
-    if unlimited != ["blackcat", "equilibrium", "orchestrator"] or any(  # coordinators: no per-agent limit
+    if unlimited != ["blackcat", "equilibrium"] or any(  # the main thread, the eq leader: no per-agent limit
             v is not None and (not isinstance(v, int) or v <= 0) for v in SOFT_LIMITS.values()):
-        problems.append("SOFT_LIMITS: only blackcat, equilibrium and orchestrator may be unlimited (%s)"
+        problems.append("SOFT_LIMITS: only blackcat and equilibrium may be unlimited (%s)"
                         % unlimited)
     saved = os.environ.get("STACK_SOFT_LIMIT_SCALE")
     tmp = tempfile.mkdtemp(prefix="agent-guard-soft-")
@@ -13272,7 +13275,8 @@ def soft_self_test():
                  ("0", st(lim * 9), scout, False), ("2", st(lim * 2 - 1), scout, False),
                  ("2", st(lim * 2), scout, True),
                  ("1", st(lim), {"agent_id": "a1", "agent_type": "Scout"}, True),
-                 ("1", st(0), {"agent_id": "o1", "agent_type": "orchestrator"}, False),
+                 ("1", st(0), {"agent_id": "o1", "agent_type": "orchestrator"}, True),
+                 ("1", st(0), {"agent_id": "o1", "agent_type": "equilibrium"}, False),
                  ("1", st(0, SOFT_PROMPT_CTX - 1), {}, False),
                  ("1", st(0, SOFT_PROMPT_CTX), {}, True), ("0", st(0, SOFT_PROMPT_CTX * 9), {},
                                                            False),
