@@ -1051,8 +1051,9 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
   refuses and prints the commands that produce it. `--eq-container-profiles=LIST` adds toolchain images to the default `core`
   (`rust` and `haskell` are deferred and refused). Every image is built on the digest-pinned distroless `cc` base or `scratch`,
   with no Debian runtime, apt or package manager inside (static bash, jq and busybox; no perl). Until the maintainer resolves
-  the last placeholder pins (the three bash hashes: `bash lib/eq-container/build.sh --resolve-tools` prints them, then
-  `--resolve-tools --write-pin`), `core` stops with a warning ("a pin ... is still a placeholder").
+  the last placeholder pins (the three bash hashes: `bash lib/eq-container/repro-check.sh` builds them several times and
+  must say `REPRODUCIBLE`, then `build.sh --resolve-tools --write-pin` pins them), `core` stops with a warning ("a pin ... is
+  still a placeholder").
   `STACK_EQ_CONTAINER_SET=full` (the former Debian image) was removed and skips the step with a note before any question.
   A verified install writes `EQ_ISOLATION=container` and
   `EQ_IMAGE=eq.invalid/<name>:<tag>@sha256:<digest>` into `stack.env` (a value you set stays).
@@ -1078,11 +1079,14 @@ installer deliberately does not fill them: it verifies against recorded pins, an
 would defeat that check. Resolve them once, from a normal terminal outside any agent sandbox (network and GPG needed):
 
 ```sh
-bash lib/eq-container/build.sh --resolve-tools              # prints the three values; review them
-bash lib/eq-container/build.sh --resolve-tools --write-pin  # writes them into PINS
-git diff lib/eq-container/PINS                              # review, then commit
+bash lib/eq-container/repro-check.sh                        # 3 builds; the last line must be REPRODUCIBLE x3
+bash lib/eq-container/build.sh --resolve-tools --write-pin  # builds nothing; pins the agreeing values
+git diff lib/eq-container                                   # PINS, Dockerfile.minimal, TOOLS.toml: review, commit
 ./install.sh --with-eq-container
 ```
+
+`DIFFERS` instead of `REPRODUCIBLE` means the bash build is not reproducible yet: `--write-pin` refuses, and
+the report `repro-check.sh` names holds the differing bytes, strings and build stages.
 
 If you do not need equilibrium containers, ignore the WARN.
 

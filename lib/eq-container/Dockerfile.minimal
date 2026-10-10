@@ -35,9 +35,9 @@ ARG JQ_SHA256=8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309
 ARG BASH_BASELINE=5.3
 ARG BASH_PATCHLEVEL=20
 ARG BASH_GPG_FPR=7C0135FB088AAF6C66C650B9BB5869F064EA74AB
-ARG BASH_SRC_SHA256=UNSET
-ARG BASH_PATCHES_SHA256=UNSET
-ARG BASH_BIN_SHA256=UNSET
+ARG BASH_SRC_SHA256=0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+ARG BASH_PATCHES_SHA256=51df03a9d332cc2a069701a0c786b01632b1726a106a1af7a13cf6210c205e64
+ARG BASH_BIN_SHA256=e91998f0a96f92fa95ab42bf6d3b3f71c58b1b2f2e67a87d9e0ef0836d015bef
 
 # ---------------------------------------------------------------- the final base, also read by the assemble stages
 FROM ${DISTROLESS_CC} AS distroless-cc
@@ -125,7 +125,10 @@ RUN set -eux; cd /opt/eq/stack_mathlib && lake env printenv LEAN_PATH > /opt/eq/
 
 # ---------------------------------------------------------------- static GNU bash from the GPG-signed source (USER decision 1)
 # The ONE stage with a package manager: apk (signature-checked by apk, floating within Alpine 3.24), which is why the built
-# binary is pinned (BASH_BIN_SHA256). Discarded: only /opt/eq-bash-out/bin/bash leaves it.
+# binary is pinned (BASH_BIN_SHA256). Discarded: only /opt/eq-bash-out/bin/bash leaves it. The build is made reproducible by
+# tc/build-bash.sh itself (fixed build path /build, SOURCE_DATE_EPOCH, TZ/LC_ALL, prefix maps, no build-id, make -j1, full strip):
+# lib/eq-container/repro-check.sh builds the bash-report stage N times and compares the binaries; pin only after it says
+# REPRODUCIBLE. The apk package versions are printed as `DIAG apk` lines and are NOT pinned (a known open source of drift).
 FROM ${MUSL_BUILDER_IMAGE} AS bash-builder
 RUN apk add --no-cache build-base bison gnupg curl
 COPY tc/build-bash.sh /opt/eq-bash/build-bash.sh
@@ -147,6 +150,7 @@ ARG BASH_GPG_FPR
 ARG BASH_SRC_SHA256
 ARG BASH_PATCHES_SHA256
 ARG BASH_BIN_SHA256
+ARG BASH_REPRO_DUMP=0
 RUN sh /opt/eq-bash/build-bash.sh resolve /tmp/eq-bash-report
 
 # ---------------------------------------------------------------- prep: everything the assemble stages read

@@ -56,7 +56,8 @@
 # Values: the extension entries were read from upstream on 2026-10-05 by the researcher (TOOLCHAINS.md in eq-toolchains/); the
 # core entries on 2026-10-06 (DESIGN_DISTROLESS.md section 4; busybox, jq and uv re-downloaded and recomputed by the implementing
 # agent). Each entry's checksum_source says which upstream file the hash came from; the core entries agree with PINS (build.sh
-# --check and verify-tools.sh compare them). The bash pins wait for the signature-checked first build: build.sh --resolve-tools.
+# --check and verify-tools.sh compare them). The bash pins wait for signature-checked builds that agree: repro-check.sh, then
+# build.sh --resolve-tools --write-pin.
 
 # ===================================================================================================== core tools
 [[tool]]
@@ -140,18 +141,18 @@ smoke = ["busybox", "true"]
 name = "bash"
 version = "5.3.20"
 url = "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz"
-sha256 = "PLACEHOLDER"
-file_sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
+sha256 = "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+file_sha256 = "e91998f0a96f92fa95ab42bf6d3b3f71c58b1b2f2e67a87d9e0ef0836d015bef"
+checksum_source = "GNU bash-5.3.tar.gz and patches 001-020 GPG-verified against the primary key 7C0135FB088AAF6C66C650B9BB5869F064EA74AB in the bash-report stage, then hashed (build.sh --resolve-tools --write-pin, 2026-10-10, 3 agreeing builds of one reproducible recipe); the binary hash is that recipe's output"
 linkage = "static"
 provenance = "built-from-source"
 recipe = "tc/build-bash.sh"
-recipe_sha256 = "ac1c2aba72ac882410b30125cab3b8ec4d1fe33e93a70dc236294ba1c39ce15c"
+recipe_sha256 = "b57b9900ec87774591624bdf01ccf3d65e7346e1530e4adfda2246aa2a9cbf6d"
 role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "GPL-3.0-or-later"
-notes = "USER decision 1 (2026-10-06): static GNU bash 5.3 with the official patches bash53-001 to bash53-020 (020 dated 2026-09-14, the last one listed on ftp.gnu.org/gnu/bash/bash-5.3-patches/ read 2026-10-06; the official bash image builds 5.3.20 too), built against musl in the Alpine stage of Dockerfile.minimal by tc/build-bash.sh after the tarball and every patch verify with GPG against the primary key 7C0135FB088AAF6C66C650B9BB5869F064EA74AB (Chet Ramey; the key docker-library's bash image verifies with). sha256 = BASH_SRC_SHA256 (the tarball), file_sha256 = BASH_BIN_SHA256 (the built binary); BASH_PATCHES_SHA256 is in PINS. Not derived yet: ftp.gnu.org and the keyservers are outside the agent sandbox; from a normal terminal: bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin. check_lean.sh (hash-frozen) is run as bash check_lean.sh; the probes use bash -c, /dev/tcp and ulimit -u"
+notes = "USER decision 1 (2026-10-06): static GNU bash 5.3 with the official patches bash53-001 to bash53-020 (020 dated 2026-09-14, the last one listed on ftp.gnu.org/gnu/bash/bash-5.3-patches/ read 2026-10-06; the official bash image builds 5.3.20 too), built against musl in the Alpine stage of Dockerfile.minimal by tc/build-bash.sh after the tarball and every patch verify with GPG against the primary key 7C0135FB088AAF6C66C650B9BB5869F064EA74AB (Chet Ramey; the key docker-library's bash image verifies with). sha256 = BASH_SRC_SHA256 (the tarball), file_sha256 = BASH_BIN_SHA256 (the built binary); BASH_PATCHES_SHA256 is in PINS. Not derived yet: ftp.gnu.org and the keyservers are outside the agent sandbox; from a normal terminal: bash lib/eq-container/repro-check.sh (several builds; it must say REPRODUCIBLE), then bash lib/eq-container/build.sh --resolve-tools --write-pin (builds nothing, pins the values the agreeing reports hold). check_lean.sh (hash-frozen) is run as bash check_lean.sh; the probes use bash -c, /dev/tcp and ulimit -u"
 dest = "/opt/eq/bin"
 archive = "tar.gz"
 files = ["/opt/eq/bin/bash"]

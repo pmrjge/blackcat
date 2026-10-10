@@ -214,7 +214,7 @@ check_manifest() {
     for k in version url sha256 file_sha256 checksum_source linkage provenance archive; do
       pv=$(tm_get tool "$t" "$k")
       if [ "$pv" = PLACEHOLDER ]; then
-        if [ "$t" = bash ]; then pending "tool $t: $k is PLACEHOLDER (from a normal terminal: bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin)"
+        if [ "$t" = bash ]; then pending "tool $t: $k is PLACEHOLDER (from a normal terminal: bash lib/eq-container/repro-check.sh, then bash lib/eq-container/build.sh --resolve-tools --write-pin)"
         else pending "tool $t: $k is PLACEHOLDER (pending its upstream checksum file: TOOLS.toml header)"; fi
       fi
     done
