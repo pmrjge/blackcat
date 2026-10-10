@@ -90,7 +90,7 @@ SEARCH_BUDGET = 1_500_000                  # state expansions before exact searc
 SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md", "mcp_servers.md",
                "stack.env.example", "lib/stack.env.example", "install.sh")
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
-                "data-engineer", "devops-engineer", "doc-specialist", "explore",
+                "data-engineer", "devops-engineer", "doc-specialist", "explore", "git-engineer",
                 "mcp-broker", "scout", "test-engineer", "toolsmith", "verifier"}
 ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}

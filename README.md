@@ -5,7 +5,7 @@
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="assets/README.md">CC BY 4.0</a></sub></p>
 
-A multi-agent configuration for Claude Code: BlackCat on the main thread, 56 specialists, 220 on-demand
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 58 specialists, 220 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
 agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
 design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
@@ -65,8 +65,8 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 56 specialist
-agents (57 agent files). 220 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 58 specialist
+agents (59 agent files). 220 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
@@ -226,9 +226,10 @@ job and escalates on failure or on a harder deliverable.
 | Domain builds | 28 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
 | Narrow jobs | test-engineer, build-fixer | leaves (coder is one too) |
+| Git operations | git-engineer (Sonnet · xhigh · 80, a leaf) | worktree layout, pre-flight, landing order of stacked branches, fast-forwards, rescue refs, checking "merged"; conflicts that need code judgement → main-coder |
 | Dependencies | toolsmith (Sonnet · medium · 60, a leaf) | installs, upgrades and removes programs and packages through `bin/stack-install` only: vetted, pinned, ledgered; anything else asks you ([toolsmith](#toolsmith-the-dependency-installer)) |
 
-Every agent names `opus` or `sonnet` (43 and 14; `tests/lint_agents.py` rejects anything else), and the
+Every agent names `opus` or `sonnet` (43 and 16; `tests/lint_agents.py` rejects anything else), and the
 IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by
 design, not measured**: no cost is recorded for any run (baseline, §10).
 
@@ -404,7 +405,7 @@ whether the difference is enforced and tested, or a design intent.
 
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
-| Delegation | Built-in general-purpose, Explore and Plan subagents | 56 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 58 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
 | Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 8, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
@@ -489,7 +490,7 @@ The tables are generated from `dot-config/dot-claude/agents/*.md` frontmatter. "
 agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
-<summary>Roster tables: 57 agents by family (model, effort, maxTurns, inline MCP)</summary>
+<summary>Roster tables: 58 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (19)
 
@@ -560,13 +561,14 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 | vfx-td | Opus 5.5 · high | 170 | — | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD, Solaris/Karma |
 | writer | Opus 5.5 · medium | 80 | — | Writes and edits prose |
 
-#### Helpers (3)
+#### Helpers (4)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
 | test-engineer | Sonnet 5.5 · medium | 100 | — | Writes and repairs tests (unit, property, fuzz, e2e) |
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
 | toolsmith | Sonnet 5.5 · medium | 60 | — | Installs and manages CLI tools and packages for other agents: vetted, pinned, ledgered |
+| git-engineer | Sonnet 5.5 · xhigh | 80 | — | Repository operations: worktree layout, pre-flight, landing order, fast-forwards, rescue refs; no file edits |
 
 </details>
 
@@ -1182,7 +1184,7 @@ Claude Code sandbox refuses parts of it, so run it from your own terminal.
 The counts in this README come from the files:
 
 ```bash
-ls dot-config/dot-claude/agents/*.md | wc -l                             # 57 agents
+ls dot-config/dot-claude/agents/*.md | wc -l                             # 59 agents
 ls dot-config/dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
 ls dot-config/dot-claude/skills/*/references/*.md | wc -l                # 182 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-config/dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
@@ -1294,7 +1296,7 @@ A main thread without ExitPlanMode leaves Plan with Shift+Tab or `--permission-m
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 46 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 48 agents that write files or git state (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |

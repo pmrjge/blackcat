@@ -50,6 +50,7 @@
   "explore": {"sonnet": "low", "opus": "low", "fable": "low"},
   "frontend-engineer": {"sonnet": "high", "opus": "medium", "fable": "medium"},
   "game-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
+  "git-engineer": {"sonnet": "xhigh", "opus": "xhigh", "fable": "xhigh"},
   "go-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
   "haskell-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
   "hpc-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},

@@ -73,7 +73,7 @@ TIER = {
                 "rust-engineer go-engineer node-engineer jvm-engineer julia-engineer haskell-engineer "
                 "mobile-engineer game-engineer embedded-engineer hpc-engineer cuda-engineer mlx-engineer "
                 "dl-engineer ml-engineer llm-engineer robotics-engineer quantum-engineer biochem-engineer "
-                "security-engineer vfx-td mathematician procedural-3d-ui"),
+                "security-engineer vfx-td mathematician procedural-3d-ui git-engineer"),
 }
 TIER_OF = {t: k for k, v in TIER.items() for t in v.split()}
 

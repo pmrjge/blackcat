@@ -259,6 +259,9 @@ INSTALLER_TYPES = {"toolsmith"}
 # the equilibrium leader runs bin/stack-eq (outside the sandbox, ticketed) and bin/stack-eq-check through
 # Bash alone, as toolsmith does: same exception (docs/RUNTIME_EQUILIBRIUM.md §2.1)
 EQ_TYPES = {"equilibrium"}
+# git-engineer changes repositories through Bash alone (commits, worktrees, fast-forwards, rescue refs), no
+# Write/Edit: same exception, so as a builder it stays off the plan gate's safe list (PLAN_SAFE_TYPES)
+GIT_TYPES = {"git-engineer"}
 
 
 def permission_mode_problem(data):
@@ -273,8 +276,8 @@ def permission_mode_problem(data):
     mode = (get_inline(data, "permissionMode") or "").strip("\"'")
     flat, _ = get_tools(data)
     can_edit = not flat or bool(EDIT_TOOLS & set(flat))      # no tools: line = every tool
-    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES | EQ_TYPES and "Bash" in flat:
-        can_edit = True                                       # it installs software through Bash
+    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES | EQ_TYPES | GIT_TYPES and "Bash" in flat:
+        can_edit = True                                       # it installs software or writes git state through Bash
     if mode == "acceptEdits":
         return None if can_edit else (
             "permissionMode: acceptEdits on an agent without Write/Edit/NotebookEdit: a read-only agent "

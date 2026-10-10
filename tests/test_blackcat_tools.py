@@ -213,7 +213,7 @@ def test_prompt_says_delegate_only():
     body = re.sub(r"\s+", " ", text.split("\n---\n", 1)[1])
     assert "you only delegate" in body and "## Delegate only" in body
     assert "Bash, Write and Edit are not your tools (hook-enforced)" in body
-    assert "Merges, tests, commits, bookkeeping → main-coder" in body
+    assert "Tests, commits, bookkeeping → main-coder" in body and "merges → git-engineer" in body
     assert "Dispatch first: a prompt's Agent calls in one message, before any Read" in body
     assert "Hook caps per prompt: 24 tool calls, ≤ 3 Read." in body and "8 Agent" not in body
     assert "Every prompt gets a visible reply this turn" in body

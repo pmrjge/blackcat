@@ -357,7 +357,7 @@ AGENTS = [
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
     "biochem-engineer", "test-engineer", "build-fixer", "toolsmith", "equilibrium",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
-    "jvm-engineer", "node-engineer",
+    "jvm-engineer", "node-engineer", "git-engineer",
 ]
 # Claude Code's built-in types are not part of the stack: settings.json switches off Explore and
 # Plan (CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS; agents/explore.md replaces Explore, pinned to
@@ -367,7 +367,7 @@ AGENTS = [
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
-          "proof-checker", "test-engineer", "build-fixer", "coder", "toolsmith"]
+          "proof-checker", "test-engineer", "build-fixer", "coder", "toolsmith", "git-engineer"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -398,7 +398,7 @@ _BLACKCAT_ROW = [
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
     "biochem-engineer", "test-engineer", "build-fixer", "toolsmith", "equilibrium",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
-    "jvm-engineer", "node-engineer",
+    "jvm-engineer", "node-engineer", "git-engineer",
 ]
 # language experts (one per language family): spawned by blackcat, orchestrator, the coder escalation
 # chain and the domain experts whose code is mostly that language
@@ -512,6 +512,10 @@ POLICY = {
     # only bin/stack-install (no-push hook, toolsmith_command). Spawned by blackcat, orchestrator,
     # main-coder, ninja-coder and devops-engineer; web readers never reach it
     "toolsmith": [],
+    # repository operations (2026-10-10): layout, pre-flight, landing order, fast-forwards, rescue refs;
+    # one bounded git job, no delegation: conflicts go back as NEXT: main-coder. Spawned by blackcat and
+    # orchestrator
+    "git-engineer": [],
     # the equilibrium leader (2026-10-06): spawns the members of its run, one calibrated type
     "equilibrium": ["mathematician", "proof-checker", "main-coder", "coder",
                     "code-reviewer", "security-auditor", "researcher", "oracle", "data-scientist",
@@ -597,7 +601,7 @@ def generic_agent_reason(ev):
 
 # ---------------------------------------------------------------- the plan gate (SDK-3, decision (c))
 # Sessions start in plan mode (settings.json defaultMode), and a subagent runs in its own frontmatter
-# permissionMode (47 of 58 agents: acceptEdits). So while the CALLER is in plan mode, before the user
+# permissionMode (48 of 59 agents: acceptEdits). So while the CALLER is in plan mode, before the user
 # approves the plan (ExitPlanMode), it dispatches only PLAN_SAFE_TYPES; a builder, any Workflow (its
 # stages are agents) and the SendMessage resume of a finished builder are refused. Every caller, every
 # entrypoint (terminal, `claude -p`, every Agent SDK host). A project's .claude/agents may redefine a
@@ -5875,6 +5879,7 @@ SOFT_LIMITS = {
     "robotics-engineer": _SOFT_BUILDER, "quantum-engineer": _SOFT_BUILDER,
     "biochem-engineer": _SOFT_BUILDER, "security-engineer": _SOFT_BUILDER,
     "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": _SOFT_BUILDER,
+    "git-engineer": _SOFT_BUILDER,
     # analyst pool
     "planner": _SOFT_ANALYST, "plan-reviewer": _SOFT_ANALYST, "researcher": _SOFT_ANALYST,
     "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
@@ -13398,7 +13403,8 @@ def limits_self_test(agents_dir=None):
     if off:
         problems.append(f"limits: seed differs from the built-in fallback for {' '.join(off)}")
     if agents_dir:
-        off = sorted(a for a in subagents if agent_max_turns(a, agents_dir) != vs[f"turns.{a}"]["seed"])
+        off = sorted(a for a in subagents  # a type the seed lacks is reported above, not a KeyError
+                     if f"turns.{a}" in vs and agent_max_turns(a, agents_dir) != vs[f"turns.{a}"]["seed"])
         if off:
             problems.append(f"limits: turns seed != frontmatter maxTurns for {' '.join(off)}")
     saved = os.environ.get("XDG_STATE_HOME")

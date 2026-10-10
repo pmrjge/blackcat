@@ -18,6 +18,7 @@ Commands marked (tested) were run on Git 2.43; newer-only features name their mi
 | `references/worktrees.md` | one worktree per task, shared vs per-worktree state, Claude Code worktrees, merging back |
 | `references/history-edit.md` | amend/fixup/autosquash without an editor, `--onto`, conflicts, filter-repo secret removal |
 | `references/recovery.md` | reflog, ORIG_HEAD, lost commits and stashes (bisect: `debug-bisect-minimize`) |
+| `references/repo-ops.md` | worktree layout, pre-flight before a merge, landing order of stacked branches, rescue refs, verifying "merged" |
 | `references/large-repos.md` | LFS and model weights, blobless/sparse clones, submodules vs subtrees, `.gitattributes` |
 | `references/signing-hooks.md` | SSH signing, pre-commit, gitleaks |
 | `references/forge-clis.md` | using `gh`, `tea` or `fj` |
