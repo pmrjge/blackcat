@@ -66,9 +66,15 @@ CLAUDE_CONFIG_DIR (the login's keychain entry is named after it) and no edit of 
 E1, corrected for its rerun (envelope e3-2026-10-10): the 2026-10-10 control RAN under plan with only sandbox
 auto-allow off (auto semantics: the installed defaultMode auto and the CLI's useAutoModeDuringPlan default true;
 or the sandbox), so its rule legs read nothing. Every leg but as_installed now gets the explicit overlay
-E1_OVERLAYS["explicit"] (sandbox.autoAllowBashIfSandboxed false, useAutoModeDuringPlan false) laid over whatever
-settings the Session itself builds (a helper may set useAutoModeDuringPlan itself: the probe never depends on it);
-as_installed keeps the Session's own settings and records them; the optional plan_auto leg (useAutoModeDuringPlan
+E1_OVERLAYS["explicit"], the gate E1_GATE (stack_sdk.PLAN_GATE as sdk/plan-bash-gate ships it: useAutoModeDuringPlan
+false, sandbox.autoAllowBashIfSandboxed false), merged into whatever settings the Session itself builds (main's
+helper builds none: the overlay supplies the gate; the probe never depends on the helper's). A Session that already
+sends the gate is left untouched, so the control is then a plain Session("verifier"), host none, no overlay, no
+rule: the gate as shipped, read from the control at $0, no extra session (facts gate_shipped, gate_verdict: denied
+if the gate works). as_installed sends no --settings (the Session's gate stripped: the installed settings alone,
+the 2026-10-10 situation) and records what the Session built; a helper that refuses CLAUDE_CODE_SANDBOXED
+(sdk/env-channel, shipped with the gate) starts neither trusted leg (helper_refused, $0, E1bt unknown). The
+optional plan_auto leg (useAutoModeDuringPlan
 true, sandbox auto-allow off) records the classifier's effect on purpose, only if the cap still holds a whole
 session after as_installed. A rule leg whose control RAN reads "uncontrolled", its reason in the facts. No leg
 starts with less than E1_SESSION_USD left (a leg cut by its budget before its call is decided measures nothing).
@@ -200,13 +206,19 @@ LEDGER_GLOB = "*.ledger.jsonl"
 IDENT_RX = re.compile(r"[\w.:@+-]{1,128}")           # a model, an agent name: what a fact may record
 CHILD_MAX_TURNS = 4                                 # the throwaway agents' frontmatter maxTurns
 CEILING_ENV = "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS"
-# E1's settings overlays, laid over the Session's own settings (stack_sdk.Session refuses a sandbox overlay through
-# its settings= parameter, so the probe's Session subclass lays it over build()'s options): "explicit" turns off both
-# ways the 2026-10-10 control ran without a rule (sandbox auto-allow, auto semantics under plan); "plan_auto"
-# turns the auto semantics on on purpose, the sandbox auto-allow still off
+# stack_sdk.PLAN_GATE as shipped (sdk/plan-bash-gate): what a host-none Session sends as --settings. A copy, not
+# read from the installed helper (main's has none, and the probe never depends on it); the fake suite pins the two
+# equal. It turns off both ways the 2026-10-10 control ran without a rule (sandbox auto-allow, auto semantics under
+# plan)
+E1_GATE: dict[str, Any] = {"useAutoModeDuringPlan": False, "sandbox": {"autoAllowBashIfSandboxed": False}}
+# E1's settings overlays, merged into the Session's own settings (stack_sdk.Session refuses every settings= overlay
+# under host none, so the probe's Session subclass lays it over build()'s options): "explicit" is the gate itself
+# (a Session that already sends it is left untouched: that leg then runs the Session exactly as shipped);
+# "plan_auto" turns the auto semantics on on purpose, the sandbox auto-allow still off. A leg with no overlay
+# (None, as_installed) gets no --settings at all: the gate stripped, the installed settings alone
 E1_OVERLAYS: dict[str, dict[str, Any]] = {
-    "explicit": {"sandbox": {"autoAllowBashIfSandboxed": False}, "useAutoModeDuringPlan": False},
-    "plan_auto": {"sandbox": {"autoAllowBashIfSandboxed": False}, "useAutoModeDuringPlan": True}}
+    "explicit": E1_GATE,
+    "plan_auto": {"useAutoModeDuringPlan": True, "sandbox": {"autoAllowBashIfSandboxed": False}}}
 STACK_RULE_CMD = "just -f tools/instructor/justfile --list"
 STACK_RULE = "Bash(%s)" % STACK_RULE_CMD           # an exact Bash allow rule of the stack's settings.json
 # why E1c's leg is not run: agent_guard (READONLY_TYPES) refuses the verifier's `just` before any rule is read,
@@ -233,6 +245,9 @@ UNVERIFIED = (
     "that still runs reads uncontrolled), and that the setting has that name in the installed CLI",
     "that no E1 turn costs more than E1_TURN_USD ($0.065; measured 2026-10-10: the first turn $0.0611, whole "
     "sessions $0.0611-0.0808): the e3 envelope's margin for one turn past a session's cap",
+    "that the control's probe options (temp cwd, max_turns, strict MCP, the probe's disallowed tools, its own "
+    "XDG_STATE_HOME, the stderr callback) change nothing the shipped gate decides: gate_verdict reads that control "
+    "as a plain Session(\"verifier\"), host none",
 )
 ANSWERS = ("yes", "no", "unknown", "invalid", "dropped (untrusted)", "terminal", "uncontrolled", "trust unproven")
 DECISIONS = ("allow", "deny", "ask", "defer")
@@ -512,8 +527,9 @@ class Ctx(base.Ctx):
         """A stack_sdk.Session on the INSTALLED stack, host none (unattended: plan, --permission-prompts none),
         main thread the E1_AGENT agent (Session("verifier"): Bash, no permissionMode; its own model, sonnet,
         decides: no model= is passed, and an agent's frontmatter model beat model= in the first run). `overlay`
-        names an E1_OVERLAYS entry laid over the settings the Session builds (None: the Session's own, as
-        installed); the session's settings, as sent, are kept as s.probe_settings (settings_facts). `usd` is the
+        names an E1_OVERLAYS entry merged into the settings the Session builds (None: no --settings, as
+        installed); the session's settings as sent are kept as s.probe_settings, the Session's own as
+        s.probe_session_settings (settings_facts), and whether it sent them untouched as s.probe_untouched. `usd` is the
         session's cap and the least it starts with (CapUsed below it). `env` is added to the session's (E1's
         trusted legs). No config_dir: Session would export CLAUDE_CONFIG_DIR, and CLI 2.1.287 names the keychain
         entry of the login after it whenever that variable is set (jF(): "Claude
@@ -541,6 +557,7 @@ class Ctx(base.Ctx):
         except ValueError as e:         # e.g. a helper that refuses CLAUDE_CODE_SANDBOXED (sdk/env-channel)
             raise HelperRefused(type(e).__name__) from e
         s.probe_settings, s.probe_key = settings_facts(opts.settings), key
+        s.probe_session_settings, s.probe_untouched = settings_facts(s.probe_own), opts.settings == s.probe_own
         self.reserve(key, opts)
         try:
             async with s:
@@ -552,12 +569,17 @@ class Ctx(base.Ctx):
 def probe_session_class(helper: Any) -> Any:
     class ProbeSession(helper.Session):
         overlay: str | None = "explicit"
+        probe_own: Any = None                   # the settings the Session itself built (its last build)
 
         def build(self, plan: bool) -> Any:
             o = super().build(plan)
-            if self.overlay is None:            # as installed: whatever the Session itself sends
+            self.probe_own = o.settings
+            if self.overlay is None:            # as installed: no --settings (the Session's gate stripped)
+                return dataclasses.replace(o, settings=None)
+            merged = merged_settings(o.settings, E1_OVERLAYS[self.overlay])
+            if json.loads(merged) == settings_object(o.settings):   # it already sends them: the Session as shipped
                 return o
-            return dataclasses.replace(o, settings=merged_settings(o.settings, E1_OVERLAYS[self.overlay]))
+            return dataclasses.replace(o, settings=merged)
     return ProbeSession
 
 
@@ -926,7 +948,8 @@ async def e1(c: Ctx) -> None:
              sandbox_enabled=inst["sandbox"].get("enabled"),
              sandbox_auto_allow=inst["sandbox"].get("autoAllowBashIfSandboxed"),
              installed_default_mode=inst["default_mode"],
-             installed_use_auto_mode_during_plan=inst["use_auto_mode_during_plan"])
+             installed_use_auto_mode_during_plan=inst["use_auto_mode_during_plan"],
+             helper_plan_gate=None if (g := getattr(c.helper, "PLAN_GATE", None)) is None else g == E1_GATE)
     v: dict[str, str] = {}
     try:
         for i, (name, rule, overlay, trusted, optional) in enumerate(E1_LEGS):
@@ -958,6 +981,8 @@ async def e1(c: Ctx) -> None:
                 async with c.stack_session(cwd, msgs, usd=E1_SESSION_USD, overlay=overlay,
                                            env=dict(TRUST_ENV) if trusted else None, stderr=on_stderr, **kw) as s:
                     f.update({"%s_settings_%s" % (name, k): x for k, x in s.probe_settings.items()})
+                    f.update({"%s_session_settings_%s" % (name, k): x for k, x in s.probe_session_settings.items()})
+                    f[name + "_untouched"] = s.probe_untouched
                     out = await s.ask(PROMPTS["e1_bash"].format(command=command))
             except c.helper.StackNotLoaded as e:           # $0 so far for this leg, but booked at its cap
                 f["stack_not_loaded"], f["stack_not_loaded_leg"] = load_reason(e), name
@@ -1002,8 +1027,19 @@ def e1_answers(c: Ctx, v: dict[str, str]) -> None:
     show in permission_denials (calibrated); a denied repo rule with the trust warning on stderr is "dropped
     (untrusted)"; an undecided call or a leg not run (E1C_NOT_RUN) reads unknown. A leg that never started
     leaves its part to the run (skipped). plan_auto answers no part: plan_auto_effect (runs / denied) against
-    a denied control."""
+    a denied control. The shipped gate answers no part either: gate_shipped (the control's Session itself sent
+    useAutoModeDuringPlan false and sandbox.autoAllowBashIfSandboxed false, and the probe left its settings
+    untouched: that control IS a plain Session("verifier"), host none, no overlay, no rule) and gate_verdict (the
+    control's verdict then, "denied" if the gate works, "ran" if not; "not_shipped" when the Session sent no gate;
+    without the control's settings, its verdict or None)."""
     f, ans = c.facts, {"ran": "yes", "denied": "no"}
+    if "control_untouched" not in f:                    # the control never connected (refused, not loaded, cut)
+        f["gate_shipped"], f["gate_verdict"] = None, v.get("control")
+    else:
+        f["gate_shipped"] = shipped = f["control_untouched"] is True and (
+            f.get("control_session_settings_auto_mode_during_plan"),
+            f.get("control_session_settings_sandbox_auto_allow")) == (False, False)
+        f["gate_verdict"] = v.get("control") if shipped else "not_shipped"
     f["denials_calibrated"] = calibrated = v.get("control") == "denied" and f.get("control_denied") is True
     pa = v.get("plan_auto")
     f["plan_auto_effect"] = {"ran": "runs", "denied": "denied"}.get(pa or "") if v.get("control") == "denied" else None
@@ -1395,9 +1431,9 @@ def resume_refused(msgs: list[Any]) -> bool | None:
 # ---------------------------------------------------------------- the registry
 OBS_TOUCH = ("the marker that `sh <temp cwd>/.claude-work/e1.sh` (it touches the marker; Bash, main thread the "
              "verifier; ./.claude-work: the only scratch agent_guard gives a read-only agent in a project) "
-             "creates; the explicit overlay (sandbox.autoAllowBashIfSandboxed false, useAutoModeDuringPlan false) "
-             "laid over the Session's own settings; the leg's validity: the transcript's agent setting, Bash in the "
-             "init tools, the init model")
+             "creates; the explicit overlay, the gate (sandbox.autoAllowBashIfSandboxed false, useAutoModeDuringPlan "
+             "false), merged into the Session's own settings; the leg's validity: the transcript's agent setting, "
+             "Bash in the init tools, the init model")
 READ_VALID = "invalid: the leg's (or its control's) main thread was not the verifier with Bash and a recorded model; "
 READ_RULE = (READ_VALID + "uncontrolled: the call was decided but the control (the same call, no rule, the same "
              "overlay) ran, so the rule's effect is not measured (its reason in the fact <part>_uncontrolled_reason); "
@@ -1409,8 +1445,10 @@ READ_TRUSTED = (READ_REPO + "; trust unproven: the trusted leg's stderr still ha
                 "trust the workspace; its control is then not run, $0)")
 READ_INSTALLED = (READ_VALID + "yes: the marker exists; no: the call was made, no marker; unknown: no such call, "
                   "the call was never decided (no tool result), a PreToolUse hook decided it, or the session was not "
-                  "in plan (facts: control_verdict, the same call under the explicit overlay; as_installed_settings_*, "
-                  "what the Session itself sent; plan_auto_effect, the same call with useAutoModeDuringPlan on)")
+                  "in plan (facts: control_verdict, the same call under the gate; as_installed_session_settings_*, "
+                  "what the Session itself built and the leg did not send; gate_verdict, the control's verdict when "
+                  "the Session itself sent the gate: the gate as shipped; plan_auto_effect, the same call with "
+                  "useAutoModeDuringPlan on)")
 PROBES = [
     Probe("E1", "E1E2", 0.40, 1200, 3, (
         Part("E1a", "Host none + plan + --permission-prompts none (stack_sdk.Session(\"verifier\"), installed stack): "
@@ -1427,9 +1465,9 @@ PROBES = [
              "and answers unknown); when run: " % E1C_NOT_RUN + READ_VALID + "yes: called, not denied; no: denied; "
              "unknown: no such call, the call was never decided, a hook decided it, the rule is not installed, or the "
              "control's denial did not show in permission_denials (uncalibrated)"),
-        Part("E1d", "Same with no rule at all and the settings as installed (no overlay: the Session's own settings): "
-                    "does the command run?",
-             "the touch marker, no overlay; the leg runs last of the five, only with a whole session's cap left",
+        Part("E1d", "Same with no rule at all and the settings as installed (no --settings: the Session's own "
+                    "PLAN_GATE stripped): does the command run?",
+             "the touch marker, no --settings; the leg runs last of the five, only with a whole session's cap left",
              READ_INSTALLED)), e1, est_usd=(0.31, 0.40)),
     Probe("E2", "E1E2", 0.60, 900, 4, (
         Part("E2a", "CLAUDE_CODE_SESSION_KIND=bg with CLAUDE_BG_SESSION_PERMISSION_RULES {allow, deny, addDirs} in "
@@ -1782,13 +1820,15 @@ def envelope_event(probes: list[Probe], today: str, prior: dict[str, Any] | None
                       if k in ("ledgers", "reported", "unreported", "used", "left")}}
 
 
-def e1_schedule(cap: float, per_session: float, trust_warning: bool) -> tuple[list[str], float]:
+def e1_schedule(cap: float, per_session: float, trust_warning: bool,
+                trust_refused: bool = False) -> tuple[list[str], float]:
     """The E1 legs that would start, in order, under E1's cap `cap` if every session cost `per_session`
     (the plan's arithmetic, e1()'s rules: no leg below E1_SESSION_USD left, the optional leg skipped, a required
-    one ending the probe; trusted_control not run after a trust warning) and what they would spend."""
+    one ending the probe; trusted_control not run after a trust warning; neither trusted leg when the helper
+    refuses CLAUDE_CODE_SANDBOXED, `trust_refused`: sdk/env-channel) and what they would spend."""
     spent, started = 0.0, []
-    for name, rule, _overlay, _trusted, optional in E1_LEGS:
-        if rule == "stack" and E1C_NOT_RUN or name == "trusted_control" and trust_warning:
+    for name, rule, _overlay, trusted, optional in E1_LEGS:
+        if rule == "stack" and E1C_NOT_RUN or name == "trusted_control" and trust_warning or trusted and trust_refused:
             continue
         if math.floor((cap - spent) * 10_000 + 1e-5) / 10_000 < E1_SESSION_USD:
             if optional:
@@ -1825,11 +1865,18 @@ def print_plan(probes: list[Probe], consent: str | None, prior: dict[str, Any] |
             run = "not run, $0 (E1C_NOT_RUN)" if rule == "stack" and E1C_NOT_RUN else (
                 "only without the trust warning on trusted_repo_rule" if name == "trusted_control" else
                 "optional, only with a whole session left" if optional else "")
-            print("  %-18s overlay %-9s %s" % (name, overlay or "installed", run))
+            print("  %-18s settings %-9s %s" % (name, overlay or "none", run))
+        print("  (explicit: the gate merged into the Session's own settings, which a Session shipping PLAN_GATE "
+              "already are: sent untouched; none: no --settings, the gate stripped)")
         for warn in (True, False):
             started, spent = e1_schedule(e1cap, E1_EST_USD, warn)
             print("  at the mean, %s the trust warning: %s start, $%.4f" % (
                 "with" if warn else "without", ", ".join(started), spent))
+        started, spent = e1_schedule(e1cap, E1_EST_USD, True, True)
+        print("  at the mean, a helper refusing CLAUDE_CODE_SANDBOXED (sdk/env-channel, shipped with PLAN_GATE): "
+              "%s start, $%.4f" % (", ".join(started), spent))
+        print("  the gate as shipped: read from the control, $0, no extra session (gate_verdict denied: it works; "
+              "not_shipped: the installed helper sends no PLAN_GATE)")
     if env.overshoot_usd:
         print("worst case: the run's cap $%.2f plus one turn past the last session's cap ($%.3f: the CLI checks "
               "max_budget_usd after each turn; an earlier session's overshoot is in the reported spend the next "

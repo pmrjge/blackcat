@@ -2,7 +2,8 @@
 ledger check, the caps and the fail-closed cost book, the readings the second probe set added (E1's validity
 gate and trust split, E3d's terminal, E3P's E3c2a and E3e), and the E1 rerun's (sdk/probes-e3): the consent
 envelopes (e3-2026-10-10: its own ledgers, its total, E1 only, a one-turn margin), the explicit overlay, the
-uncontrolled reading, the whole-session reserve and trust unproven.
+uncontrolled reading, the whole-session reserve and trust unproven; and sdk/plan-bash-gate's (PLAN_GATE shipped):
+the gate as the explicit overlay, the control sent as shipped, as_installed stripped, the gate verdict.
 Each mutant is one or more exact text substitutions in a scratch copy of sdk_probes_e.py
 (beside a copy of sdk_probes.py, which it loads) under $TMPDIR; sdk_probes_e.py itself is never written. Its
 NAMED test in tests/test_sdk_probes_e_fake.py runs against that copy (SDK_PROBES_E_SCRIPT) and must FAIL (its id
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -58,6 +60,12 @@ T_RESERVE = "test_no_e1_leg_starts_below_a_whole_session"
 T_E3TURN = "test_the_e3_gate_keeps_one_turn_for_the_last_session"
 T_SPAWN = "test_every_session_is_booked_in_the_ledger_before_it_spawns"
 T_NORESULT = "test_an_e1_leg_without_a_result_is_booked_at_its_cap_and_one_turn"
+T_PIN = "test_the_probes_gate_is_the_shipped_plan_gate"
+T_SHIPPED = "test_the_shipped_helper_runs_the_control_as_shipped_and_strips_the_gate_as_installed"
+T_FORM = "test_a_gate_sent_in_another_form_is_sent_untouched"
+T_GATEREAD = "test_the_gate_verdict_reading"
+E1GATE = ("E1_GATE: dict[str, Any] = {\"useAutoModeDuringPlan\": False, "
+          "\"sandbox\": {\"autoAllowBashIfSandboxed\": False}}\n")
 T_CHECKOUT = "test_a_paid_run_without_the_main_checkout_is_refused"
 PREVIEW = ("            s.overlay = overlay\n            opts = s.preview()          # the options it would connect with: "
            "a refusal may come here too\n        except ValueError as e:         # e.g. a helper that refuses "
@@ -318,13 +326,12 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
     ("N11", "the dry run's paid command lacks --envelope", T_E3DRY,
      [("\"\" if env.eid == LEGACY_ENVELOPE else \" --envelope \" + env.eid", "\"\"")]),
     ("O1", "the explicit overlay leaves useAutoModeDuringPlan on (2026-10-10's overlay)", T_AUTO,
-     [("    \"explicit\": {\"sandbox\": {\"autoAllowBashIfSandboxed\": False}, \"useAutoModeDuringPlan\": False},\n",
-       "    \"explicit\": {\"sandbox\": {\"autoAllowBashIfSandboxed\": False}},\n")]),
+     [(E1GATE, E1GATE.replace("\"useAutoModeDuringPlan\": False, ", ""))]),
     ("O2", "the overlay replaces the Session's own settings", T_OWN,
      [("    out = dict(settings_object(own))\n", "    out = {}\n")]),
     ("O3", "as_installed gets the explicit overlay", T_AUTO,
      [("(\"as_installed\", \"\", None, False, False)", "(\"as_installed\", \"\", \"explicit\", False, False)")]),
-    ("O4", "the as-installed settings sent are not recorded", T_OWN,
+    ("O4", "the settings sent are not recorded", T_OWN,
      [("        s.probe_settings, s.probe_key = settings_facts(opts.settings), key\n",
        "        s.probe_settings, s.probe_key = settings_facts(None), key\n")]),
     ("U6", "a control that ran leaves its rule legs unknown", T_UNCTRL,
@@ -369,6 +376,31 @@ MUTANTS = [  # (id, mutant, named test, [(anchor, replacement), ...])
      [("    if base.main_checkout() is None:\n", "    if False:\n")]),
     ("T6", "E1bt not trust unproven after the warning", T_TRUST,
      [("        elif leg == \"trusted_repo_rule\" and f.get(leg + \"_trust_warning\"):\n", "        elif False:\n")]),
+    # sdk/plan-bash-gate: PLAN_GATE shipped
+    ("B1", "the probe's gate drifts from the shipped PLAN_GATE", T_PIN,
+     [(E1GATE, E1GATE.replace("\"autoAllowBashIfSandboxed\": False", "\"autoAllowBashIfSandboxed\": True"))]),
+    ("B2", "as_installed keeps the Session's gate (not stripped)", T_SHIPPED,
+     [("                return dataclasses.replace(o, settings=None)\n", "                return o\n")]),
+    ("B3", "a Session already sending the gate gets it re-encoded (not untouched)", T_FORM,
+     [("            if json.loads(merged) == settings_object(o.settings):", "            if False:")]),
+    ("B4", "gate_verdict ignores whether the gate shipped", T_GATEREAD,
+     [("        f[\"gate_verdict\"] = v.get(\"control\") if shipped else \"not_shipped\"\n",
+       "        f[\"gate_verdict\"] = v.get(\"control\")\n")]),
+    ("B5", "gate_shipped ignores whether the control's settings were untouched", T_GATEREAD,
+     [("f[\"control_untouched\"] is True and (", "True and (")]),
+    ("B6", "gate_shipped reads the settings sent, not the Session's own", T_GATEREAD,
+     [("            f.get(\"control_session_settings_auto_mode_during_plan\"),\n"
+       "            f.get(\"control_session_settings_sandbox_auto_allow\")",
+       "            f.get(\"control_settings_auto_mode_during_plan\"),\n"
+       "            f.get(\"control_settings_sandbox_auto_allow\")")]),
+    ("B7", "the Session's own settings recorded as the ones sent", T_SHIPPED,
+     [("settings_facts(s.probe_own), opts.settings == s.probe_own",
+       "settings_facts(opts.settings), opts.settings == s.probe_own")]),
+    ("B8", "helper_plan_gate not recorded", T_SHIPPED,
+     [("helper_plan_gate=None if (g := getattr(c.helper, \"PLAN_GATE\", None)) is None else g == E1_GATE)",
+       "helper_plan_gate=None)")]),
+    ("B9", "the dry run's schedule ignores the shipped helper's trust refusal", T_E3DRY,
+     [(" or trusted and trust_refused:\n", ":\n")]),
 ]
 
 
@@ -397,6 +429,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-j", type=int, default=4)
     ap.add_argument("--out", default="-")
     a = ap.parse_args(argv)
+    if dup := sorted(k for k, n in Counter(m[0] for m in MUTANTS).items() if n > 1):
+        ap.error("duplicate mutant ids: " + ", ".join(dup))      # -k and the record name each mutant once
     keys = [k for k in a.k.split(",") if k]
     todo = [m for m in MUTANTS if not keys or m[0] in keys]
     if a.list:

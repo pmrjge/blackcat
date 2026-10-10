@@ -638,8 +638,24 @@ class FakeCLI(Base):
         self.finish()
 
 
-def helper():
-    return load(HELPER, "stack_sdk_for_probes_e")
+def helper(flavour="main"):
+    """The repo's stack_sdk.py, freshly loaded. "shipped": as it is (sdk/plan-bash-gate: PLAN_GATE as --settings on
+    every host-none Session, every host-none settings overlay refused; sdk/env-channel: CLAUDE_CODE_SANDBOXED
+    refused). "main" (the default): as installed on 2026-10-10, main c1ded439's, without the two changes E1 sees: no
+    PLAN_GATE (a host-none Session sends no settings) and CLAUDE_CODE_SANDBOXED passed, so the trusted legs run."""
+    h = load(HELPER, "stack_sdk_for_probes_e")
+    if flavour == "shipped":
+        return h
+    assert flavour == "main", flavour
+    h.PLAN_GATE = None
+    h.ENV_REFUSED = re.compile(r"(?!CLAUDE_CODE_SANDBOXED\Z)(?:%s)" % h.ENV_REFUSED.pattern)
+
+    class Main(h.Session):
+        def build(self, plan):
+            o = super().build(plan)
+            return dataclasses.replace(o, settings=None) if self.host == "none" else o
+    h.Session = Main
+    return h
 
 
 _GUARD = []
@@ -655,11 +671,12 @@ def guard():
     return _GUARD[0]
 
 
-def run(world, probes=None, ledger=None, total=None, **cfg):
-    """The whole run, bounded; the world's config is the CLI's own (CLAUDE_CONFIG_DIR), as the probes require."""
+def run(world, probes=None, ledger=None, total=None, flavour="main", **cfg):
+    """The whole run, bounded; the world's config is the CLI's own (CLAUDE_CONFIG_DIR), as the probes require;
+    `flavour`: the helper's (helper())."""
     from unittest import mock
     with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(world.config)}):
-        return asyncio.run(asyncio.wait_for(P.run_probes(probes or P.PROBES, world.cfg(**cfg), helper(),
+        return asyncio.run(asyncio.wait_for(P.run_probes(probes or P.PROBES, world.cfg(**cfg), helper(flavour),
                                                          ledger=ledger, total=total), 120))
 
 
@@ -690,6 +707,7 @@ FLIPPED_ANSWERS = {"E1a": "no", "E1bu": "dropped (untrusted)", "E1bt": "no", "E1
                    "E2b": "no", "E2c1": "yes", "E2c2": "yes", "E3a": "yes", "E3b": "no", "E3c1": "no", "E3c2": "no",
                    "E3d": "no", "E3c2a": "no", "E3e": "no"}
 E1_PARTS = ["E1a", "E1bu", "E1bt", "E1c", "E1d"]
+GOOD_E1 = {k: GOOD[k] for k in E1_PARTS}
 E1_RUN = [x[0] for x in P.E1_LEGS if x[1] != "stack"]       # the legs E1 runs (E1C_NOT_RUN: not the stack's rule)
 LEDGERS = ROOT / "tests" / "fixtures" / "sdk" / "probes_e_ledgers"   # the first runs' three ledgers, 2026-10-09
 PRIOR_USED = 1.404122                       # their worst case (analysis §0: $1.4041), replayed by hand below
@@ -1213,11 +1231,17 @@ def test_the_report_and_ledger_of_a_full_run_have_no_prompt_text(sdk, tmp_path):
     assert kinds.count("cost") >= 13 and "cost_unknown" not in kinds
 
 
-def test_answers_follow_the_measurements_in_the_flipped_world(sdk, tmp_path):
-    rows = run(World(tmp_path, **FLIPPED))
-    assert answers(rows) == FLIPPED_ANSWERS, {r.probe.pid: r.facts for r in rows}
+@pytest.mark.parametrize("flavour", ["main", "shipped"])
+def test_answers_follow_the_measurements_in_the_flipped_world(sdk, tmp_path, flavour):
+    """The installed sandbox auto-allows Bash: the gate (the overlay's, or the shipped Session's own) turns it off
+    for the control; as installed (no --settings) it runs the command. The shipped helper refuses the trusted
+    pair (E1bt unknown) and reads the gate from the control (gate_verdict denied)."""
+    rows = run(World(tmp_path, **FLIPPED), flavour=flavour)
+    want = FLIPPED_ANSWERS if flavour == "main" else dict(FLIPPED_ANSWERS, E1bt="unknown")
+    assert answers(rows) == want, {r.probe.pid: r.facts for r in rows}
     f = next(r.facts for r in rows if r.probe.pid == "E1")
     assert f["control_verdict"] == "denied" and f["as_installed_verdict"] == "ran"
+    assert f["gate_verdict"] == ("not_shipped" if flavour == "main" else "denied")
 
 
 def test_a_child_in_its_callers_mode_gives_no_for_e3a(sdk, tmp_path):
@@ -1884,6 +1908,14 @@ def test_the_e3_dry_run_prints_the_plan_the_worst_case_and_the_paid_command(caps
         ["control", "session_rule", "repo_rule", "trusted_repo_rule", "as_installed"], 0.3375)
     assert P.e1_schedule(0.38, P.E1_EST_USD, False) == (
         ["control", "session_rule", "repo_rule", "trusted_repo_rule", "trusted_control"], 0.3375)
+    # the shipped helper refuses CLAUDE_CODE_SANDBOXED: neither trusted leg starts, plan_auto gets the fifth session
+    shipped = ["control", "session_rule", "repo_rule", "as_installed", "plan_auto"]
+    assert P.e1_schedule(0.38, P.E1_EST_USD, True, True) == P.e1_schedule(0.38, P.E1_EST_USD, False, True) == (
+        shipped, 0.3375)
+    assert "a helper refusing CLAUDE_CODE_SANDBOXED (sdk/env-channel, shipped with PLAN_GATE): %s start, $0.3375" % (
+        ", ".join(shipped)) in out
+    assert re.search(r"^  as_installed +settings none ", out, re.MULTILINE) and "the gate stripped" in out
+    assert "the gate as shipped: read from the control, $0, no extra session" in out
 
 
 # ---------------------------------------------------------------- the E1 rerun: the explicit overlay and its readings
@@ -1957,9 +1989,10 @@ def test_no_e1_leg_starts_below_a_whole_session(sdk, tmp_path):
 
 
 def test_the_overlay_is_laid_over_the_sessions_own_settings(sdk, tmp_path):
-    """A helper whose Session sends settings of its own (sdk/plan-bash-gate: useAutoModeDuringPlan false): the
-    explicit legs keep its other keys under the overlay's; as_installed sends the Session's own, recorded as
-    facts; a Session whose settings cannot be read starts no leg ($0, helper_refused)."""
+    """A helper whose Session sends settings of its own (useAutoModeDuringPlan false, not the whole gate): the
+    explicit legs keep its other keys under the overlay's (not the Session as shipped: gate not_shipped);
+    as_installed sends no settings, the Session's own recorded as facts; a Session whose settings cannot be read
+    starts no overlay leg ($0, helper_refused)."""
     own = json.dumps({"useAutoModeDuringPlan": False, "keep": 1, "sandbox": {"enabled": True}})
     w, h = World(tmp_path, **AUTO_WORLD), helper()
 
@@ -1974,8 +2007,13 @@ def test_the_overlay_is_laid_over_the_sessions_own_settings(sdk, tmp_path):
     assert json.loads(sent["control"]) == {"useAutoModeDuringPlan": False, "keep": 1,
                                            "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": False}}
     assert json.loads(sent["plan_auto"])["useAutoModeDuringPlan"] is True and json.loads(sent["plan_auto"])["keep"] == 1
-    assert sent["as_installed"] == own and row.facts["as_installed_settings_auto_mode_during_plan"] is False
-    assert row.answers["E1d"] == "no" and row.facts["as_installed_verdict"] == "denied"       # the helper's own gate
+    assert sent["as_installed"] is None and row.facts["as_installed_session_settings_auto_mode_during_plan"] is False
+    assert row.facts["as_installed_settings_auto_mode_during_plan"] is None and not row.facts["as_installed_untouched"]
+    assert row.answers["E1d"] == "yes" and row.facts["as_installed_verdict"] == "ran"     # its own gate stripped
+    assert row.facts["control_untouched"] is False and row.facts["gate_shipped"] is False
+    assert (row.facts["control_settings_auto_mode_during_plan"], row.facts["control_settings_sandbox_auto_allow"]) == (
+        False, False)                                           # what the control sent: the merge
+    assert row.facts["gate_verdict"] == "not_shipped" and row.facts["control_verdict"] == "denied"
     w2, h2 = World(tmp_path / "bad"), helper()
 
     class Bad(h2.Session):
@@ -2075,3 +2113,98 @@ def test_a_paid_run_without_the_main_checkout_is_refused(pinned, monkeypatch, tm
     assert str(e.value.code) == "cannot locate the main checkout: the ledgers cannot be found"
     assert not list(tmp_path.rglob("*.ledger.jsonl")) and not (tmp_path / "r.md").exists()
     assert P.main(["--envelope", P.E3_ENVELOPE]) == 0 and "DRY RUN" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- sdk/plan-bash-gate: the gate as shipped
+def test_the_probes_gate_is_the_shipped_plan_gate():
+    """E1_GATE (the explicit overlay) is a copy of stack_sdk.PLAN_GATE: the two cannot drift."""
+    assert P.E1_GATE == load(HELPER, "stack_sdk_gate_pin").PLAN_GATE
+    assert P.E1_OVERLAYS["explicit"] == P.E1_GATE == {"useAutoModeDuringPlan": False,
+                                                      "sandbox": {"autoAllowBashIfSandboxed": False}}
+
+
+def test_the_shipped_helper_runs_the_control_as_shipped_and_strips_the_gate_as_installed(sdk, tmp_path):
+    """The shipped helper (PLAN_GATE, CLAUDE_CODE_SANDBOXED refused), the good world: the control and the rule legs
+    send the Session's own settings untouched (the control: a plain Session("verifier"), host none, no overlay, no
+    rule; its denial is the gate working: gate_verdict denied); as_installed sends no --settings and records the
+    Session's gate; the trusted pair is refused at $0 and plan_auto gets the fifth session."""
+    w = World(tmp_path)
+    (row,) = run(w, [P.PROBES[0]], flavour="shipped")
+    f, gate = row.facts, json.dumps(helper("shipped").PLAN_GATE)
+    assert row.answers == dict(GOOD_E1, E1bt="unknown"), f
+    assert legs_opened(w) == [("control", gate), ("session_rule", gate), ("repo_rule", gate), ("as_installed", None),
+                              ("plan_auto", json.dumps(dict(P.E1_GATE, useAutoModeDuringPlan=True)))]
+    assert f["trusted_repo_rule_verdict"] == f["trusted_control_verdict"] == "helper_refused"
+    assert (f["gate_shipped"], f["gate_verdict"], f["helper_plan_gate"]) == (True, "denied", True)
+    assert f["control_untouched"] is True and f["session_rule_untouched"] is True and f["plan_auto_untouched"] is False
+    assert (f["as_installed_settings_auto_mode_during_plan"], f["as_installed_settings_sandbox_auto_allow"]) == (
+        None, None) and f["as_installed_untouched"] is False
+    assert (f["as_installed_session_settings_auto_mode_during_plan"],
+            f["as_installed_session_settings_sandbox_auto_allow"]) == (False, False)
+    assert row.status == "ran" and row.cost == pytest.approx(0.05)
+    # main's helper (the default): no gate shipped, the overlay supplies it
+    (row,) = run(World(tmp_path / "main"), [P.PROBES[0]])
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"], row.facts["helper_plan_gate"]) == (
+        False, "not_shipped", None)
+    assert row.facts["control_untouched"] is False and row.answers == GOOD_E1
+
+
+def test_the_shipped_gate_in_the_auto_world_and_where_it_fails(sdk, tmp_path):
+    """2026-10-10's world (installed defaultMode auto, useAutoModeDuringPlan default true): the shipped gate denies
+    the control (gate_verdict denied, the rule legs read), and the gate stripped (as_installed) the classifier runs
+    the command (E1d yes). A CLI that ignores useAutoModeDuringPlan: the plain Session's control runs, gate_verdict
+    ran (the gate does not work) and the rule legs read uncontrolled."""
+    (row,) = run(World(tmp_path, **AUTO_WORLD), [P.PROBES[0]], flavour="shipped")
+    assert (row.facts["gate_verdict"], row.answers["E1d"], row.answers["E1a"]) == ("denied", "yes", "yes"), row.facts
+    (row,) = run(World(tmp_path / "ignored", auto_plan=True, overlay_ignored=True), [P.PROBES[0]], flavour="shipped")
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"]) == (True, "ran"), row.facts
+    assert row.answers["E1a"] == "uncontrolled" and row.facts["E1a_uncontrolled_reason"] == "control_ran:both_off"
+
+
+def test_shipped_at_the_mean_under_the_e3_cap(sdk, tmp_path):
+    """The shipped helper at the 2026-10-10 mean under the e3 run cap: the five legs e1_schedule plans, each with a
+    whole $0.08, $0.3375 in all."""
+    w = World(tmp_path, cost=P.E1_EST_USD, sandboxed_trusts=False)
+    (row,) = run(w, [P.PROBES[0]], total=0.38, flavour="shipped")
+    assert [Path(o.cwd).name for o in w.opened] == P.e1_schedule(0.38, P.E1_EST_USD, True, True)[0]
+    assert {o.max_budget_usd for o in w.opened} == {0.08} and row.status == "ran", row.facts
+    assert row.cost == pytest.approx(5 * P.E1_EST_USD) and row.facts["plan_auto_verdict"] == "denied"
+
+
+def test_a_gate_sent_in_another_form_is_sent_untouched(sdk, tmp_path, monkeypatch):
+    """A Session whose gate text differs from the probe's JSON (compact separators) is still sent as the Session
+    built it, so its control is the Session as shipped; an overlay with more than the gate changes the control's
+    settings: no longer the plain Session (gate not_shipped)."""
+    w, h = World(tmp_path), helper("shipped")
+    compact = json.dumps(h.PLAN_GATE, separators=(",", ":"))
+
+    class Compact(h.Session):
+        def build(self, plan):
+            return dataclasses.replace(super().build(plan), settings=compact)
+    h.Session = Compact
+    from unittest import mock
+    with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(w.config)}):
+        (row,) = asyncio.run(P.run_probes([P.PROBES[0]], w.cfg(), h))
+    assert dict(legs_opened(w))["control"] == compact and row.facts["gate_verdict"] == "denied", row.facts
+    monkeypatch.setitem(P.E1_OVERLAYS, "explicit", dict(P.E1_GATE, extra=1))
+    w = World(tmp_path / "more")
+    (row,) = run(w, [P.PROBES[0]], flavour="shipped")
+    assert json.loads(dict(legs_opened(w))["control"])["extra"] == 1
+    assert (row.facts["gate_shipped"], row.facts["gate_verdict"]) == (False, "not_shipped"), row.facts
+
+
+def test_the_gate_verdict_reading():
+    """gate_shipped needs the control's settings untouched AND both gate keys false in what the Session built;
+    gate_verdict is then the control's verdict; without the control's settings, its verdict (or None)."""
+    def read(v, **facts):
+        c = types.SimpleNamespace(facts=dict(facts), answers={})
+        P.e1_answers(c, v)
+        return c.facts["gate_shipped"], c.facts["gate_verdict"]
+    both = dict(control_session_settings_auto_mode_during_plan=False, control_session_settings_sandbox_auto_allow=False)
+    assert read({"control": "denied"}, control_untouched=True, **both) == (True, "denied")
+    assert read({"control": "ran"}, control_untouched=True, **both) == (True, "ran")
+    assert read({"control": "invalid"}, control_untouched=True, **both) == (True, "invalid")
+    assert read({"control": "denied"}, control_untouched=False, **both) == (False, "not_shipped")
+    for k in both:
+        assert read({"control": "denied"}, control_untouched=True, **dict(both, **{k: None})) == (False, "not_shipped")
+    assert read({"control": "helper_refused"}) == (None, "helper_refused") and read({}) == (None, None)
