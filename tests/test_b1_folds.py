@@ -15,7 +15,10 @@ import json
 import math
 import os
 import random
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -622,3 +625,133 @@ def test_power_r5_adds_the_unknown_rows_to_hi():
     half = [[(pred, T, [(1.0, 0)] * 20 + [(T / 10, 1)] * 20)] for _ in range(3)]
     _many, few = BT.simulate_power(half, k0, 2000, rnd, 0.1)
     assert few == 0.0
+
+
+# ---------------------------------------------------------------- security review (bayes/5b, S1-S5)
+def _drive(fake, data, od, *extra):
+    return F.main(["--data", str(data), "--out-dir", str(od), "--python", sys.executable, "--fitter", str(fake.py),
+                   "--no-accel-lock", *extra])
+
+
+@pytest.mark.parametrize("alias", ["case", "firmlink"])
+def test_an_alias_of_the_live_state_is_refused(env, tmp_path, capsys, alias):
+    """S2: a case variant (APFS is case-insensitive by default) or the /System/Volumes/Data firmlink path of the
+    live state is the live state: refused before any fit."""
+    if alias == "case":
+        od = Path(str(env).replace("claude-agent-stack", "Claude-Agent-Stack")) / "folds"
+    else:
+        od = Path("/System/Volumes/Data" + str(env.resolve())) / "folds"
+    if not od.parent.exists() or not os.path.samefile(od.parent, env):
+        pytest.skip("no such alias on this volume")
+    fake = Fake(tmp_path)
+    data = make_data(tmp_path / "copy", SIX)
+    rc = _drive(fake, data, od)
+    assert rc == 2 and "live state directory" in capsys.readouterr().err
+    assert not (env / "folds").exists() and fake.calls() == []
+
+
+def test_a_planted_link_in_the_out_dir_is_never_followed(env, tmp_path):
+    """S1 (CWE-59): fold<k>.log, fold<k>_gate.json.tmp and fold<k>_bayes.json planted as links into the live state
+    leave the live files untouched; every fold output is a regular 0600 file."""
+    fake = Fake(tmp_path)
+    data = make_data(tmp_path / "copy", SIX)
+    (env / "usage").mkdir()
+    (env / "limits").mkdir()
+    live = {name: env / sub / name for name, sub in (("runs3.csv", "usage"), ("bayes.json", "limits"),
+                                                    ("live.json", "limits"))}
+    for p in live.values():
+        p.write_text("LIVE\n")
+    od = tmp_path / "hyper"
+    od.mkdir()
+    os.symlink(live["runs3.csv"], od / "fold2.log")
+    os.symlink(live["bayes.json"], od / "fold2_gate.json.tmp")
+    os.symlink(live["live.json"], od / "fold3_bayes.json.tmp")
+    old = os.umask(0o022)
+    try:
+        assert _drive(fake, data, od) == 0
+    finally:
+        os.umask(old)
+    assert all(p.read_text() == "LIVE\n" for p in live.values())
+    outs = list(od.iterdir())
+    assert not [p for p in outs if p.is_symlink()]
+    modes = {p.name: p.stat().st_mode & 0o777 for p in outs if p.is_file()}
+    assert len(modes) == 4 * 5 and set(modes.values()) == {0o600}, modes
+
+
+def test_an_aborted_fold_leaves_no_passing_gate_of_an_earlier_run(env, tmp_path, monkeypatch):
+    """S3: run 1 passes fold 2; run 2 (same data, so the same evidence id) fits fold 2 with a failing ctx gate
+    and dies before its gate write: no passing gate of run 1 is left beside run 2's hyperparameters."""
+    fake = Fake(tmp_path)
+    data = make_data(tmp_path / "copy", SIX)
+    od = tmp_path / "hyper"
+    assert _drive(fake, data, od) == 0
+    assert json.loads((od / "fold2_gate.json").read_text())["ok"] is True
+    fake.set(modes={"2": "badgate"})
+    real = F.write_json
+
+    def boom(path, doc):
+        if path.endswith("fold2_gate.json"):
+            raise OSError(28, "No space left on device")
+        return real(path, doc)
+
+    monkeypatch.setattr(F, "write_json", boom)
+    assert _drive(fake, data, od) == 2
+    p = od / "fold2_gate.json"
+    assert not p.exists() or json.loads(p.read_text())["ok"] is False
+
+
+def test_a_deeply_nested_gate_file_is_an_error_not_a_traceback(env, tmp_path, capsys):
+    """S4: a gate file nested past the parser's recursion limit (the driver never writes one) is an error, exit 2,
+    not a traceback whose exit 1 reads as REJECT."""
+    data = make_data(tmp_path / "copy", SIX)
+    od = tmp_path / "hyper"
+    od.mkdir()
+    for k in BT.fold_ids(len(order_of(data)), 2, 0):
+        (od / f"fold{k}_gate.json").write_text("[" * 200000 + "]" * 200000)
+    rc = BT.main(["--data", str(data), "--hyper-dir", str(od), "--sims", "50"])
+    assert rc == 2 and "nested" in capsys.readouterr().err
+
+
+def test_a_hangup_kills_the_running_fit(env, tmp_path):
+    """S5: SIGHUP (a closed terminal) to the driver ends the fit's process group too, so no orphan keeps the
+    inherited accel.lock for up to 930 s."""
+    fake = Fake(tmp_path)
+    fake.py.write_text('import os, sys, time\nif "--help" in sys.argv:\n    print("--regime"); sys.exit(0)\n'
+                       'open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pid"), "w")'
+                       '.write(str(os.getpid()))\ntime.sleep(120)\n')
+    data = make_data(tmp_path / "copy", SIX)
+    hup = signal.signal(signal.SIGHUP, signal.SIG_DFL)  # the driver inherits a default hangup even under nohup
+    try:
+        drv = subprocess.Popen([sys.executable, str(TESTS / "b1_folds.py"), "--data", str(data), "--out-dir",
+                                str(tmp_path / "h"), "--python", sys.executable, "--fitter", str(fake.py),
+                                "--no-accel-lock"], env=dict(os.environ, B1_REPO=str(ROOT)),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    finally:
+        signal.signal(signal.SIGHUP, hup)
+    pidf, fit = fake.dir / "pid", None
+    try:
+        for _ in range(300):
+            if pidf.exists() and pidf.read_text():
+                break
+            time.sleep(0.1)
+        fit = int(pidf.read_text())
+        drv.send_signal(signal.SIGHUP)
+        drv.wait(30)
+        alive = True
+        for _ in range(50):
+            try:
+                os.kill(fit, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.1)
+        assert not alive, "the fold fit outlived its driver"
+    finally:
+        if drv.poll() is None:
+            drv.kill()
+            drv.wait()
+        if fit is not None:
+            try:
+                os.killpg(fit, signal.SIGKILL)
+            except OSError:
+                pass

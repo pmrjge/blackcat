@@ -82,8 +82,29 @@ def live_state_roots():
 
 
 def inside(path, root):
+    """path is root or under it: by string after realpath, case-folded (APFS and HFS+ are case-insensitive by
+    default), then by identity, (st_dev, st_ino) of path and each existing ancestor against root's, which also
+    catches the /System/Volumes/Data firmlink and any other alias realpath leaves as it is. Refusing too much is
+    the safe side."""
     path, root = os.path.realpath(path), os.path.realpath(root)
-    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+    p, r = path.casefold(), root.rstrip(os.sep).casefold()
+    if p == r or p.startswith(r + os.sep):
+        return True
+    try:
+        rs = os.stat(root)
+    except OSError:
+        return False                                # no live directory there: nothing to alias
+    while True:
+        try:
+            st = os.stat(path)
+        except OSError:
+            st = None
+        if st is not None and (st.st_dev, st.st_ino) == (rs.st_dev, rs.st_ino):
+            return True
+        parent = os.path.dirname(path)
+        if parent == path:
+            return False
+        path = parent
 
 
 def refuse_live_target(path, what):
@@ -125,7 +146,7 @@ def _nice(pid):
 def run_fit(cmd, env, log_path, timeout, keep_fds):
     """(returncode or None, last stdout line, None | "timeout"): its own session and process group, cwd /,
     niced; stdout and stderr to log_path; the whole group killed after `timeout` seconds."""
-    with open(log_path, "wb") as log:
+    with os.fdopen(_create(log_path), "wb") as log:
         p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env=env, cwd="/",
                              close_fds=True, pass_fds=tuple(keep_fds), start_new_session=True)
         _nice(p.pid)
@@ -236,9 +257,21 @@ def _no_constant(name):
     raise ValueError(f"non-finite number {name}")
 
 
+def _create(path):
+    """A new 0600 file at path, never through a link (CWE-59): whatever is there is unlinked first (a planted
+    symlink or hardlink is removed, its target never opened), then O_CREAT | O_EXCL | O_NOFOLLOW (a link planted
+    again in between: EEXIST, an OSError, exit 2). Returns the fd."""
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) |
+                   getattr(os, "O_CLOEXEC", 0), 0o600)
+
+
 def write_json(path, doc):
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with os.fdopen(_create(tmp), "w", encoding="utf-8") as fh:
         json.dump(doc, fh, indent=1, sort_keys=True)
         fh.write("\n")
     os.replace(tmp, path)
@@ -257,7 +290,7 @@ def fit_fold(k, order, by_sess, a, seed, work, keep_fds):
             "data": {"regime_current": None}, "fitter": a.fitter, "python": a.python, "sampler": None,
             "models": {m: {"ok": False} for m in MODELS}, "ok": False, "reason": None, "rc": None, "summary": None}
     out = os.path.join(a.out_dir, f"fold{k}")
-    for suffix in ("_turns.json", "_ctx.json", "_bayes.json"):          # never a stale file from an earlier run
+    for suffix in ("_gate.json", "_turns.json", "_ctx.json", "_bayes.json"):  # never a stale file of an earlier run
         if os.path.lexists(out + suffix):
             os.unlink(out + suffix)
     if not regime:
@@ -287,7 +320,9 @@ def fit_fold(k, order, by_sess, a, seed, work, keep_fds):
         if doc is None:
             gate["reason"] = why
         else:
-            shutil.copyfile(bayes, out + "_bayes.json")
+            with open(bayes, "rb") as src, os.fdopen(_create(out + "_bayes.json.tmp"), "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            os.replace(out + "_bayes.json.tmp", out + "_bayes.json")
             for key in HYPER_KEYS:
                 write_json(out + f"_{key}.json", doc["hyper"][key])
             gate["models"] = {m: {"ok": bool(L.model_gate(doc["models"][m])), "diag": doc["models"][m].get("diag")}
@@ -376,10 +411,13 @@ def main(argv=None):
         cand = os.path.join(os.path.dirname(os.path.abspath(a.data)), "limits", "snapshots")
         a.snapshots = cand if os.path.isdir(cand) else None
     a.fitter = os.path.abspath(a.fitter)
-    try:
-        prev = (signal.signal(signal.SIGTERM, _term),)  # a SIGTERM kills the running fit's group (run_fit)
+    prev = {}                                           # a SIGTERM or a hangup kills the running fit's group
+    try:                                                # (run_fit); a hangup ignored (nohup) stays ignored
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            if sig == signal.SIGTERM or signal.getsignal(sig) != signal.SIG_IGN:
+                prev[sig] = signal.signal(sig, _term)
     except ValueError:                                  # not the main thread: the timeout still holds
-        prev = None
+        pass
     try:
         gates = run(a)
     except Refused as exc:
@@ -389,8 +427,9 @@ def main(argv=None):
         sys.stderr.write(f"b1_folds: {type(exc).__name__}: {exc}\n")
         return 2
     finally:
-        if prev is not None:
-            signal.signal(signal.SIGTERM, prev[0])
+        for sig, handler in prev.items():
+            if handler is not None:
+                signal.signal(sig, handler)
     bad = [g["fold"] for g in gates if not g["ok"]]
     print(f"b1_folds: {len(gates)} folds, " + (f"gate failed in folds {bad}: blocked:gate" if bad else "every gate passes"))
     return 1 if bad else 0

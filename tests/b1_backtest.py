@@ -144,11 +144,14 @@ def blists(rows, fam, seed, win_hits, t):
 def read_gate(hyper_dir, k, eid):
     """fold<k>_gate.json (tests/b1_folds.py): {"ok", "models": {model: {"ok"}}, "reason"}. A missing or malformed
     file is a failed gate (A.11.3: no valid fit counts as a failed gate). ValueError when its evidence_id is not the
-    fold's training rows' (hyperparameters of another fold or other data: an error, exit 2)."""
+    fold's training rows' (hyperparameters of another fold or other data) or it is nested past the parser's
+    recursion limit (the driver never writes one): an error, exit 2."""
     p = os.path.join(hyper_dir, f"fold{k}_gate.json")
     try:
         with open(p, encoding="utf-8") as fh:
             doc = json.load(fh)
+    except RecursionError:
+        raise ValueError(f"fold {k}: {p} is nested too deeply to be a gate file") from None
     except (OSError, ValueError) as exc:
         return {"ok": False, "models": {}, "reason": f"no readable gate file ({type(exc).__name__})"}
     if not isinstance(doc, dict) or doc.get("fold") != k or not isinstance(doc.get("models"), dict):
@@ -558,7 +561,7 @@ def main(argv=None):
         return 2
     try:
         out, leak = run(a)
-    except (OSError, ValueError, KeyError, L.SeedError) as exc:
+    except (OSError, ValueError, KeyError, RecursionError, L.SeedError) as exc:   # a hyper file nested too deep
         sys.stderr.write(f"b1_backtest: {type(exc).__name__}: {exc}\n")
         return 2
     if a.out:
