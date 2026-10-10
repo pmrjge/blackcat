@@ -30,7 +30,7 @@ Run every step, write the results to the plan file, stop at the first that fails
 3. Conflict preview: `git merge-tree --write-tree --name-only main <branch>` (exit 1 = conflicts, files listed).
 4. Main checkout: `git -C <main> status --porcelain=v1`. Uncommitted files there are someone else's (pins,
    local edits). `--ff-only` refuses only when the incoming change touches them: overlap =
-   `git diff --name-only main <branch>` ∩ the dirty paths. Overlap → blocked, ask; never stash.
+   `git diff --name-only --no-renames main <branch>` ∩ the dirty paths (`--no-renames`: a rename's source path counts too). Overlap → blocked, ask; never stash.
 5. Branch worktree: ` D` entries from a denied path, untracked files, an operation in progress
    (`git -C <wt> status` names a merge, rebase or cherry-pick).
 6. Movement: `git reflog show --date=iso -5 main`; `main` moved since the plan → redo steps 1–3.
@@ -42,9 +42,11 @@ Run every step, write the results to the plan file, stop at the first that fails
 2. Order: bottom of each stack first, then upward; independent stacks smallest diff first.
 3. Simulate the whole sequence before touching `main`: `git merge-tree --write-tree <cur> <next>`, `<cur>`
    being the result of the previous step; every step clean, else it is a conflict job (below).
-4. A private stack behind `main`: one `git rebase --update-refs main <top>` moves every branch of the
-   stack in one pass, instead of a "merge main again" round trip per branch. A branch others build on:
-   merge `main` into it instead. Both write commits: rescue refs first.
+4. A private stack behind `main`: one `git -C <top-wt> rebase --update-refs main` moves every branch of
+   the stack in one pass, instead of a "merge main again" round trip per branch. A lower branch checked
+   out in its own worktree is skipped silently: detach that worktree first (Worktree layout) or rebase
+   each branch in its own worktree, bottom first. A branch others build on: merge `main` into it
+   instead. Both write commits: rescue refs first.
 5. Execute one step at a time: `git rev-parse main` still equals the plan's sha, `git -C <main> merge
    --ff-only <branch>`, the tests the brief names, then the next step.
 

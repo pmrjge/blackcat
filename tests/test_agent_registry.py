@@ -57,6 +57,9 @@ BLACKCAT_AGENT_LIST = {c.lower() for c in lint_agents.get_tools(_frontmatter("bl
 ORCH_MAY_SPAWN = set(lint_agents.get_may_spawn(_frontmatter("orchestrator")[1]))
 TIER_OF = _tier_of()
 SEED_POOL_OF = {t: p for p, ts in SEED["pools"].items() for t in ts}
+# Sonnet agents missing from stack_sched SONNET_TYPES on main before git-engineer (a scheduling estimate
+# only; fixing it is outside that change)
+SONNET_TYPES_GAP = {"equilibrium"}
 
 
 @pytest.mark.parametrize("agent", SUBAGENTS)
@@ -72,6 +75,8 @@ def test_every_agent_file_is_registered_everywhere(agent):
         ("agent_effort.json", agent in EFFORT),
         ("derive_thresholds.py TIER", agent in TIER_OF),
         ("stack_limits_seed.json pools", agent in SEED_POOL_OF),
+        ("stack_sched.py SONNET_TYPES (Sonnet agents)", agent in SONNET_TYPES_GAP or
+         (lint_agents.get_inline(_frontmatter(agent)[0], "model") == "sonnet") == (agent in SCHED.SONNET_TYPES)),
         *((f"stack_limits_seed.json {fam}.{agent}", f"{fam}.{agent}" in SEED["vars"])
           for fam in ("turns", "soft.agent", "hard.agent")),
     ) if not ok]
