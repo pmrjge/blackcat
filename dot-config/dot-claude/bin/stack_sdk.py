@@ -352,8 +352,7 @@ def stack_agents(config):
         else:
             bad.append(os.path.basename(p))
     if bad or not out:
-        names = ", ".join(bad) or "none found"
-        raise StackNotLoaded(f"agent files without a parsable name in {config}/agents: {names}")
+        raise StackNotLoaded(f"agent files without a parsable name in {config}/agents: {', '.join(bad) or 'none found'}")
     return out
 
 
@@ -610,8 +609,9 @@ class Session:
         if kw.get("output_format") and agent:
             raise ValueError("output_format with an agent main thread: the report is parsed from the text (D6)")
         own = {} if kw.get("settings") is None else policy_overlay(kw["settings"])
-        if "user" not in kw.get("sources", ("user",)) or own is None:
-            raise ValueError(f"setting_sources must include user, and no settings overlay may touch {POLICY_KEYS}")
+        if "user" not in kw.get("sources", ("user",)) or own is None or own and host == "none":
+            raise ValueError(f"sources must include user; no settings overlay may touch {POLICY_KEYS}" +
+                             ", none under host none" * bool(own))   # F1: a schema error in it drops PLAN_GATE too
         if not (host in ("none", "tty") or callable(host)):
             raise ValueError("host: none, tty or a callable")
         self.env = dict(kw.pop("env", None) or {})
@@ -657,8 +657,8 @@ class Session:
             deny += ["ExitPlanMode"] + ([*(f"Agent({n})" for n, m in sorted(self.agents.items())
                                            if m not in (None, "plan", "default")), "Workflow"] if plan else [])
         extra = dict(self.extra, **({"permission-prompts": "none"} if self.host == "none" else {}))
-        if self.host == "none":                          # E1: the overlay as read at __init__, the gate's keys set last
-            kw["settings"] = json.dumps(dict(self.caller_settings, **PLAN_GATE))
+        if self.host == "none" or kw.get("settings") is not None:     # E1; F2: the overlay as read at __init__
+            kw["settings"] = json.dumps(PLAN_GATE if self.host == "none" else self.caller_settings)
         mode = self.permission_mode or ("plan" if self.host == "none" else None)   # the flag outranks repo settings
         return options(self.agent, **dict(kw, budget_usd=self.budget_usd, permission_mode=mode,
                                           disallowed_tools=deny, extra_args=extra, env=self.env, cli_path=self.cli_path,

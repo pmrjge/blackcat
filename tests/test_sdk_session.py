@@ -659,12 +659,43 @@ def test_no_policy_overlay(tmp_path):
     assert w.session(host=lambda *a: None).build(True).settings is None
     for bad in ('{"hooks": {}}', '{"permissions": {"allow": ["Bash"]}}', '{"defaultMode": "acceptEdits"}',
                 '{"disableAllHooks": true}', "/nonexistent/settings.json", [1], '{"x": NaN}', {"x": float("inf")}):
-        with pytest.raises(ValueError):
-            w.session(settings=bad)
+        for host in ("none", lambda *a: None):
+            with pytest.raises(ValueError, match="may touch") as e:
+                w.session(settings=bad, host=host)
+            assert "host none" not in str(e.value)                  # the policy check refused it, not host none
     with pytest.raises(ValueError):
         w.session(sources=("project", "local"))
-    assert json.loads(w.session(settings='{"model": "sonnet"}').build(True).settings) == dict(GATE, model="sonnet")
+    with pytest.raises(ValueError, match="none under host none"):
+        w.session(settings='{"model": "sonnet"}')
     assert w.session(settings='{"model": "sonnet"}', host=lambda *a: None).build(True).settings == '{"model": "sonnet"}'
+
+
+def test_host_none_refuses_every_overlay(tmp_path):
+    """E1 review F1: CLI 2.1.287 skips a whole --settings source on any schema error, so a caller key sharing
+    PLAN_GATE's source could drop the gate: host none refuses every non-empty overlay and sends the gate alone."""
+    w = World(tmp_path)
+    for v in ('{"cleanupPeriodDays": 0}', '{"model": "sonnet"}', {"model": "x"}, '{"PreToolUse": []}'):
+        with pytest.raises(ValueError, match="none under host none"):
+            w.session(settings=v)
+        assert w.session(settings=v, host=lambda *a: None).build(True).settings is not None
+    for v in ("{}", {}):
+        assert json.loads(w.session(settings=v).build(True).settings) == GATE
+
+
+def test_overlay_sent_as_read_for_every_host(tmp_path, monkeypatch):
+    """E1 review F2: tty and callable hosts get the overlay that passed the check, as JSON text read once at
+    Session(): never the raw path (the CLI would resolve it against its own cwd and re-read it) nor a dict."""
+    app, repo = tmp_path / "app", tmp_path / "repo"
+    for d, body in ((app, {"model": "x"}), (repo, {"permissions": {"allow": ["Bash"]}, "hooks": {}})):
+        d.mkdir()
+        (d / "o.json").write_text(json.dumps(body))
+    monkeypatch.chdir(app)
+    w = World(tmp_path / "w")
+    for v in ("o.json", str(app / "o.json"), {"model": "x"}, '{"model": "x"}'):
+        o = w.session(settings=v, host=lambda *a: None, cwd=str(repo)).build(True)
+        assert isinstance(o.settings, str) and json.loads(o.settings) == {"model": "x"}
+        cmd = SubprocessCLITransport(prompt="x", options=dataclasses.replace(o, cli_path=sys.executable))._build_command()
+        assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == {"model": "x"}
 
 
 def test_plan_gate_overlay(tmp_path):
@@ -676,24 +707,23 @@ def test_plan_gate_overlay(tmp_path):
               {"useAutoModeDuringPlan": True}, '{"model": "x", "useAutoModeDuringPlan": null}'):
         f.write_text('{"useAutoModeDuringPlan": true}')
         for host in ("none", lambda *a: None):
-            with pytest.raises(ValueError, match="useAutoModeDuringPlan"):
+            with pytest.raises(ValueError, match="useAutoModeDuringPlan") as e:
                 w.session(settings=v, host=host)
+            assert "host none" not in str(e.value)                  # refused as a policy key, for every host
     for mode in (None, "plan", "acceptEdits", "default"):
         assert json.loads(w.session(permission_mode=mode).build(mode in (None, "plan")).settings) == GATE
     f.write_text('{"model": "x"}')
     for v in (str(f), {"model": "x"}):
-        s = w.session(settings=v)
+        s = w.session(settings=v, host=lambda *a: None)
         f.write_text('{"model": "y", "hooks": {}}')                 # swapped after the check: never read again
         if isinstance(v, dict):
             v["hooks"] = {}                                          # the caller's dict, changed after the check
         s.kw["settings"] = '{"useAutoModeDuringPlan": true}'
-        assert json.loads(s.build(True).settings) == dict(GATE, model="x")
-        s.caller_settings["useAutoModeDuringPlan"] = True                    # the gate's keys are set last
-        assert json.loads(s.build(True).settings) == dict(GATE, model="x", useAutoModeDuringPlan=False)
+        assert json.loads(s.build(True).settings) == {"model": "x"}
         f.write_text('{"model": "x"}')
-    o = dataclasses.replace(w.session(settings='{"model": "x"}').build(True), cli_path=sys.executable)
+    o = dataclasses.replace(w.session().build(True), cli_path=sys.executable)
     cmd = SubprocessCLITransport(prompt="x", options=o)._build_command()             # what the CLI would get
-    assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == dict(GATE, model="x")
+    assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == GATE
 
 
 def test_cli_path_policy(tmp_path, monkeypatch, capsys):
@@ -878,6 +908,8 @@ def test_refusals_hold_for_every_spelling(tmp_path):
                {"max_budget_usd": None}, {"max_budget_usd": 1000.0}, {"setting_sources": ["project"]}):
         with pytest.raises(ValueError):
             w.session(**kw)
+    with pytest.raises(ValueError, match="may touch"):         # a callable too: not host none's no-overlay rule (F1)
+        w.session(settings='{"sandbox": {"enabled": false}}', host=lambda *a: None)
     assert w.session(extra_args={"debug": None, "model": "x"}).build(True).extra_args["debug"] is None
     for i, host in enumerate(("none", lambda *a: None)):
         b = World(tmp_path / f"b{i}", script=script("stream_plan.jsonl"), mode="bypassPermissions")
