@@ -7,6 +7,7 @@ Run: uv run --no-project --python 3.13 --with pytest --with claude-agent-sdk==0.
 """
 import asyncio
 import contextlib
+import dataclasses
 import importlib.util
 import itertools
 import json
@@ -26,6 +27,7 @@ from claude_agent_sdk import (
     Transport,
 )
 from claude_agent_sdk._internal.message_parser import parse_message
+from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -645,18 +647,86 @@ def test_no_sdk_hooks(tmp_path):
             w.session(**{k: {"x": 1}})
 
 
+GATE = {"useAutoModeDuringPlan": False, "sandbox": {"autoAllowBashIfSandboxed": False}}   # probe E1
+
+
 def test_no_policy_overlay(tmp_path):
-    """M21: no settings overlay by default, user always a source; overlays touching the policy are refused."""
+    """M21: no caller overlay by default (host none: the E1 gate only), user always a source; overlays touching
+    the policy, not an object or not strict JSON are refused."""
     w = World(tmp_path)
     o = w.session().build(True)
-    assert o.settings is None and "user" in o.setting_sources
+    assert json.loads(o.settings) == GATE and "user" in o.setting_sources
+    assert w.session(host=lambda *a: None).build(True).settings is None
     for bad in ('{"hooks": {}}', '{"permissions": {"allow": ["Bash"]}}', '{"defaultMode": "acceptEdits"}',
-                '{"disableAllHooks": true}', "/nonexistent/settings.json"):
-        with pytest.raises(ValueError):
-            w.session(settings=bad)
+                '{"disableAllHooks": true}', "/nonexistent/settings.json", [1], '{"x": NaN}', {"x": float("inf")}):
+        for host in ("none", lambda *a: None):
+            with pytest.raises(ValueError, match="may touch") as e:
+                w.session(settings=bad, host=host)
+            assert "host none" not in str(e.value)                  # the policy check refused it, not host none
     with pytest.raises(ValueError):
         w.session(sources=("project", "local"))
-    assert w.session(settings='{"model": "sonnet"}').build(True).settings == '{"model": "sonnet"}'
+    with pytest.raises(ValueError, match="none under host none"):
+        w.session(settings='{"model": "sonnet"}')
+    assert w.session(settings='{"model": "sonnet"}', host=lambda *a: None).build(True).settings == '{"model": "sonnet"}'
+
+
+def test_host_none_refuses_every_overlay(tmp_path):
+    """E1 review F1: CLI 2.1.287 skips a whole --settings source on any schema error, so a caller key sharing
+    PLAN_GATE's source could drop the gate: host none refuses every non-empty overlay and sends the gate alone."""
+    w = World(tmp_path)
+    for v in ('{"cleanupPeriodDays": 0}', '{"model": "sonnet"}', {"model": "x"}, '{"PreToolUse": []}'):
+        with pytest.raises(ValueError, match="none under host none"):
+            w.session(settings=v)
+        assert w.session(settings=v, host=lambda *a: None).build(True).settings is not None
+    for v in ("{}", {}):
+        assert json.loads(w.session(settings=v).build(True).settings) == GATE
+    with pytest.raises(ValueError, match="sources must include user") as e:     # another cause, another host
+        w.session(settings='{"model": "x"}', host=lambda *a: None, sources=("project",))
+    assert "host none" not in str(e.value)
+
+
+def test_overlay_sent_as_read_for_every_host(tmp_path, monkeypatch):
+    """E1 review F2: tty and callable hosts get the overlay that passed the check, as JSON text read once at
+    Session(): never the raw path (the CLI would resolve it against its own cwd and re-read it) nor a dict."""
+    app, repo = tmp_path / "app", tmp_path / "repo"
+    for d, body in ((app, {"model": "x"}), (repo, {"permissions": {"allow": ["Bash"]}, "hooks": {}})):
+        d.mkdir()
+        (d / "o.json").write_text(json.dumps(body))
+    monkeypatch.chdir(app)
+    w = World(tmp_path / "w")
+    for v in ("o.json", str(app / "o.json"), {"model": "x"}, '{"model": "x"}'):
+        o = w.session(settings=v, host=lambda *a: None, cwd=str(repo)).build(True)
+        assert isinstance(o.settings, str) and json.loads(o.settings) == {"model": "x"}
+        cmd = SubprocessCLITransport(prompt="x", options=dataclasses.replace(o, cli_path=sys.executable))._build_command()
+        assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == {"model": "x"}
+
+
+def test_plan_gate_overlay(tmp_path):
+    """E1: host none's --settings turns plan's auto-mode classifier and the sandbox's Bash auto-allow off, under
+    plan and a waived gate alike; no caller overlay (text, file, dict) can set either key, nor change after the check."""
+    w = World(tmp_path)
+    f = tmp_path / "s.json"
+    for v in ('{"useAutoModeDuringPlan": true}', '{"sandbox": {"autoAllowBashIfSandboxed": true}}', str(f),
+              {"useAutoModeDuringPlan": True}, '{"model": "x", "useAutoModeDuringPlan": null}'):
+        f.write_text('{"useAutoModeDuringPlan": true}')
+        for host in ("none", lambda *a: None):
+            with pytest.raises(ValueError, match="useAutoModeDuringPlan") as e:
+                w.session(settings=v, host=host)
+            assert "host none" not in str(e.value)                  # refused as a policy key, for every host
+    for mode in (None, "plan", "acceptEdits", "default"):
+        assert json.loads(w.session(permission_mode=mode).build(mode in (None, "plan")).settings) == GATE
+    f.write_text('{"model": "x"}')
+    for v in (str(f), {"model": "x"}):
+        s = w.session(settings=v, host=lambda *a: None)
+        f.write_text('{"model": "y", "hooks": {}}')                 # swapped after the check: never read again
+        if isinstance(v, dict):
+            v["hooks"] = {}                                          # the caller's dict, changed after the check
+        s.kw["settings"] = '{"useAutoModeDuringPlan": true}'
+        assert json.loads(s.build(True).settings) == {"model": "x"}
+        f.write_text('{"model": "x"}')
+    o = dataclasses.replace(w.session().build(True), cli_path=sys.executable)
+    cmd = SubprocessCLITransport(prompt="x", options=o)._build_command()             # what the CLI would get
+    assert cmd.count("--settings") == 1 and json.loads(cmd[cmd.index("--settings") + 1]) == GATE
 
 
 def test_cli_path_policy(tmp_path, monkeypatch, capsys):
@@ -686,12 +756,12 @@ def test_print_options_diff(tmp_path, monkeypatch, capsys):
     o = sdk.options("coder", 3, 0.5, ["Read", "Grep"], ["WebFetch"], None, "sess-1", json_reports=True)
     old = json.loads(json.dumps({f.name: getattr(o, f.name) for f in __import__("dataclasses").fields(o)}, default=repr))
     diff = {k for k in old if old[k] != new[k]}
-    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events", "permission_mode"}
-    assert new["permission_mode"] == "plan"                          # host none passes the gate explicitly
+    assert diff == {"disallowed_tools", "extra_args", "env", "include_hook_events", "permission_mode", "settings"}
+    assert new["permission_mode"] == "plan" and json.loads(new["settings"]) == GATE   # host none: the gate explicitly
     assert new["disallowed_tools"] == ["WebFetch", "ExitPlanMode", "Agent(coder)", "Agent(newbie)", "Workflow"]
     assert new["extra_args"] == {"permission-prompts": "none", "agent": "coder"} and new["include_hook_events"]
     assert new["env"] == {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "3000", "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
-                          "STACK_REPORT_FORMAT": "json"}
+                          "STACK_REPORT_FORMAT": "json", "CLAUDE_CODE_SESSION_KIND": ""}     # E2a
 
 
 # ---------------------------------------------------------------- D3 tty
@@ -841,6 +911,8 @@ def test_refusals_hold_for_every_spelling(tmp_path):
                {"max_budget_usd": None}, {"max_budget_usd": 1000.0}, {"setting_sources": ["project"]}):
         with pytest.raises(ValueError):
             w.session(**kw)
+    with pytest.raises(ValueError, match="may touch"):         # a callable too: not host none's no-overlay rule (F1)
+        w.session(settings='{"sandbox": {"enabled": false}}', host=lambda *a: None)
     assert w.session(extra_args={"debug": None, "model": "x"}).build(True).extra_args["debug"] is None
     for i, host in enumerate(("none", lambda *a: None)):
         b = World(tmp_path / f"b{i}", script=script("stream_plan.jsonl"), mode="bypassPermissions")
@@ -1307,3 +1379,39 @@ def test_agents_found_up_the_parent_chain(tmp_path):
         run(one(w, cwd=str(deep)))
     assert "prompt" not in w.log
     assert sdk.project_agent_files(str(deep), str(w.config)) == [str(repo.resolve() / ".claude" / "agents")]
+
+
+# ---------------------------------------------------------------- E2a: the CLI's env channel (probe E2a, 2026-10-09)
+CHANNEL = ["CLAUDE_CODE_SESSION_KIND", "CLAUDE_BG_SESSION_PERMISSION_RULES", "CLAUDE_BG_WORKSPACE_TRUSTED",
+           "CLAUDE_BG_", "CLAUDE_CODE_SANDBOXED", "CLAUDE_RELAUNCH_SESSION_ADD_DIRS"]
+NOT_CHANNEL = {"CLAUDE_CODE_SESSION_ID": "x", "CLAUDE_CODE_SESSION_KIND_X": "1", "MY_CLAUDE_BG_X": "1",
+               "CLAUDE_BGX": "1", "CLAUDE_CODE_SANDBOX": "1", "claude_bg_x": "1", "claude_code_session_kind": "bg"}
+
+
+@pytest.mark.parametrize("key", CHANNEL)
+def test_env_channel_refused_in_the_callers_env(tmp_path, key):
+    """E2a: env CLAUDE_CODE_SESSION_KIND=bg + CLAUDE_BG_SESSION_PERMISSION_RULES add allow rules under host none;
+    the key is refused by name, whatever its value (no silent drop)."""
+    for value in ("bg", ""):
+        with pytest.raises(ValueError, match=f"refused: {key}( |$)"):
+            World(tmp_path / value).session(env={key: value})
+
+
+@pytest.mark.parametrize("key", CHANNEL)
+def test_env_channel_refused_in_os_environ_at_connect(tmp_path, monkeypatch, key):
+    """E2a: the SDK passes os.environ to the CLI under options.env: a channel key there stops connect()."""
+    monkeypatch.setenv(key, "bg")
+    w = World(tmp_path, script=script("stream_plan.jsonl"))
+    with pytest.raises(sdk.UsageError, match=f"refused: {key} in os.environ"):
+        run(one(w))
+    assert not w.opened and "prompt" not in w.log
+
+
+def test_env_channel_forced_off_and_unrelated_keys_pass(tmp_path, monkeypatch):
+    """E2a control: CLAUDE_CODE_SESSION_KIND="" reaches the CLI; look-alike keys (env and os.environ) pass."""
+    for k, v in NOT_CHANNEL.items():
+        monkeypatch.setenv(k, v)
+    w = World(tmp_path, script=script("stream_plan.jsonl"))
+    run(one(w, env=NOT_CHANNEL))
+    env = w.opened[0].env
+    assert env["CLAUDE_CODE_SESSION_KIND"] == "" and {k: env[k] for k in NOT_CHANNEL} == NOT_CHANNEL
