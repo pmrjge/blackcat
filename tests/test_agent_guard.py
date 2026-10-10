@@ -2113,21 +2113,21 @@ def test_soft_agent_limit_scale_and_unlimited_types(env, sess):
 
 
 def test_soft_prompt_limit_once_per_human_prompt(env, sess):
-    """33,000,000 context tokens since the user's last prompt (here x 0.001 = 33,000): one warning
+    """50,000,000 context tokens since the user's last prompt (here x 0.001 = 50,000): one warning
     per prompt, to whichever agent calls a tool next; task notifications do not reset it."""
     s, main, subs = sess
     extra = dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.001")
     run(prompt_ev(s, main, "p1"), env, extra=extra)
-    append(main, call_line("m1", 32999))
+    append(main, call_line("m1", 49999))
     main_ev = tool_ev(s, main, "Read", agent_id=None, file_path="x")
     assert soft_out(budget_run(main_ev, env, extra=extra)) == ("allow", None)
     append(main, call_line("m2", 1))
     dec, ctx = soft_out(budget_run(dict(main_ev, prompt_id="notif-1"), env, extra=extra))
     assert dec == "allow" and "Soft token limit reached for this prompt" in ctx
-    assert "33,000 context tokens since the user's last prompt" in ctx and "ask them" in ctx
+    assert "50,000 context tokens since the user's last prompt" in ctx and "ask them" in ctx
     assert soft_out(budget_run(main_ev, env, extra=extra))[1] is None              # once
     run(prompt_ev(s, main, "p2"), env, extra=extra)
-    append(main, call_line("m3", 33000))
+    append(main, call_line("m3", 50000))
     dec, ctx = soft_out(budget_run(tool_ev(s, main, "Bash", prompt="p2", command="ls"), env,
                                    extra=extra))                  # a subagent (coder) this time
     assert dec == "allow" and "ask your caller" in ctx
@@ -2135,8 +2135,8 @@ def test_soft_prompt_limit_once_per_human_prompt(env, sess):
 
 
 def test_soft_prompt_limit_140m_while_an_orchestrator_runs(env, sess):
-    """A running orchestrator raises the prompt limit from 33,000,000 to 140,000,000 (x 0.001:
-    33,000 -> 140,000; 80,000,000 until 2026-10-08); once it stops, 33,000,000 applies again."""
+    """A running orchestrator raises the prompt limit from 50,000,000 to 140,000,000 (x 0.001:
+    50,000 -> 140,000; 80,000,000 until 2026-10-08); once it stops, 50,000,000 applies again."""
     s, main, subs = sess
     extra = dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.001")
     run(prompt_ev(s, main, "p1"), env, extra=extra)
@@ -2149,9 +2149,9 @@ def test_soft_prompt_limit_140m_while_an_orchestrator_runs(env, sess):
     assert "Soft token limit reached for this prompt" in ctx and "soft limit 140,000" in ctx
     run(prompt_ev(s, main, "p2"), env, extra=extra)
     run(lifecycle(s, "SubagentStop", "O1", "orchestrator"), env)
-    append(main, call_line("m3", 33000))
+    append(main, call_line("m3", 50000))
     ctx = soft_out(budget_run(main_ev, env, extra=extra))[1]
-    assert "Soft token limit reached for this prompt" in ctx and "soft limit 33,000" in ctx
+    assert "Soft token limit reached for this prompt" in ctx and "soft limit 50,000" in ctx
 
 
 def test_soft_limits_leave_the_hard_caps_alone(env, sess):
@@ -2178,11 +2178,11 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
     run(pre_agent(s2, "ninja-coder", parent="main-coder", agent_id="M1"), env)
     run(lifecycle(s2, "SubagentStart", "C1", "ninja-coder"), env)
     run(post_agent(s2, "ninja-coder", "C1", agent_id="M1", parent="main-coder"), env)
-    append(main.parent / s2 / "subagents" / "agent-C1.jsonl", call_line("m1", 20000))
+    append(main.parent / s2 / "subagents" / "agent-C1.jsonl", call_line("m1", 62000))
     ev = dict(pre_agent(s2, "explore", parent="ninja-coder", agent_id="C1"),
               transcript_path=str(main2), cwd=str(main.parent))
     dec, ctx = soft_out(run(ev, env, extra={"STACK_SOFT_LIMIT_SCALE": "0.001"}))
-    assert dec == "allow" and "soft limit for ninja-coder: 19,000" in ctx
+    assert dec == "allow" and "soft limit for ninja-coder: 61,000" in ctx
 
 
 # ---------------------------------------------------------------- review 2026-09-28: resumes, leases
